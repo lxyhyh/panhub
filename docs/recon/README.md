@@ -15,6 +15,6 @@
 | 123 云盘 | [pan123.md](pan123.md) | App 内 REST | 已实现（待真机验证） |
 | 蓝奏云 / 蓝云 | [lanzou.md](lanzou.md) | App 内 REST + 网页 Cookie | 已实现（待真机验证） |
 | 百度网盘 | [baidu.md](baidu.md) | 网页 Cookie + 网页接口 | 已实现（待真机验证） |
-| 阿里云盘 | 待补 | App 内 REST | 规划中 |
+| 阿里云盘 | [aliyun.md](aliyun.md) | 需要开放平台密钥或设备签名 | **未接入**（见文档） |
 | 夸克网盘 | [quark.md](quark.md) | 网页 Cookie + App 内 REST | 已实现（待真机验证） |
 | 天翼云盘 | [cloud189.md](cloud189.md) | 网页 Cookie + open 接口 | 已实现（待真机验证） |

@@ -27,10 +27,12 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -44,6 +46,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,6 +87,20 @@ fun BrowserScreen(
     var showNewFolder by remember { mutableStateOf(false) }
     var actionNode by remember { mutableStateOf<RemoteNode?>(null) }
     var renameNode by remember { mutableStateOf<RemoteNode?>(null) }
+
+    // 选完文件先复制到缓存再入队：content:// 授权随进程结束失效，
+    // 而上传是异步排队，可能在用户离开本页之后才开始。
+    val pickFile = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val copied = LocalFilePicker.copyToCache(context, uri)
+        if (copied == null) {
+            viewModel.showMessage("读取文件失败")
+        } else {
+            viewModel.upload(copied, LocalFilePicker.displayName(context, uri))
+        }
+    }
 
     LaunchedEffect(Unit) { viewModel.start() }
 
@@ -142,13 +160,27 @@ fun BrowserScreen(
             }
         },
         floatingActionButton = {
-            if (state.canCreateFolder) {
-                FloatingActionButton(
-                    onClick = { showNewFolder = true },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Icon(Icons.Default.CreateNewFolder, contentDescription = "新建文件夹")
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+            ) {
+                if (state.canUpload) {
+                    SmallFloatingActionButton(
+                        onClick = { pickFile.launch(arrayOf("*/*")) },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ) {
+                        Icon(Icons.Default.UploadFile, contentDescription = "上传文件")
+                    }
+                }
+                if (state.canCreateFolder) {
+                    FloatingActionButton(
+                        onClick = { showNewFolder = true },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) {
+                        Icon(Icons.Default.CreateNewFolder, contentDescription = "新建文件夹")
+                    }
                 }
             }
         },

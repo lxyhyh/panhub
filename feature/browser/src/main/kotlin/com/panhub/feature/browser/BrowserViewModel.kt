@@ -10,6 +10,7 @@ import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.session.SessionManager
 import com.panhub.core.transfer.DownloadLauncher
+import com.panhub.core.transfer.UploadLauncher
 import com.panhub.provider.api.ScopedPanProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * 文件浏览页的状态。
@@ -35,6 +37,7 @@ data class BrowserUiState(
     val quota: Quota? = null,
     val canShare: Boolean = false,
     val canCreateFolder: Boolean = false,
+    val canUpload: Boolean = false,
     val error: PanError? = null,
     val message: String? = null,
     val busy: Boolean = false,
@@ -61,6 +64,7 @@ class BrowserViewModel(
     private val session: SessionManager,
     private val accountId: AccountId,
     private val launcher: DownloadLauncher? = null,
+    private val uploader: UploadLauncher? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(BrowserUiState(accountId = accountId))
@@ -194,6 +198,30 @@ class BrowserViewModel(
         _state.update { it.copy(message = "已加入下载队列：" + node.name) }
     }
 
+    /**
+     * 把已经复制到本地的文件上传到当前目录。
+     *
+     * 为什么这里收 [File] 而不是 Uri：Uri 的解析在 View 层已经做完了（见 LocalFilePicker），
+     * ViewModel 只处理「有这么一个本地文件要传」这个纯粹的事实，
+     * 这样它在纯 JVM 下可测，也不需要认识 ContentResolver。
+     */
+    fun upload(file: File, name: String) {
+        val target = uploader ?: run {
+            _state.update { it.copy(message = "上传功能不可用") }
+            return
+        }
+        val size = file.length()
+        if (size <= 0L) {
+            _state.update { it.copy(message = "文件为空，无法上传") }
+            return
+        }
+        target.upload(accountId, _state.value.parentId, file.absolutePath, name, size)
+        _state.update { it.copy(message = "已加入上传队列：" + name) }
+    }
+
+    /** 只用于把视图层的失败反馈带出去（例如选文件失败）。 */
+    fun showMessage(text: String) = _state.update { it.copy(message = text) }
+
     fun clearMessage() = _state.update { it.copy(message = null) }
 
     /** 首次进入：连接账号 → 取容量 → 列根目录。 */
@@ -216,6 +244,7 @@ class BrowserViewModel(
                             accountName = summary?.displayName ?: descriptor.displayName,
                             canShare = descriptor.capabilities.share,
                             canCreateFolder = descriptor.capabilities.createFolder,
+                            canUpload = descriptor.capabilities.upload,
                         )
                     }
                     loadQuota(result.value)

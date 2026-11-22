@@ -20,6 +20,10 @@ import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.ProviderCredentials
 import com.panhub.provider.api.ProviderSession
+import com.panhub.provider.api.UploadSource
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * 坚果云：官方 WebDAV 接入。
@@ -186,6 +190,47 @@ class NutstoreProvider(
                 fileName = path.substringAfterLast('/'),
             )
         )
+    }
+
+    override suspend fun upload(
+        session: ProviderSession,
+        parentId: NodeId?,
+        source: UploadSource,
+        listener: PanProvider.UploadProgress,
+    ): PanResult<RemoteNode> {
+        val client = clientFor(session) ?: return PanResult.Failure(PanError.auth())
+        val path = join(parentId?.value, source.name)
+        // putStream 在 OkHttp 的写线程里回调，而 listener 是挂起函数。
+        // 用 CONFLATED 通道把「最新进度」送过去：进度本身可以丢中间值，
+        // 反而避免了写线程被界面刷新拖慢。
+        val report = coroutineScope {
+            val channel = Channel<Long>(Channel.CONFLATED)
+            val reporter = launch {
+                for (sent in channel) {
+                    listener.onProgress(sent.coerceAtMost(source.size), source.size)
+                }
+            }
+            try {
+                client.putStream(path, source) { sent -> channel.trySend(sent) }
+            } finally {
+                channel.close()
+                reporter.join()
+            }
+        }
+        return when (report) {
+            is PanResult.Failure -> report
+            is PanResult.Success -> PanResult.Success<RemoteNode>(
+                RemoteNode(
+                    id = NodeId("/$path"),
+                    parentId = parentId,
+                    name = source.name,
+                    kind = com.panhub.core.model.NodeKind.FILE,
+                    size = source.size,
+                    mimeType = source.mimeType,
+                    providerPath = "/$path",
+                )
+            )
+        }
     }
 
     override suspend fun createShare(

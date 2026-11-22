@@ -1,5 +1,6 @@
 package com.panhub.provider.api
 
+import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeId
@@ -74,6 +75,29 @@ interface PanProvider {
 
     /** 拿到一个可下载的 URL 及其必需的请求头。 */
     suspend fun downloadUrl(session: ProviderSession, nodeId: NodeId): PanResult<DownloadTarget>
+
+    /**
+     * 上传一个文件到 [parentId] 目录。
+     *
+     * 默认实现返回 UNSUPPORTED，这样已有的 provider 不用改一行代码，
+     * 未实现上传的服务商也不会因为漏写方法而编译失败。
+     */
+    suspend fun upload(
+        session: ProviderSession,
+        parentId: NodeId?,
+        source: UploadSource,
+        listener: UploadProgress = UploadProgress.NONE,
+    ): PanResult<RemoteNode> = PanResult.Failure(PanError.notSupported())
+
+    /** 上传进度回调。默认空实现，调用方可以不给。 */
+    fun interface UploadProgress {
+        /** [sent] 已发送字节，[total] 总字节。 */
+        suspend fun onProgress(sent: Long, total: Long)
+
+        companion object {
+            val NONE = UploadProgress { _, _ -> }
+        }
+    }
 
     /** 创建分享链接。 */
     suspend fun createShare(

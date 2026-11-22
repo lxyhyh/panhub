@@ -5,6 +5,7 @@ import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeId
+import com.panhub.provider.api.FileUploadSource
 import com.panhub.provider.api.ScopedPanProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -32,7 +34,7 @@ class TransferEngine(
     private val downloader: FileDownloader,
     private val sink: DownloadSink,
     private val clock: Clock = Clock.Default,
-) : DownloadLauncher {
+) : DownloadLauncher, UploadLauncher {
 
     private val counter = AtomicLong(0L)
     private val _tasks = MutableStateFlow<List<TransferTask>>(emptyList())
@@ -43,6 +45,37 @@ class TransferEngine(
 
     override fun download(accountId: AccountId, nodeId: NodeId, name: String, size: Long?) {
         enqueue(accountId, nodeId, name, size)
+    }
+
+    /**
+     * 把本地文件加入上传队列。
+     *
+     * [parentId] 是目标目录，本地路径存在 [TransferTask.filePath] 里——
+     * 上传任务与下载任务共用同一张表，界面不用分两套列表。
+     */
+    override fun upload(
+        accountId: AccountId,
+        parentId: NodeId?,
+        localPath: String,
+        name: String,
+        size: Long,
+    ): String {
+        val now = clock.nowMillis()
+        val id = "ul-" + counter.incrementAndGet()
+        val task = TransferTask(
+            id = id,
+            accountId = accountId,
+            nodeId = parentId,
+            name = name,
+            direction = TransferDirection.UPLOAD,
+            totalBytes = size,
+            filePath = localPath,
+            createdAt = now,
+            updatedAt = now,
+        )
+        _tasks.update { it + task }
+        pump()
+        return id
     }
 
     /** 把一个节点加入下载队列，返回任务 id。 */
@@ -119,7 +152,44 @@ class TransferEngine(
             is PanResult.Success -> result.value
         }
 
-        val target = when (val result = scoped.downloadUrl(task.nodeId)) {
+        when (task.direction) {
+            TransferDirection.DOWNLOAD -> runDownload(id, task, scoped)
+            TransferDirection.UPLOAD -> runUpload(id, task, scoped)
+        }
+    }
+
+    /**
+     * 上传。本地文件已不存在时直接失败，不要拿着一个空流去连服务器。
+     */
+    private suspend fun runUpload(id: String, task: TransferTask, scoped: ScopedPanProvider) {
+        val path = task.filePath ?: return fail(id, PanError.unknown("缺少本地文件路径"))
+        val file = File(path)
+        if (!file.isFile) return fail(id, PanError.notFound("本地文件已不存在"))
+
+        val outcome = scoped.upload(
+            parentId = task.nodeId,
+            source = FileUploadSource(file, name = task.name),
+            listener = { sent, total ->
+                update(id) {
+                    it.copy(bytes = sent, totalBytes = total.takeIf { t -> t > 0L } ?: it.totalBytes)
+                }
+            },
+        )
+        when (outcome) {
+            is PanResult.Failure -> fail(id, outcome.error)
+            is PanResult.Success -> update(id) {
+                it.copy(
+                    state = TransferState.COMPLETED,
+                    bytes = it.totalBytes ?: it.bytes,
+                    updatedAt = clock.nowMillis(),
+                )
+            }
+        }
+    }
+
+    private suspend fun runDownload(id: String, task: TransferTask, scoped: ScopedPanProvider) {
+        val nodeId = task.nodeId ?: return fail(id, PanError.unknown("缺少远端节点 id"))
+        val target = when (val result = scoped.downloadUrl(nodeId)) {
             is PanResult.Failure -> return fail(id, result.error)
             is PanResult.Success -> result.value
         }

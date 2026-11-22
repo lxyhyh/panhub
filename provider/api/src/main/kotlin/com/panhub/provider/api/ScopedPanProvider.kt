@@ -42,6 +42,12 @@ class ScopedPanProvider(
     suspend fun downloadUrl(nodeId: NodeId): PanResult<DownloadTarget> =
         provider.downloadUrl(session, nodeId)
 
+    suspend fun upload(
+        parentId: NodeId?,
+        source: UploadSource,
+        listener: PanProvider.UploadProgress = PanProvider.UploadProgress.NONE,
+    ): PanResult<RemoteNode> = provider.upload(session, parentId, source, listener)
+
     suspend fun createShare(
         nodeIds: List<NodeId>,
         options: ShareOptions = ShareOptions(),

@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,6 +39,7 @@ import com.panhub.core.design.EmptyState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
+import com.panhub.core.transfer.TransferDirection
 import com.panhub.core.design.formatBytes
 import com.panhub.core.transfer.TransferState
 import com.panhub.core.transfer.TransferTask
@@ -151,7 +153,11 @@ private fun TaskCard(
                     imageVector = when (task.state) {
                         TransferState.COMPLETED -> Icons.Default.CheckCircle
                         TransferState.FAILED -> Icons.Default.ErrorOutline
-                        else -> Icons.Default.Download
+                        else -> if (task.direction == TransferDirection.UPLOAD) {
+                            Icons.Default.Upload
+                        } else {
+                            Icons.Default.Download
+                        }
                     },
                     contentDescription = null,
                     tint = when (task.state) {
@@ -204,10 +210,13 @@ private fun statusLine(task: TransferTask): String {
     val done = formatBytes(task.bytes)
     val total = task.totalBytes?.let { formatBytes(it) }
     return when (task.state) {
-        TransferState.QUEUED -> if (total != null) "排队中 · " + total else "排队中"
+        TransferState.QUEUED ->
+            (if (task.direction == TransferDirection.UPLOAD) "等待上传" else "排队中") +
+                (total?.let { " · " + it } ?: "")
         TransferState.RUNNING ->
             if (total != null) done + " / " + total else done
-        TransferState.COMPLETED -> "已完成 · " + done
+        TransferState.COMPLETED ->
+            (if (task.direction == TransferDirection.UPLOAD) "已上传" else "已完成") + " · " + done
         TransferState.FAILED -> "失败" + (task.error?.let { " · " + it } ?: "")
         TransferState.CANCELED -> "已取消 · " + done
     }

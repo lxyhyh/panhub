@@ -24,7 +24,13 @@ enum class TransferState { QUEUED, RUNNING, COMPLETED, FAILED, CANCELED }
 data class TransferTask(
     val id: String,
     val accountId: AccountId,
-    val nodeId: NodeId,
+    /**
+     * 远端节点 id。
+     *
+     * 下载时是被下载的文件；上传时是目标目录（根目录为 null）。
+     * 两者语义不同，所以这里允许 null，由各分支自己解释。
+     */
+    val nodeId: NodeId? = null,
     val name: String,
     val direction: TransferDirection = TransferDirection.DOWNLOAD,
     val state: TransferState = TransferState.QUEUED,
