@@ -18,6 +18,8 @@ import com.panhub.feature.accounts.AccountsScreen
 import com.panhub.feature.accounts.AccountsViewModel
 import com.panhub.feature.browser.BrowserScreen
 import com.panhub.feature.browser.BrowserViewModel
+import com.panhub.feature.shares.SharesScreen
+import com.panhub.feature.shares.SharesViewModel
 
 /**
  * 导航图。
@@ -41,6 +43,7 @@ fun PanHubRoot(session: SessionManager, transfers: TransferEngine) {
                     nav.navigate(Routes.browser(accountId.value))
                 },
                 onOpenTransfers = { nav.navigate(Routes.TRANSFERS) },
+                onOpenShares = { account -> nav.navigate(Routes.shares(account.value)) },
             )
         }
         composable(
@@ -62,6 +65,16 @@ fun PanHubRoot(session: SessionManager, transfers: TransferEngine) {
             )
             BrowserScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
+        composable(
+            route = Routes.SHARES,
+            arguments = listOf(navArgument(Routes.ARG_ACCOUNT) { type = NavType.StringType }),
+        ) { entry ->
+            val raw = entry.arguments?.getString(Routes.ARG_ACCOUNT).orEmpty()
+            val vm: SharesViewModel = viewModel(
+                factory = factoryOf { SharesViewModel(session, AccountId(raw)) },
+            )
+            SharesScreen(viewModel = vm, onBack = { nav.popBackStack() })
+        }
         composable(Routes.TRANSFERS) {
             val vm: TransfersViewModel = viewModel(
                 factory = factoryOf { TransfersViewModel(transfers) },
@@ -76,10 +89,14 @@ private object Routes {
     const val TRANSFERS = "transfers"
     const val ARG_ACCOUNT = "accountId"
     const val BROWSER = "browser/{$ARG_ACCOUNT}"
+    const val SHARES = "shares/{$ARG_ACCOUNT}"
 
     /** 账号 id 里可能含 ':' 和 '/'，必须编码，否则会拆坏路由。 */
     fun browser(accountId: String): String =
         "browser/" + java.net.URLEncoder.encode(accountId, "UTF-8")
+
+    fun shares(accountId: String): String =
+        "shares/" + java.net.URLEncoder.encode(accountId, "UTF-8")
 }
 
 /**

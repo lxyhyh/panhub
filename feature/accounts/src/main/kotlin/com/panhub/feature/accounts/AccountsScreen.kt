@@ -1,6 +1,7 @@
 package com.panhub.feature.accounts
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
@@ -79,6 +81,7 @@ fun AccountsScreen(
     viewModel: AccountsViewModel,
     onOpenAccount: (AccountId) -> Unit,
     onOpenTransfers: () -> Unit = {},
+    onOpenShares: (AccountId) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val form by viewModel.form.collectAsStateWithLifecycle()
@@ -143,6 +146,7 @@ fun AccountsScreen(
                             onClick = { onOpenAccount(account.id) },
                             onVerify = { viewModel.verify(account.id) },
                             onDelete = { pendingDelete = account },
+                            onOpenShares = { onOpenShares(account.id) },
                         )
                     }
                 }
@@ -215,6 +219,7 @@ private fun AccountCard(
     onClick: () -> Unit,
     onVerify: () -> Unit,
     onDelete: () -> Unit,
+    onOpenShares: () -> Unit,
 ) {
     PanCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -279,6 +284,29 @@ private fun AccountCard(
                     text = "支持容量查询",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = Spacing.xs),
+                )
+            }
+        }
+        // 只有声明了分享列表的服务商才给入口：点了必然失败的入口比没有入口更糟。
+        if (account.capabilities.shareList) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = Spacing.sm)
+                    .clickable(onClick = onOpenShares),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.Link,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    text = "我的分享",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = Spacing.xs),
                 )
             }

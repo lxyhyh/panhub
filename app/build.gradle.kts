@@ -59,6 +59,7 @@ dependencies {
     implementation(project(":feature:accounts"))
     implementation(project(":feature:browser"))
     implementation(project(":feature:transfers"))
+    implementation(project(":feature:shares"))
     implementation(project(":core:transfer"))
 
     implementation(platform(libs.compose.bom))
