@@ -235,12 +235,14 @@ fun BrowserScreen(
             }
         },
         bottomBar = {
-            if (state.selectionMode && (state.canShare || state.canMove)) {
+            if (state.selectionMode && (state.canShare || state.canMove || state.canDownload)) {
                 SelectionActionBar(
                     canShare = state.canShare,
                     canMove = state.canMove,
+                    canDownload = state.canDownload,
                     onShare = { viewModel.withSelection { viewModel.openShareSheet(it) } },
                     onMove = { viewModel.withSelection { viewModel.openFolderPicker(it) } },
+                    onDownload = viewModel::downloadSelected,
                 )
             }
         },
@@ -398,8 +400,10 @@ fun BrowserScreen(
 private fun SelectionActionBar(
     canShare: Boolean,
     canMove: Boolean,
+    canDownload: Boolean,
     onShare: () -> Unit,
     onMove: () -> Unit,
+    onDownload: () -> Unit,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -418,6 +422,9 @@ private fun SelectionActionBar(
             }
             if (canMove) {
                 SelectionAction("移动", Icons.AutoMirrored.Filled.DriveFileMove, onMove)
+            }
+            if (canDownload) {
+                SelectionAction("下载", Icons.Default.Download, onDownload)
             }
         }
     }

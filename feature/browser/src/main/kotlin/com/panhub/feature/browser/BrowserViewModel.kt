@@ -445,6 +445,44 @@ class BrowserViewModel(
         action(nodes)
     }
 
+    /**
+     * 批量下载。
+     *
+     * 只挑文件：服务商普遍没有「打包下载整个文件夹」的接口，
+     * 把文件夹也排进队列只会得到一串失败任务，用户还得自己去猜哪条是文件夹。
+     */
+    fun downloadSelected() {
+        val target = launcher ?: run {
+            _state.update { it.copy(message = "下载功能不可用") }
+            return
+        }
+        val picked = selectedNodes()
+        val files = picked.filterNot { it.isDir }
+        if (files.isEmpty()) {
+            _state.update { it.copy(message = "选中的都是文件夹，暂不支持下载整个文件夹") }
+            return
+        }
+        for (node in files) {
+            target.download(accountId, node.id, node.name, node.size.takeIf { it > 0L })
+        }
+        val skipped = picked.size - files.size
+        _state.update {
+            it.copy(
+                selected = emptySet(),
+                message = buildString {
+                    append("已加入下载队列：")
+                    append(files.size)
+                    append(" 个文件")
+                    if (skipped > 0) {
+                        append("，跳过 ")
+                        append(skipped)
+                        append(" 个文件夹")
+                    }
+                },
+            )
+        }
+    }
+
     /** 批量删除。没有批量接口，逐个删并统计结果。 */
     fun deleteSelected() {
         val provider = scoped ?: return
