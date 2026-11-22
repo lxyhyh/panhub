@@ -1,7 +1,7 @@
 package com.panhub.core.model
 
 /**
- * 服务商能力声明。UI 用它来决定隐藏哪些按钮，而不是到处写 `if (provider == ...)`。
+ * 服务商能力声明。UI 用它来决定隐藏哪些按钮，而不是到处写 if (provider == ...)。
  * 新增能力时给默认值 false，旧实现不受影响。
  */
 data class ProviderCapabilities(
@@ -18,6 +18,8 @@ data class ProviderCapabilities(
     val createFolder: Boolean = false,
     val search: Boolean = false,
     val share: Boolean = false,
+    /** 能否列出这个账号已经创建过的分享。 */
+    val shareList: Boolean = false,
     val sharePassword: Boolean = false,
     val shareExpiry: Boolean = false,
     val directLink: Boolean = false,
@@ -29,7 +31,7 @@ data class ProviderCapabilities(
  *
  * 为什么放进 descriptor 而不是让 UI 猜：各服务商的认证形态完全不同
  * （坚果云是固定的邮箱+应用密码，123 云盘是账号密码或浏览器 token），
- * 让 UI 用 `if (providerId == "pan123")` 判断会把服务商细节泄漏到视图层，
+ * 让 UI 用 providerId 判字符串会把服务商细节泄漏到视图层，
  * 新增一个网盘就得改 UI。声明式的能力开关让新增网盘只改 provider 模块。
  */
 enum class AuthMethod {

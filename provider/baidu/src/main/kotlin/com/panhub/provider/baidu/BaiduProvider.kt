@@ -16,6 +16,7 @@ import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareId
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
+import com.panhub.core.model.SharePage
 import com.panhub.core.network.HttpEngine
 import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
@@ -60,6 +61,7 @@ class BaiduProvider(
             delete = true,
             createFolder = true,
             share = true,
+            shareList = true,
             directLink = true,
         ),
     )
@@ -385,15 +387,69 @@ class BaiduProvider(
     override suspend fun cancelShare(session: ProviderSession, shareId: String): PanResult<Unit> {
         val cookie = cookieOf(session)
             ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        // 参数名是复数 shareid_list，值是 JSON 数组字符串。发单数 shareid 服务端
+        // 不报错也不处理，界面就会以为取消成功。
         val raw = api.postForm(
             BaiduApi.PATH_SHARE_CANCEL,
             cookie,
-            listOf("shareid" to shareId, "channel" to "chunlei", "clienttype" to "0", "web" to "1"),
+            listOf("shareid_list" to "[" + shareId + "]"),
         )
         return when (raw) {
             is PanResult.Failure -> raw
             is PanResult.Success -> PanResult.Success(Unit)
         }
+    }
+
+    override suspend fun listShares(
+        session: ProviderSession,
+        page: PageRequest,
+    ): PanResult<SharePage> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        // 百度的分页是页码不是游标，这里把游标当页码用；响应给 nextpage，
+        // 非 0 才继续，避免最后一页之后还反复拉同一个空页。
+        val pageIndex = page.cursor?.toIntOrNull() ?: 1
+        val raw = api.get(
+            BaiduApi.PATH_SHARE_RECORD,
+            cookie,
+            listOf(
+                "page" to pageIndex.toString(),
+                "num" to page.limit.toString(),
+                "order" to "time",
+                "desc" to "1",
+            ),
+        )
+        return when (raw) {
+            is PanResult.Failure -> raw
+            is PanResult.Success -> when (val resp = decode(raw.value, BaiduShareRecordResp.serializer())) {
+                is PanResult.Failure -> PanResult.Failure(resp.error)
+                is PanResult.Success -> {
+                    val data = resp.value
+                    val items = data.list.shareRecords().map { it.toShareLink() }
+                    val next = data.nextpage
+                    PanResult.Success(
+                        SharePage(
+                            items = items,
+                            nextCursor = if (next > pageIndex) next.toString() else null,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /** 过期时间用毫秒时间戳，0 表示永久，界面上不显示到期日。 */
+    private fun BaiduShareRecord.toShareLink(): ShareLink {
+        val url = shareUrlOf(this)
+        return ShareLink(
+            id = ShareId(shareId.toString()),
+            url = url ?: "https://pan.baidu.com/s/$shareId",
+            password = normalizeSharePwd(passwd),
+            expiresAt = expiredTime.takeIf { it > 0L }?.let { it * 1000L },
+            title = typicalPath?.substringAfterLast('/')?.takeIf { it.isNotBlank() },
+            // status 非 0 是服务商自己判定的失效，比按时间推算可靠。
+            expired = status != 0,
+        )
     }
 
     private fun <T> decode(raw: String, serializer: kotlinx.serialization.KSerializer<T>): PanResult<T> =

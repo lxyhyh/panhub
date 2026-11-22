@@ -74,16 +74,6 @@ data class CreateFolderData(
 )
 
 @Serializable
-data class ShareCreateRequest(
-    val driveId: Int = 0,
-    val fileIds: List<Long>,
-    val shareName: String? = null,
-    /** 0 = 永久，其他为天数（推断）。 */
-    val expiration: Int = 0,
-    val sharePwd: String? = null,
-)
-
-@Serializable
 data class UploadRequest(
     val driveId: Int = 0,
     /** 2 = 覆盖同名，1 = 自动重命名，0 = 服务端默认。 */
@@ -142,10 +132,4 @@ data class UploadCompleteRequest(
     val isMultipart: Boolean = false,
     val key: String? = null,
     val uploadId: String? = null,
-)
-
-@Serializable
-data class ShareCreateData(
-    @SerialName("ShareKey") val shareKey: String? = null,
-    @SerialName("ShareUrl") val shareUrl: String? = null,
 )

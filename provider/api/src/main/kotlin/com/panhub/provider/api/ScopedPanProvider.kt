@@ -7,6 +7,7 @@ import com.panhub.core.model.PageRequest
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareLink
+import com.panhub.core.model.SharePage
 import com.panhub.core.model.ShareOptions
 
 /**
@@ -55,4 +56,7 @@ class ScopedPanProvider(
 
     suspend fun cancelShare(shareId: String): PanResult<Unit> =
         provider.cancelShare(session, shareId)
+
+    suspend fun listShares(page: PageRequest = PageRequest()): PanResult<SharePage> =
+        provider.listShares(session, page)
 }

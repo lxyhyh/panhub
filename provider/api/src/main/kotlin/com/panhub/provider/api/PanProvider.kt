@@ -10,6 +10,7 @@ import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareLink
+import com.panhub.core.model.SharePage
 import com.panhub.core.model.ShareOptions
 
 /**
@@ -108,6 +109,17 @@ interface PanProvider {
 
     /** 取消分享。 */
     suspend fun cancelShare(session: ProviderSession, shareId: String): PanResult<Unit>
+
+    /**
+     * 列出这个会话已经创建过的分享。
+     *
+     * 默认返回 UNSUPPORTED：只有少数服务商提供类似接口，
+     * 让未实现的服务商保持沉默，而不是让调用方先猜能力再调用。
+     */
+    suspend fun listShares(
+        session: ProviderSession,
+        page: PageRequest = PageRequest(),
+    ): PanResult<SharePage> = PanResult.Failure(PanError.notSupported("该网盘不支持查看分享列表"))
 }
 
 /** 一次下载所需的一切：URL + 必需的头（很多网盘校验 UA/Referer）。 */

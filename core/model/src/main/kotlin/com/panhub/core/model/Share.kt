@@ -16,4 +16,19 @@ data class ShareLink(
     val expiresAt: Long? = null,
     val nodeIds: List<NodeId> = emptyList(),
     val title: String? = null,
+    /**
+     * 服务商已经判定这条分享失效（过期、被取消、违规下架）。
+     *
+     * 为什么不由 [expiresAt] 推算：服务商还会因为别的原因让分享失效，
+     * 本地算出来的「还没到期」并不代表链接还能打开。
+     */
+    val expired: Boolean = false,
 )
+
+/** 一页分享记录。游标语义与文件列表一致，由各服务商定义。 */
+data class SharePage(
+    val items: List<ShareLink>,
+    val nextCursor: String? = null,
+) {
+    val hasMore: Boolean get() = nextCursor != null
+}

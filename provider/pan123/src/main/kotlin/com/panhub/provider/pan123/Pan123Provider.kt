@@ -17,6 +17,7 @@ import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareId
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
+import com.panhub.core.model.SharePage
 import com.panhub.core.network.HttpEngine
 import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
@@ -56,6 +57,7 @@ class Pan123Provider(
             delete = true,
             createFolder = true,
             share = true,
+            shareList = true,
             sharePassword = true,
             shareExpiry = true,
             directLink = true,
@@ -254,11 +256,15 @@ class Pan123Provider(
     ): PanResult<ShareLink> {
         val ids = nodeIds.mapNotNull { it.value.toLongOrNull() }
         if (ids.isEmpty()) return PanResult.Failure(PanError.unknown("无效的文件 id"))
+        // 空串会被服务端当成「设一个空提取码」，用户打开分享时反而要输密码，
+        // 所以不设密码时必须显式给空串，让服务端按「无密码」处理。
         val request = ShareCreateRequest(
-            fileIds = ids,
-            shareName = options.description,
-            expiration = options.expireDays ?: 0,
-            sharePwd = options.password,
+            expiration = shareExpirationIso(options.expireDays),
+            fileIdList = ids.joinToString(","),
+            shareName = options.description?.takeIf { it.isNotBlank() } ?: DEFAULT_SHARE_NAME,
+            sharePwd = options.password.orEmpty(),
+            fileNum = ids.size,
+            shareModality = shareModalityOf(options.expireDays),
         )
         val body = json.encodeToString(ShareCreateRequest.serializer(), request)
         return api.post(
@@ -269,23 +275,85 @@ class Pan123Provider(
                 json.decodeFromString(ApiEnvelope.serializer(ShareCreateData.serializer()), raw)
             },
         ).map { data ->
+            val raw = data.shareLinkList.shareLinks().firstOrNull()
+                ?: data.shareUrl?.takeIf { it.isNotBlank() }
+                ?: data.shareKey?.takeIf { it.isNotBlank() }
+                ?: error("分享响应缺少链接")
             ShareLink(
                 id = ShareId(data.shareKey.orEmpty()),
-                url = data.shareUrl ?: "https://www.123pan.com/s/${data.shareKey}",
-                password = options.password,
+                url = normalizeShareUrl(raw),
+                password = data.sharePwd?.takeIf { it.isNotBlank() } ?: options.password,
                 nodeIds = nodeIds,
+                title = request.shareName,
             )
         }
     }
 
     override suspend fun cancelShare(session: ProviderSession, shareId: String): PanResult<Unit> {
-        val body = """{"shareKey":"$shareId"}"""
+        // 服务端只认 shareInfoList 里的 Long 型 shareId。传 shareKey 会因为
+        // 「分享不存在」被静默忽略，界面以为取消了、链接其实还活着。
+        val id = shareId.toLongOrNull()
+            ?: return PanResult.Failure(PanError.unknown("分享 id 不是数字，无法取消"))
+        val body = json.encodeToString(
+            ShareDeleteRequest.serializer(),
+            ShareDeleteRequest(shareInfoList = listOf(ShareIdWrapper(shareId = id))),
+        )
         return api.post(
             path = Pan123Api.PATH_SHARE_DELETE,
             token = tokenOf(session),
             body = body,
             decode = { raw -> json.decodeFromString(ApiEnvelope.serializer(JsonUnit), raw) },
         ).map { }
+    }
+
+    override suspend fun listShares(
+        session: ProviderSession,
+        page: PageRequest,
+    ): PanResult<SharePage> {
+        val query = buildString {
+            append(Pan123Api.PATH_SHARE_LIST)
+            append("?driveId=0")
+            append("&limit=").append(page.limit)
+            append("&next=").append(page.cursor ?: "0")
+            append("&orderBy=fileId")
+            append("&orderDirection=desc")
+            append("&event=shareListFile")
+            append("&operateType=1")
+        }
+        return api.get(
+            path = query,
+            token = tokenOf(session),
+            decode = { raw ->
+                json.decodeFromString(ApiEnvelope.serializer(ShareListData.serializer()), raw)
+            },
+        ).map { data ->
+            SharePage(
+                items = data.infoList.map { it.toShareLink() },
+                // 与文件列表同一个约定：Next 为 "-1" 表示没有下一页。
+                nextCursor = data.next?.takeIf { it.isNotBlank() && it != "-1" },
+            )
+        }
+    }
+
+    private fun ShareListItem.toShareLink(): ShareLink {
+        val key = shareKey.orEmpty()
+        val url = shareUrl?.takeIf { it.isNotBlank() }?.let(::normalizeShareUrl)
+            ?: normalizeShareUrl(key)
+        return ShareLink(
+            id = ShareId(shareId.toString()),
+            url = url,
+            password = sharePwd?.takeIf { it.isNotBlank() },
+            expiresAt = parseExpiration(expiration),
+            title = shareName?.takeIf { it.isNotBlank() },
+            expired = shareStatus != 0,
+        )
+    }
+
+    private fun parseExpiration(raw: String?): Long? {
+        if (raw.isNullOrBlank()) return null
+        val millis = parseTime(raw) ?: return null
+        // 永久分享服务端给的是 2099 年，界面上「2099 年到期」只会让人困惑。
+        return millis.takeIf { it < PERMANENT_CUTOFF }
     }
 
     override suspend fun upload(
@@ -332,5 +400,8 @@ class Pan123Provider(
 
     companion object {
         const val ID = "pan123"
+
+        /** 超过这个时间一律视为永久分享，不再展示到期日。 */
+        private val PERMANENT_CUTOFF = 3_900_000_000_000L
     }
 }

@@ -61,7 +61,7 @@ class CapabilityContractTest {
         val CONTRACT_NAMES = setOf(
             "list", "quota", "upload", "uploadChunked", "download",
             "rename", "move", "delete", "createFolder",
-            "share", "sharePassword", "shareExpiry", "directLink",
+            "share", "shareList", "sharePassword", "shareExpiry", "directLink",
         )
 
         /** 能力名 → 取值函数。新增能力时必须在这里补一行，否则测不到。 */
@@ -79,6 +79,7 @@ class CapabilityContractTest {
             "createFolder" to { c: ProviderCapabilities -> c.createFolder },
             "search" to { c: ProviderCapabilities -> c.search },
             "share" to { c: ProviderCapabilities -> c.share },
+            "shareList" to { c: ProviderCapabilities -> c.shareList },
             "sharePassword" to { c: ProviderCapabilities -> c.sharePassword },
             "shareExpiry" to { c: ProviderCapabilities -> c.shareExpiry },
             "directLink" to { c: ProviderCapabilities -> c.directLink },
