@@ -52,6 +52,7 @@ dependencies {
     implementation(project(":provider:api"))
     implementation(project(":provider:webdav"))
     implementation(project(":provider:pan123"))
+    implementation(project(":provider:lanzou"))
     implementation(project(":feature:accounts"))
     implementation(project(":feature:browser"))
 

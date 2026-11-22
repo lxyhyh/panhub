@@ -13,7 +13,7 @@
 |---|---|---|---|
 | 坚果云 | — | 官方 WebDAV | 已实现 |
 | 123 云盘 | [pan123.md](pan123.md) | App 内 REST | 已实现（待真机验证） |
-| 蓝奏云/蓝云 | 待补 | App 内 REST | 规划中 |
+| 蓝奏云 / 蓝云 | [lanzou.md](lanzou.md) | App 内 REST + 网页 Cookie | 已实现（待真机验证） |
 | 百度网盘 | 待补 | 官方 xpan OAuth | 规划中 |
 | 阿里云盘 | 待补 | App 内 REST | 规划中 |
 | 夸克网盘 | 待补 | App 内 REST | 规划中 |

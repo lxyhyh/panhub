@@ -9,6 +9,7 @@ import com.panhub.core.session.SessionManager
 import com.panhub.core.storage.JsonAccountStore
 import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.ProviderRegistry
+import com.panhub.provider.lanzou.LanzouProvider
 import com.panhub.provider.pan123.Pan123Provider
 import com.panhub.provider.webdav.NutstoreProvider
 import java.io.File
@@ -45,6 +46,7 @@ object PanHubContainer {
         val providers: List<PanProvider> = listOf(
             NutstoreProvider(engine),
             Pan123Provider(engine),
+            LanzouProvider(engine),
         )
 
         val registry = ProviderRegistry(providers)
