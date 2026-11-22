@@ -150,6 +150,7 @@ internal class BaiduApi(
         const val ROOT_PATH = "/"
 
         const val PATH_LIST = "/api/list"
+        const val PATH_SEARCH = "/api/search"
         const val PATH_QUOTA = "/api/quota"
         const val PATH_FILEMETAS = "/api/filemetas"
         const val PATH_CREATE = "/api/create"

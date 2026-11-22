@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.UploadFile
@@ -100,6 +101,7 @@ fun BrowserScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val picker by viewModel.picker.collectAsStateWithLifecycle()
     val share by viewModel.share.collectAsStateWithLifecycle()
+    val search by viewModel.search.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -170,6 +172,11 @@ fun BrowserScreen(
                                 Icon(Icons.Default.SelectAll, contentDescription = "全选")
                             }
                         } else {
+                            if (state.canSearch) {
+                                IconButton(onClick = viewModel::openSearch) {
+                                    Icon(Icons.Default.Search, contentDescription = "搜索")
+                                }
+                            }
                             IconButton(onClick = { showSort = true }) {
                                 Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
                             }
@@ -384,6 +391,17 @@ fun BrowserScreen(
         )
     }
 
+    if (search.visible) {
+        SearchDialog(
+            search = search,
+            onQuery = viewModel::setSearchQuery,
+            onSubmit = viewModel::submitSearch,
+            onLoadMore = viewModel::loadMoreSearch,
+            onOpen = viewModel::openFromSearch,
+            onDismiss = viewModel::closeSearch,
+        )
+    }
+
     if (showSort) {
         SortDialog(
             spec = state.sort,
@@ -455,6 +473,77 @@ private fun SelectionAction(label: String, icon: androidx.compose.ui.graphics.ve
  * 不做成下拉菜单：选项只有三个，加一个方向开关一共四次点击以内就能完成，
  * 而菜单弹出再收起会让用户丢失当前列表的可见上下文。
  */
+/**
+ * 搜索对话框。
+ *
+ * 做成对话框而不是新页面：搜索是「在当前账号里找东西」的辅助动作，
+ * 用户查完仍要回到原来的目录继续操作，跳页会让返回路径变长。
+ */
+@Composable
+private fun SearchDialog(
+    search: SearchState,
+    onQuery: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onLoadMore: () -> Unit,
+    onOpen: (RemoteNode) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("搜索") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = search.query,
+                    onValueChange = onQuery,
+                    singleLine = true,
+                    label = { Text("文件名关键字") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(Spacing.md))
+                when {
+                    search.busy -> Box(
+                        modifier = Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator() }
+                    search.error != null -> Text(
+                        text = search.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    search.results.isEmpty() -> Text(
+                        text = if (search.query.isBlank()) "输入关键字后点搜索" else "没有找到匹配的文件",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                        items(search.results, key = { it.id.value }) { node ->
+                            NodeRow(
+                                node = node,
+                                selectionMode = false,
+                                selected = false,
+                                onClick = { onOpen(node) },
+                                onLongClick = {},
+                                onMore = { onOpen(node) },
+                            )
+                            Spacer(Modifier.height(Spacing.sm))
+                        }
+                        if (search.hasMore) {
+                            item(key = "__more_search__") {
+                                LoadMoreRow(loading = search.loadingMore, onClick = onLoadMore)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSubmit, enabled = search.canSubmit) { Text("搜索") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+}
+
 @Composable
 private fun SortDialog(
     spec: SortSpec,

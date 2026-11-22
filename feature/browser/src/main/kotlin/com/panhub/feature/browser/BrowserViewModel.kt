@@ -53,6 +53,7 @@ data class BrowserUiState(
     val canMove: Boolean = false,
     val canDownload: Boolean = false,
     val canDirectLink: Boolean = false,
+    val canSearch: Boolean = false,
     val error: PanError? = null,
     val message: String? = null,
     val busy: Boolean = false,
@@ -79,6 +80,27 @@ data class BrowserUiState(
 
     /** 服务商返回的顺序各不相同，一律按用户选的规格重排后再显示。 */
     val sorted: List<RemoteNode> get() = nodes.sortedFor(sort)
+}
+
+/**
+ * 搜索页的状态。
+ *
+ * 单独一份而不是复用 [BrowserUiState.nodes]：搜索结果是跨目录的，
+ * 塞进当前目录的列表后，用户按返回键回到上一级会看到一堆不属于这个目录的文件。
+ */
+data class SearchState(
+    val visible: Boolean = false,
+    val query: String = "",
+    val busy: Boolean = false,
+    val results: List<RemoteNode> = emptyList(),
+    val nextCursor: String? = null,
+    val loadingMore: Boolean = false,
+    val error: String? = null,
+) {
+    val hasMore: Boolean get() = nextCursor != null
+
+    /** 关键字为空时不发请求：多数服务商对空关键字返回全盘列表，等于没搜。 */
+    val canSubmit: Boolean get() = query.isNotBlank() && !busy
 }
 
 /**
@@ -163,6 +185,9 @@ class BrowserViewModel(
 
     private val _picker = MutableStateFlow(FolderPickerState())
     val picker: StateFlow<FolderPickerState> = _picker.asStateFlow()
+
+    private val _search = MutableStateFlow(SearchState())
+    val search: StateFlow<SearchState> = _search.asStateFlow()
 
     private val _share = MutableStateFlow(ShareSheetState())
     val share: StateFlow<ShareSheetState> = _share.asStateFlow()
@@ -659,6 +684,7 @@ class BrowserViewModel(
                             canMove = descriptor.capabilities.move,
                             canDownload = descriptor.capabilities.download,
                             canDirectLink = descriptor.capabilities.directLink,
+                    canSearch = descriptor.capabilities.search,
                         )
                     }
                     loadQuota(result.value)
@@ -755,8 +781,76 @@ class BrowserViewModel(
 
     private fun BrowserUiState.errorText(error: PanError): String = error.message
 
+
+    /** 打开搜索页。不改动当前目录的列表，返回时用户还在原地。 */
+    fun openSearch() = _search.update { SearchState(visible = true, query = it.query) }
+
+    fun closeSearch() = _search.update { SearchState() }
+
+    fun setSearchQuery(value: String) = _search.update { it.copy(query = value, error = null) }
+
+    /** 提交搜索。关键字没变且已有结果时不重发，避免返回键回到搜索页又白刷一次。 */
+    fun submitSearch() {
+        val snapshot = _search.value
+        val keyword = snapshot.query.trim()
+        if (keyword.isEmpty()) return
+        val provider = scoped ?: return
+        _search.update { it.copy(busy = true, error = null, results = emptyList(), nextCursor = null) }
+        viewModelScope.launch {
+            when (val result = provider.search(keyword, PageRequest(limit = SEARCH_PAGE_SIZE))) {
+                is PanResult.Failure -> _search.update {
+                    it.copy(busy = false, error = result.error.message)
+                }
+                is PanResult.Success -> _search.update {
+                    it.copy(
+                        busy = false,
+                        results = result.value.items,
+                        nextCursor = result.value.nextCursor,
+                    )
+                }
+            }
+        }
+    }
+
+    fun loadMoreSearch() {
+        val provider = scoped ?: return
+        val snapshot = _search.value
+        val cursor = snapshot.nextCursor ?: return
+        if (snapshot.loadingMore || snapshot.busy) return
+        val keyword = snapshot.query.trim()
+        if (keyword.isEmpty()) return
+        _search.update { it.copy(loadingMore = true) }
+        viewModelScope.launch {
+            val page = PageRequest(cursor = cursor, limit = SEARCH_PAGE_SIZE)
+            when (val result = provider.search(keyword, page)) {
+                is PanResult.Failure -> _search.update {
+                    it.copy(loadingMore = false, error = result.error.message)
+                }
+                is PanResult.Success -> _search.update { current ->
+                    // 搜索期间服务端数据可能变过，按 id 去重，别让同一个文件出现两次。
+                    val known = current.results.mapTo(mutableSetOf()) { it.id }
+                    val added = result.value.items.filter { known.add(it.id) }
+                    current.copy(
+                        loadingMore = false,
+                        results = current.results + added,
+                        nextCursor = result.value.nextCursor,
+                    )
+                }
+            }
+        }
+    }
+
+    /** 从搜索结果直接进入某个目录或打开文件：关闭搜索并沿用原有导航。 */
+    fun openFromSearch(node: RemoteNode) {
+        closeSearch()
+        open(node)
+    }
+
     private companion object {
         /** 选择目标目录时每页多大。只要文件夹，页面越小越快攒够一屏。 */
+        /** 搜索结果每页条数。服务商普遍接受 100，翻页次数少一半。 */
+        const val SEARCH_PAGE_SIZE = 100
+
         const val PICKER_PAGE_SIZE = 50
 
         /** 连续翻页找文件夹的上限，避免一页全是文件时无限翻下去。 */

@@ -62,6 +62,7 @@ class BaiduProvider(
             createFolder = true,
             share = true,
             shareList = true,
+            search = true,
             directLink = true,
         ),
     )
@@ -398,6 +399,18 @@ class BaiduProvider(
             is PanResult.Failure -> raw
             is PanResult.Success -> PanResult.Success(Unit)
         }
+    }
+
+    override suspend fun search(
+        session: ProviderSession,
+        query: String,
+        page: PageRequest,
+    ): PanResult<NodePage> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        val keyword = query.trim()
+        if (keyword.isEmpty()) return PanResult.Failure(PanError.unknown("搜索关键字不能为空"))
+        return api.search(cookie, keyword, page)
     }
 
     override suspend fun listShares(

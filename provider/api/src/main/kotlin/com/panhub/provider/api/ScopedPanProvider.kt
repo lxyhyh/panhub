@@ -57,6 +57,9 @@ class ScopedPanProvider(
     suspend fun cancelShare(shareId: String): PanResult<Unit> =
         provider.cancelShare(session, shareId)
 
+    suspend fun search(query: String, page: PageRequest = PageRequest()): PanResult<NodePage> =
+        provider.search(session, query, page)
+
     suspend fun listShares(page: PageRequest = PageRequest()): PanResult<SharePage> =
         provider.listShares(session, page)
 }

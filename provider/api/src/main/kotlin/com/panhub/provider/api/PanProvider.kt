@@ -116,6 +116,13 @@ interface PanProvider {
      * 默认返回 UNSUPPORTED：只有少数服务商提供类似接口，
      * 让未实现的服务商保持沉默，而不是让调用方先猜能力再调用。
      */
+    /** 在账号范围内按关键字找文件。不支持的服务商返回 notSupported。 */
+    suspend fun search(
+        session: ProviderSession,
+        query: String,
+        page: PageRequest = PageRequest(),
+    ): PanResult<NodePage> = PanResult.Failure(PanError.notSupported("该网盘不支持搜索"))
+
     suspend fun listShares(
         session: ProviderSession,
         page: PageRequest = PageRequest(),
