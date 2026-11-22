@@ -23,6 +23,13 @@ dependencyResolutionManagement {
 rootProject.name = "panhub"
 
 include(":app")
+
+// 跨平台契约层：只放模型、通用类型、网络与设计系统，不含任何具体网盘逻辑
 include(":core:model")
 include(":core:common")
+include(":core:network")
 include(":core:design")
+
+// provider 契约层 + 各网盘实现，每个实现一个模块，新增网盘只加模块不改 UI
+include(":provider:api")
+include(":provider:webdav")
