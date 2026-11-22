@@ -743,9 +743,28 @@ class BrowserViewModel(
         _copy.update { it.copy(busy = true, error = null) }
         // 目标目录直接取对方根目录：让用户在这里再挑一次目录会把两个账号的导航混在一起，
         // 传完之后在目标账号里移动一次更直接。
-        var queued = 0
+        val canCreateFolder = snapshot.targets
+            .firstOrNull { it.id == target }
+            ?.capabilities?.createFolder == true
+        var files = 0
+        var folders = 0
+        var skippedFolders = 0
         for (node in snapshot.nodes) {
-            if (node.isDir) continue
+            if (node.isDir) {
+                if (!canCreateFolder) {
+                    skippedFolders++
+                    continue
+                }
+                copier.copyFolderBetween(
+                    fromAccountId = accountId,
+                    nodeId = node.id,
+                    name = node.name,
+                    toAccountId = target,
+                    toParentId = null,
+                )
+                folders++
+                continue
+            }
             copier.copyBetween(
                 fromAccountId = accountId,
                 nodeId = node.id,
@@ -754,20 +773,30 @@ class BrowserViewModel(
                 toAccountId = target,
                 toParentId = null,
             )
-            queued++
+            files++
         }
-        if (queued == 0) {
-            _copy.update { it.copy(busy = false, error = "选中的都是文件夹，暂不支持跨账号复制文件夹") }
+        if (files == 0 && folders == 0) {
+            _copy.update {
+                it.copy(
+                    busy = false,
+                    error = "「" + snapshot.targetName + "」不支持新建文件夹，无法复制文件夹",
+                )
+            }
             return
         }
         val name = snapshot.targetName
         _copy.value = CloudCopyState()
-        _state.update {
-            it.copy(
-                selected = emptySet(),
-                message = "正在复制 " + queued + " 个文件到「" + name + "」，可在传输列表查看进度",
-            )
-        }
+        val queued = "正在复制 " + describe(files, folders) + "到「" + name + "」，可在传输列表查看进度"
+        val skipped = if (skippedFolders == 0) "" else "；" + skippedFolders + " 个文件夹因对方不支持新建文件夹被跳过"
+        _state.update { it.copy(selected = emptySet(), message = queued + skipped) }
+    }
+
+    /** 「3 个文件、2 个文件夹」这种说法，只列真正有的那一半。 */
+    private fun describe(files: Int, folders: Int): String {
+        val parts = ArrayList<String>(2)
+        if (files > 0) parts += files.toString() + " 个文件"
+        if (folders > 0) parts += folders.toString() + " 个文件夹"
+        return parts.joinToString("、")
     }
 
     fun showMessage(text: String) = _state.update { it.copy(message = text) }

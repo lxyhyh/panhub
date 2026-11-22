@@ -164,6 +164,36 @@ class TransferEngine(
         return id
     }
 
+    /**
+     * 跨网盘复制整个文件夹：先扫源目录、在目标端把目录树建出来，再把文件逐个排队。
+     *
+     * 和整目录下载一样，这个任务本身不传字节，只负责「把结构摆好、把活拆开」。
+     */
+    override fun copyFolderBetween(
+        fromAccountId: AccountId,
+        nodeId: NodeId,
+        name: String,
+        toAccountId: AccountId,
+        toParentId: NodeId?,
+    ): String {
+        val now = clock.nowMillis()
+        val id = "cf-" + counter.incrementAndGet()
+        val task = TransferTask(
+            id = id,
+            accountId = fromAccountId,
+            nodeId = nodeId,
+            name = name,
+            direction = TransferDirection.CLOUD_COPY_FOLDER,
+            targetAccountId = toAccountId,
+            targetParentId = toParentId,
+            createdAt = now,
+            updatedAt = now,
+        )
+        _tasks.update { it + task }
+        pump()
+        return id
+    }
+
     /** 把一个节点加入下载队列，返回任务 id。 */
     fun enqueue(accountId: AccountId, nodeId: NodeId, name: String, size: Long?): String {
         val now = clock.nowMillis()
@@ -283,6 +313,7 @@ class TransferEngine(
             TransferDirection.UPLOAD -> runUpload(id, task, scoped)
             TransferDirection.CLOUD_COPY -> runCloudCopy(id, task, scoped)
             TransferDirection.DOWNLOAD_FOLDER -> runFolderDownload(id, task, scoped)
+            TransferDirection.CLOUD_COPY_FOLDER -> runCloudCopyFolder(id, task, scoped)
         }
     }
 
@@ -434,6 +465,112 @@ class TransferEngine(
             // 无论成功还是失败都删：这个文件本来就是过程产物，留着只是占手机空间。
             runCatching { scratch.delete() }
         }
+    }
+
+    /**
+     * 跨网盘复制整个文件夹。
+     *
+     * 分两段：先把源目录的层级扫出来、在目标账号里照同样的层级建出空目录，
+     * 再为每个文件放一个普通的 [TransferDirection.CLOUD_COPY] 子任务。
+     * 源和目标可能不是同一家网盘，重名规则、路径写法都不一样，
+     * 所以目录结构由我们自己建，不指望任何一家提供「整目录复制」接口。
+     *
+     * 已经建好的目录不回滚：目标端没有通用的批量删除，硬要清理反而可能删错东西。
+     */
+    private suspend fun runCloudCopyFolder(
+        id: String,
+        task: TransferTask,
+        source: ScopedPanProvider,
+    ): PanError? {
+        val rootNode = task.nodeId ?: return PanError.unknown("缺少文件夹 id")
+        val targetAccount = task.targetAccountId ?: return PanError.unknown("缺少目标账号")
+        val targetProvider = when (val connected = sessionProvider(targetAccount)) {
+            is PanResult.Failure -> return connected.error
+            is PanResult.Success -> connected.value
+        }
+
+        update(id) { it.copy(phase = "扫描源文件夹") }
+        val rootName = DirectorySink.sanitize(task.name)
+        val createdRoot = when (val created = targetProvider.createFolder(task.targetParentId, rootName)) {
+            is PanResult.Failure -> return stage("目标网盘新建文件夹失败：", created.error)
+            is PanResult.Success -> created.value
+        }
+
+        // 每项是「源目录 id、相对根目录的路径、目标端对应目录 id」。
+        // BFS 保证父目录先于子目录处理，所以建子目录时上级一定已经就位。
+        val pending = ArrayDeque<Triple<NodeId, String, NodeId>>()
+        pending.addLast(Triple(rootNode, "", createdRoot.id))
+        val files = ArrayList<Triple<RemoteNode, String, NodeId>>()
+
+        while (pending.isNotEmpty()) {
+            currentCoroutineContext().ensureActive()
+            val (folderId, prefix, targetFolder) = pending.removeFirst()
+            var cursor: String? = null
+            do {
+                // 和整目录下载一样，几千个文件翻页途中用户可能已经取消了。
+                currentCoroutineContext().ensureActive()
+                val page = when (val result = source.list(folderId, PageRequest(cursor = cursor))) {
+                    is PanResult.Failure -> return stage("读取源文件夹失败：", result.error)
+                    is PanResult.Success -> result.value
+                }
+                for (item in page.items) {
+                    if (item.isDir) {
+                        val path = if (prefix.isEmpty()) item.name else prefix + "/" + item.name
+                        val child = DirectorySink.sanitize(item.name)
+                        val createdChild = when (val made = targetProvider.createFolder(targetFolder, child)) {
+                            is PanResult.Failure -> return stage("目标网盘新建文件夹失败：", made.error)
+                            is PanResult.Success -> made.value
+                        }
+                        pending.addLast(Triple(item.id, path, createdChild.id))
+                    } else {
+                        files += Triple(item, prefix, targetFolder)
+                    }
+                }
+                cursor = page.nextCursor
+            } while (cursor != null)
+        }
+
+        if (files.isEmpty()) {
+            update(id) {
+                it.copy(
+                    state = TransferState.COMPLETED,
+                    bytes = 0L,
+                    totalBytes = 0L,
+                    phase = "空文件夹",
+                    updatedAt = clock.nowMillis(),
+                )
+            }
+            return null
+        }
+
+        val children = files.map { (node, folder, targetFolder) ->
+            TransferTask(
+                id = "cp-" + counter.incrementAndGet(),
+                accountId = task.accountId,
+                nodeId = node.id,
+                name = node.name,
+                direction = TransferDirection.CLOUD_COPY,
+                totalBytes = node.size.takeIf { it > 0L },
+                targetAccountId = targetAccount,
+                // 子任务直接落到已经建好的那一级目录里，
+                // 不再走「先按路径找目录」那套，省掉一次可能失败的查询。
+                targetParentId = targetFolder,
+                createdAt = clock.nowMillis(),
+                updatedAt = clock.nowMillis(),
+            )
+        }
+        _tasks.update { it + children }
+        update(id) {
+            val total = files.sumOf { entry -> entry.first.size }
+            it.copy(
+                state = TransferState.COMPLETED,
+                bytes = total,
+                totalBytes = total,
+                phase = files.size.toString() + " 个文件",
+                updatedAt = clock.nowMillis(),
+            )
+        }
+        return null
     }
 
     /**

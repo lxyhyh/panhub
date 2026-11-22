@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
@@ -161,10 +162,12 @@ private fun TaskCard(
                     imageVector = when (task.state) {
                         TransferState.COMPLETED -> Icons.Default.CheckCircle
                         TransferState.FAILED -> Icons.Default.ErrorOutline
-                        else -> if (task.direction == TransferDirection.UPLOAD) {
-                            Icons.Default.Upload
-                        } else {
-                            Icons.Default.Download
+                        else -> when (task.direction) {
+                            TransferDirection.UPLOAD -> Icons.Default.Upload
+                            TransferDirection.CLOUD_COPY,
+                            TransferDirection.CLOUD_COPY_FOLDER,
+                            -> Icons.Default.CloudUpload
+                            else -> Icons.Default.Download
                         }
                     },
                     contentDescription = null,
@@ -228,9 +231,10 @@ private fun TaskCard(
 }
 
 private fun statusLine(task: TransferTask): String {
-    // 整目录下载本身不传字节，它的进度要看那些子任务，
+    // 整理型任务（整目录下载、整目录转存）自己都不传字节，进度要看那些子任务，
     // 按普通任务拼「已传 / 总共」只会给出一行看不懂的数字。
     if (task.direction == TransferDirection.DOWNLOAD_FOLDER) return folderLine(task)
+    if (task.direction == TransferDirection.CLOUD_COPY_FOLDER) return copyFolderLine(task)
     val done = formatBytes(task.bytes)
     val total = task.totalBytes?.let { formatBytes(it) }
     return when (task.state) {
@@ -265,10 +269,19 @@ private fun folderLine(task: TransferTask): String = when (task.state) {
     TransferState.CANCELED -> "已取消整理"
 }
 
+private fun copyFolderLine(task: TransferTask): String = when (task.state) {
+    TransferState.QUEUED -> "等待复制文件夹"
+    TransferState.RUNNING -> task.phase?.let { "正在" + it } ?: "正在复制文件夹"
+    TransferState.COMPLETED -> task.phase?.let { "已复制 " + it } ?: "已复制文件夹"
+    TransferState.FAILED -> "复制失败" + (task.error?.let { " · " + it } ?: "")
+    TransferState.CANCELED -> "已取消复制文件夹"
+}
+
 private fun queuedLine(task: TransferTask): String = when (task.direction) {
     TransferDirection.UPLOAD -> "等待上传"
     TransferDirection.CLOUD_COPY -> "等待转存"
     TransferDirection.DOWNLOAD_FOLDER -> "等待整理文件列表"
+    TransferDirection.CLOUD_COPY_FOLDER -> "等待复制文件夹"
     TransferDirection.DOWNLOAD -> "排队中"
 }
 
@@ -285,6 +298,7 @@ private fun finishedLine(task: TransferTask): String = when (task.direction) {
     TransferDirection.UPLOAD -> "已上传"
     TransferDirection.CLOUD_COPY -> "已转存"
     TransferDirection.DOWNLOAD_FOLDER -> "已整理文件列表"
+    TransferDirection.CLOUD_COPY_FOLDER -> "已复制文件夹"
     TransferDirection.DOWNLOAD -> "已完成"
 }
 

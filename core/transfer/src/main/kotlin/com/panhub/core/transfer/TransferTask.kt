@@ -11,8 +11,17 @@ import com.panhub.core.model.NodeId
  *
  * [DOWNLOAD_FOLDER] 是整目录下载：它自己不算一次字节传输，只负责把文件夹里
  * 的每个文件拆成普通的 [DOWNLOAD] 任务，进度还是要看那些子任务。
+ *
+ * [CLOUD_COPY_FOLDER] 是跨网盘复制整个文件夹：同样不传字节，先扫源目录、
+ * 在目标端把目录结构建出来，再把每个文件拆成普通的 [CLOUD_COPY] 子任务。
  */
-enum class TransferDirection { DOWNLOAD, UPLOAD, CLOUD_COPY, DOWNLOAD_FOLDER }
+enum class TransferDirection {
+    DOWNLOAD,
+    UPLOAD,
+    CLOUD_COPY,
+    DOWNLOAD_FOLDER,
+    CLOUD_COPY_FOLDER,
+}
 
 /**
  * 一个传输任务的状态机：
