@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  对外暴露的只有应用私有的 downloads 目录。
+  下载落盘在这里（不需要任何存储权限），要打开/分享时通过
+  FileProvider 临时授权给对方应用，而不是把整个 filesDir 敞开。
+-->
+<paths>
+    <files-path name="downloads" path="downloads/" />
+</paths>

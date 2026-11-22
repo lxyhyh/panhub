@@ -1,5 +1,6 @@
 package com.panhub.feature.transfers
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.CheckCircle
@@ -32,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -57,6 +60,7 @@ fun TransfersScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -131,6 +135,8 @@ fun TransfersScreen(
                             task = task,
                             onCancel = { viewModel.cancel(task.id) },
                             onRetry = { viewModel.retry(task.id) },
+                            onOpen = { path -> context.openDownloaded(path) },
+                            onShare = { path -> context.shareDownloaded(path) },
                         )
                     }
                     item { Spacer(Modifier.height(Spacing.xl)) }
@@ -145,6 +151,8 @@ private fun TaskCard(
     task: TransferTask,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
+    onOpen: (String) -> Unit,
+    onShare: (String) -> Unit,
 ) {
     PanCard {
         Column {
@@ -181,10 +189,23 @@ private fun TaskCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                when (task.state) {
-                    TransferState.RUNNING, TransferState.QUEUED ->
+                // 已完成任务的操作针对本地文件：打开 / 分享出去。
+                // 上传任务的 filePath 是源文件，打开它同样有意义。
+                val donePath = task.filePath?.takeIf { task.state == TransferState.COMPLETED }
+                when {
+                    donePath != null -> Row {
+                        IconButton(onClick = { onShare(donePath) }) {
+                            Icon(
+                                Icons.Default.Share,
+                                contentDescription = "分享",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = { onOpen(donePath) }) { Text("打开") }
+                    }
+                    task.state == TransferState.RUNNING || task.state == TransferState.QUEUED ->
                         TextButton(onClick = onCancel) { Text("取消") }
-                    TransferState.FAILED, TransferState.CANCELED ->
+                    task.state == TransferState.FAILED || task.state == TransferState.CANCELED ->
                         TextButton(onClick = onRetry) { Text("重试") }
                     else -> Unit
                 }
@@ -221,3 +242,46 @@ private fun statusLine(task: TransferTask): String {
         TransferState.CANCELED -> "已取消 · " + done
     }
 }
+
+/**
+ * 用系统能力打开下载好的文件。
+ *
+ * 文件在应用私有目录里，直接 file:// 从 Android 7 起会被 FileUriExposedException 拒绝，
+ * 必须经 FileProvider 换成 content:// 并临时授权给目标应用。
+ */
+private fun android.content.Context.openDownloaded(path: String) {
+    runCatching {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            this,
+            packageName + ".files",
+            java.io.File(path),
+        )
+        val mime = contentResolver.getType(uri) ?: "*/*"
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, mime)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+    }
+}
+
+/** 把下载好的文件分享给别的应用（微信、邮件等）。 */
+private fun android.content.Context.shareDownloaded(path: String) {
+    runCatching {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            this,
+            packageName + ".files",
+            java.io.File(path),
+        )
+        val mime = contentResolver.getType(uri) ?: "*/*"
+        val intent = Intent(Intent.ACTION_SEND)
+            .setType(mime)
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(
+            Intent.createChooser(intent, "分享文件")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+}
+
