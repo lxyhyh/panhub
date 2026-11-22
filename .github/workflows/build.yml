@@ -41,6 +41,7 @@ jobs:
             :provider:api:test \
             :provider:webdav:test \
             :provider:pan123:test \
+            :provider:lanzou:test \
             :core:storage:test \
             :core:session:test
 
