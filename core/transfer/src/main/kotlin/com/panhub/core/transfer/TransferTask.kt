@@ -3,8 +3,13 @@ package com.panhub.core.transfer
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeId
 
-/** 传输方向。这一版只做下载，上传留接口不实现。 */
-enum class TransferDirection { DOWNLOAD, UPLOAD }
+/**
+ * 传输方向。
+ *
+ * [CLOUD_COPY] 是跨网盘中转：从源账号下载到本地临时目录，再上传到目标账号。
+ * 两家的服务端不会互相说话，只能这样搬一次。
+ */
+enum class TransferDirection { DOWNLOAD, UPLOAD, CLOUD_COPY }
 
 /**
  * 一个传输任务的状态机：
@@ -38,6 +43,19 @@ data class TransferTask(
     val totalBytes: Long? = null,
     val filePath: String? = null,
     val error: String? = null,
+    /**
+     * 中转任务的目标账号与目标目录。
+     *
+     * 单独两个字段而不是复用一个 "to" 对象：下载/上传两类任务用不到它们，
+     * 空着就是「没有这一半」，比多引一层嵌套更容易读懂。
+     */
+    val targetAccountId: AccountId? = null,
+    val targetParentId: NodeId? = null,
+    /**
+     * 当前阶段，只在需要分段的传输里非空（中转要下载再上传两段）。
+     * 界面直接展示这行字，不用去猜进度条为什么重新开始了。
+     */
+    val phase: String? = null,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
 ) {

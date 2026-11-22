@@ -34,7 +34,14 @@ class TransferEngine(
     private val downloader: FileDownloader,
     private val sink: DownloadSink,
     private val clock: Clock = Clock.Default,
-) : DownloadLauncher, UploadLauncher {
+    /**
+     * 中转用的临时目录。
+     *
+     * 与 [sink] 分开：中转文件是过程产物，用户从没要求把它留在手机上，
+     * 所以放临时目录并在传完后删掉，不混进下载目录。
+     */
+    private val scratchDir: File = File(System.getProperty("java.io.tmpdir") ?: ".", "panhub-scratch"),
+) : DownloadLauncher, UploadLauncher, CloudCopyLauncher {
 
     private val counter = AtomicLong(0L)
     private val _tasks = MutableStateFlow<List<TransferTask>>(emptyList())
@@ -70,6 +77,39 @@ class TransferEngine(
             direction = TransferDirection.UPLOAD,
             totalBytes = size,
             filePath = localPath,
+            createdAt = now,
+            updatedAt = now,
+        )
+        _tasks.update { it + task }
+        pump()
+        return id
+    }
+
+    /**
+     * 跨网盘复制：先下到临时目录，再传到目标账号，最后删掉临时文件。
+     *
+     * 两步各自的进度都会写回同一个任务，[TransferTask.phase] 告诉用户现在在哪一段，
+     * 否则第二段一开始进度条归零，看起来像是重新传了一遍。
+     */
+    override fun copyBetween(
+        fromAccountId: AccountId,
+        nodeId: NodeId,
+        name: String,
+        size: Long?,
+        toAccountId: AccountId,
+        toParentId: NodeId?,
+    ): String {
+        val now = clock.nowMillis()
+        val id = "cp-" + counter.incrementAndGet()
+        val task = TransferTask(
+            id = id,
+            accountId = fromAccountId,
+            nodeId = nodeId,
+            name = name,
+            direction = TransferDirection.CLOUD_COPY,
+            totalBytes = size,
+            targetAccountId = toAccountId,
+            targetParentId = toParentId,
             createdAt = now,
             updatedAt = now,
         )
@@ -155,6 +195,7 @@ class TransferEngine(
         when (task.direction) {
             TransferDirection.DOWNLOAD -> runDownload(id, task, scoped)
             TransferDirection.UPLOAD -> runUpload(id, task, scoped)
+            TransferDirection.CLOUD_COPY -> runCloudCopy(id, task, scoped)
         }
     }
 
@@ -216,6 +257,88 @@ class TransferEngine(
                     updatedAt = clock.nowMillis(),
                 )
             }
+        }
+    }
+
+    /**
+     * 跨网盘中转。
+     *
+     * 两段各自失败都要如实报告在哪一段失败：用户在传输页看到的只是一行错误，
+     * 分不清「源网盘拒绝了下载链接」和「目标网盘拒收」，就没法判断该换哪一个账号。
+     */
+    private suspend fun runCloudCopy(id: String, task: TransferTask, source: ScopedPanProvider) {
+        val nodeId = task.nodeId ?: return fail(id, PanError.unknown("缺少源文件 id"))
+        val targetAccount = task.targetAccountId
+            ?: return fail(id, PanError.unknown("缺少目标账号"))
+
+        val destination = when (val resolved = source.downloadUrl(nodeId)) {
+            is PanResult.Failure -> return fail(id, PanError(
+                kind = resolved.error.kind,
+                message = "源网盘下载失败：" + resolved.error.message,
+                detail = resolved.error.detail,
+                retryable = resolved.error.retryable,
+                cause = resolved.error.cause,
+            ))
+            is PanResult.Success -> resolved.value
+        }
+
+        val targetProvider = when (val connected = sessionProvider(targetAccount)) {
+            is PanResult.Failure -> return fail(id, connected.error)
+            is PanResult.Success -> connected.value
+        }
+
+        scratchDir.mkdirs()
+        val scratch = File(scratchDir, id + "-" + DirectorySink.sanitize(task.name))
+        try {
+            update(id) { it.copy(phase = "下载中", totalBytes = destination.size ?: it.totalBytes) }
+            val downloaded = downloader.download(
+                target = destination,
+                destination = scratch,
+                listener = { bytes, total ->
+                    update(id) { it.copy(bytes = bytes, totalBytes = total ?: it.totalBytes) }
+                },
+            )
+            if (downloaded is PanResult.Failure) {
+                return fail(id, PanError(
+                    kind = downloaded.error.kind,
+                    message = "源网盘下载失败：" + downloaded.error.message,
+                    detail = downloaded.error.detail,
+                    retryable = downloaded.error.retryable,
+                    cause = downloaded.error.cause,
+                ))
+            }
+
+            // 第二段的进度从 0 重新算：它是「上传了多少」，和第一段的字节数不是同一件事。
+            update(id) { it.copy(phase = "上传中", bytes = 0L) }
+            val uploaded = targetProvider.upload(
+                parentId = task.targetParentId,
+                source = FileUploadSource(scratch, name = task.name),
+                listener = { sent, total ->
+                    update(id) { it.copy(bytes = sent, totalBytes = total.takeIf { t -> t > 0L } ?: it.totalBytes) }
+                },
+            )
+            when (uploaded) {
+                is PanResult.Failure -> fail(id, PanError(
+                    kind = uploaded.error.kind,
+                    message = "目标网盘上传失败：" + uploaded.error.message,
+                    detail = uploaded.error.detail,
+                    retryable = uploaded.error.retryable,
+                    cause = uploaded.error.cause,
+                ))
+                is PanResult.Success -> {
+                    update(id) { current ->
+                        current.copy(
+                            state = TransferState.COMPLETED,
+                            bytes = current.totalBytes ?: current.bytes,
+                            phase = null,
+                            updatedAt = clock.nowMillis(),
+                        )
+                    }
+                }
+            }
+        } finally {
+            // 无论成功还是失败都删：这个文件本来就是过程产物，留着只是占手机空间。
+            runCatching { scratch.delete() }
         }
     }
 

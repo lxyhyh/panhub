@@ -14,7 +14,9 @@ import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SortOrder
 import com.panhub.core.model.SortSpec
 import com.panhub.core.model.sortedFor
+import com.panhub.core.session.AccountSummary
 import com.panhub.core.session.SessionManager
+import com.panhub.core.transfer.CloudCopyLauncher
 import com.panhub.core.transfer.DownloadLauncher
 import com.panhub.core.transfer.UploadLauncher
 import com.panhub.provider.api.ScopedPanProvider
@@ -54,6 +56,8 @@ data class BrowserUiState(
     val canDownload: Boolean = false,
     val canDirectLink: Boolean = false,
     val canSearch: Boolean = false,
+    /** 至少还有一个别的账号能接收文件时才有「复制到其他网盘」。 */
+    val canCloudCopy: Boolean = false,
     val error: PanError? = null,
     val message: String? = null,
     val busy: Boolean = false,
@@ -80,6 +84,26 @@ data class BrowserUiState(
 
     /** 服务商返回的顺序各不相同，一律按用户选的规格重排后再显示。 */
     val sorted: List<RemoteNode> get() = nodes.sortedFor(sort)
+}
+
+/**
+ * 「复制到其他网盘」对话框的状态。
+ *
+ * 只需要目标账号与目标目录两项，所以不复用目录选择器：那个选择器是为了
+ * 「在同一个账号内移动」，跨账号时还要先选账号，混在一起会让两层导航互相打断。
+ */
+data class CloudCopyState(
+    val visible: Boolean = false,
+    val nodes: List<RemoteNode> = emptyList(),
+    val targets: List<AccountSummary> = emptyList(),
+    val targetId: AccountId? = null,
+    val busy: Boolean = false,
+    val error: String? = null,
+) {
+    val canSubmit: Boolean get() = nodes.isNotEmpty() && targetId != null && !busy
+
+    /** 目标账号显示名，提交后拿它写提示。 */
+    val targetName: String get() = targets.firstOrNull { it.id == targetId }?.displayName ?: ""
 }
 
 /**
@@ -178,6 +202,7 @@ class BrowserViewModel(
     private val accountId: AccountId,
     private val launcher: DownloadLauncher? = null,
     private val uploader: UploadLauncher? = null,
+    private val copier: CloudCopyLauncher? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(BrowserUiState(accountId = accountId))
@@ -185,6 +210,10 @@ class BrowserViewModel(
 
     private val _picker = MutableStateFlow(FolderPickerState())
     val picker: StateFlow<FolderPickerState> = _picker.asStateFlow()
+
+    private val _copy = MutableStateFlow(CloudCopyState())
+
+    val copy: StateFlow<CloudCopyState> = _copy.asStateFlow()
 
     private val _search = MutableStateFlow(SearchState())
     val search: StateFlow<SearchState> = _search.asStateFlow()
@@ -652,6 +681,70 @@ class BrowserViewModel(
         }
     }
 
+    /**
+     * 打开「复制到其他网盘」。
+     *
+     * 候选账号在打开时才取：账号可能刚在别的页面被删掉，
+     * 用启动时缓存的列表会给出一个点了才报错的选项。
+     */
+    fun openCloudCopy(nodes: List<RemoteNode>) {
+        if (nodes.isEmpty()) return
+        viewModelScope.launch {
+            val candidates = session.accounts.first().filter {
+                it.id != accountId && it.capabilities.upload
+            }
+            if (candidates.isEmpty()) {
+                _state.update { it.copy(message = "没有可以接收文件的账号") }
+                return@launch
+            }
+            _copy.value = CloudCopyState(
+                visible = true,
+                nodes = nodes,
+                targets = candidates,
+                targetId = candidates.first().id,
+            )
+        }
+    }
+
+    fun closeCloudCopy() = _copy.update { CloudCopyState() }
+
+    fun setCloudCopyTarget(id: AccountId) = _copy.update { it.copy(targetId = id, error = null) }
+
+    fun submitCloudCopy() {
+        val snapshot = _copy.value
+        val target = snapshot.targetId ?: return
+        val copier = copier ?: return
+        if (snapshot.nodes.isEmpty()) return
+        _copy.update { it.copy(busy = true, error = null) }
+        // 目标目录直接取对方根目录：让用户在这里再挑一次目录会把两个账号的导航混在一起，
+        // 传完之后在目标账号里移动一次更直接。
+        var queued = 0
+        for (node in snapshot.nodes) {
+            if (node.isDir) continue
+            copier.copyBetween(
+                fromAccountId = accountId,
+                nodeId = node.id,
+                name = node.name,
+                size = node.size.takeIf { it > 0L },
+                toAccountId = target,
+                toParentId = null,
+            )
+            queued++
+        }
+        if (queued == 0) {
+            _copy.update { it.copy(busy = false, error = "选中的都是文件夹，暂不支持跨账号复制文件夹") }
+            return
+        }
+        val name = snapshot.targetName
+        _copy.value = CloudCopyState()
+        _state.update {
+            it.copy(
+                selected = emptySet(),
+                message = "正在复制 " + queued + " 个文件到「" + name + "」，可在传输列表查看进度",
+            )
+        }
+    }
+
     fun showMessage(text: String) = _state.update { it.copy(message = text) }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
@@ -684,7 +777,11 @@ class BrowserViewModel(
                             canMove = descriptor.capabilities.move,
                             canDownload = descriptor.capabilities.download,
                             canDirectLink = descriptor.capabilities.directLink,
-                    canSearch = descriptor.capabilities.search,
+                            canSearch = descriptor.capabilities.search,
+                            canCloudCopy = copier != null &&
+                                session.accounts.first().any { other ->
+                                    other.id != accountId && other.capabilities.upload
+                                },
                         )
                     }
                     loadQuota(result.value)

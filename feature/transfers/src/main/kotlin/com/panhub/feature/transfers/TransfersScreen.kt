@@ -231,16 +231,33 @@ private fun statusLine(task: TransferTask): String {
     val done = formatBytes(task.bytes)
     val total = task.totalBytes?.let { formatBytes(it) }
     return when (task.state) {
-        TransferState.QUEUED ->
-            (if (task.direction == TransferDirection.UPLOAD) "等待上传" else "排队中") +
-                (total?.let { " · " + it } ?: "")
-        TransferState.RUNNING ->
-            if (total != null) done + " / " + total else done
-        TransferState.COMPLETED ->
-            (if (task.direction == TransferDirection.UPLOAD) "已上传" else "已完成") + " · " + done
+        TransferState.QUEUED -> queuedLine(task) + (total?.let { " · " + it } ?: "")
+        TransferState.RUNNING -> runningLine(task, done, total)
+        TransferState.COMPLETED -> finishedLine(task) + " · " + done
         TransferState.FAILED -> "失败" + (task.error?.let { " · " + it } ?: "")
         TransferState.CANCELED -> "已取消 · " + done
     }
+}
+
+private fun queuedLine(task: TransferTask): String = when (task.direction) {
+    TransferDirection.UPLOAD -> "等待上传"
+    TransferDirection.CLOUD_COPY -> "等待转存"
+    TransferDirection.DOWNLOAD -> "排队中"
+}
+
+private fun runningLine(task: TransferTask, done: String, total: String?): String {
+    val amount = if (total != null) done + " / " + total else done
+    // 转存要先后下载再上传，同一个进度数字在两个小时段含义不同，
+    // 不标出当前阶段用户会以为卡住了。
+    if (task.direction != TransferDirection.CLOUD_COPY) return amount
+    val stage = task.phase ?: "转存中"
+    return stage + " · " + amount
+}
+
+private fun finishedLine(task: TransferTask): String = when (task.direction) {
+    TransferDirection.UPLOAD -> "已上传"
+    TransferDirection.CLOUD_COPY -> "已转存"
+    TransferDirection.DOWNLOAD -> "已完成"
 }
 
 /**

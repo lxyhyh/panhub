@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.outlined.Circle
@@ -81,6 +82,7 @@ import com.panhub.core.design.QuotaBar
 import com.panhub.core.design.Radius
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
+import com.panhub.core.model.AccountId
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.SortOrder
@@ -102,6 +104,7 @@ fun BrowserScreen(
     val picker by viewModel.picker.collectAsStateWithLifecycle()
     val share by viewModel.share.collectAsStateWithLifecycle()
     val search by viewModel.search.collectAsStateWithLifecycle()
+    val copy by viewModel.copy.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -246,14 +249,18 @@ fun BrowserScreen(
             }
         },
         bottomBar = {
-            if (state.selectionMode && (state.canShare || state.canMove || state.canDownload)) {
+            if (state.selectionMode && (state.canShare || state.canMove ||
+                state.canDownload || state.canCloudCopy)
+            ) {
                 SelectionActionBar(
                     canShare = state.canShare,
                     canMove = state.canMove,
                     canDownload = state.canDownload,
+                    canCloudCopy = state.canCloudCopy,
                     onShare = { viewModel.withSelection { viewModel.openShareSheet(it) } },
                     onMove = { viewModel.withSelection { viewModel.openFolderPicker(it) } },
                     onDownload = viewModel::downloadSelected,
+                    onCloudCopy = { viewModel.withSelection { viewModel.openCloudCopy(it) } },
                 )
             }
         },
@@ -315,6 +322,7 @@ fun BrowserScreen(
             canMove = state.canMove,
             canDownload = state.canDownload,
             canDirectLink = state.canDirectLink,
+            canCloudCopy = state.canCloudCopy,
             onDismiss = { actionNode = null },
             onRename = {
                 actionNode = null
@@ -339,6 +347,10 @@ fun BrowserScreen(
             onShare = {
                 actionNode = null
                 viewModel.openShareSheet(listOf(node))
+            },
+            onCloudCopy = {
+                actionNode = null
+                viewModel.openCloudCopy(listOf(node))
             },
         )
     }
@@ -402,6 +414,15 @@ fun BrowserScreen(
         )
     }
 
+    if (copy.visible) {
+        CloudCopyDialog(
+            copy = copy,
+            onPick = viewModel::setCloudCopyTarget,
+            onSubmit = viewModel::submitCloudCopy,
+            onDismiss = viewModel::closeCloudCopy,
+        )
+    }
+
     if (showSort) {
         SortDialog(
             spec = state.sort,
@@ -423,9 +444,11 @@ private fun SelectionActionBar(
     canShare: Boolean,
     canMove: Boolean,
     canDownload: Boolean,
+    canCloudCopy: Boolean,
     onShare: () -> Unit,
     onMove: () -> Unit,
     onDownload: () -> Unit,
+    onCloudCopy: () -> Unit,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -447,6 +470,9 @@ private fun SelectionActionBar(
             }
             if (canDownload) {
                 SelectionAction("下载", Icons.Default.Download, onDownload)
+            }
+            if (canCloudCopy) {
+                SelectionAction("转存", Icons.Default.SyncAlt, onCloudCopy)
             }
         }
     }
@@ -541,6 +567,83 @@ private fun SearchDialog(
             TextButton(onClick = onSubmit, enabled = search.canSubmit) { Text("搜索") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+}
+
+/**
+ * 「复制到其他网盘」对话框。
+ *
+ * 只让用户选目标账号，目标目录固定为对方的根目录：这里再嵌一层目录浏览，
+ * 两个账号的路径会混进同一个返回栈，很容易把文件放进错误的账号。
+ */
+@Composable
+private fun CloudCopyDialog(
+    copy: CloudCopyState,
+    onPick: (AccountId) -> Unit,
+    onSubmit: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("复制到其他网盘") },
+        text = {
+            Column {
+                Text(
+                    text = "共 " + copy.nodes.size + " 个项目，会先下载再上传，期间不要退出应用。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(Spacing.md))
+                copy.targets.forEach { target ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(Radius.card))
+                            .clickable { onPick(target.id) }
+                            .padding(vertical = Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (target.id == copy.targetId) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.Circle,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        Spacer(Modifier.size(Spacing.sm))
+                        Column {
+                            Text(target.displayName, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = target.providerName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                copy.error?.let { text ->
+                    Spacer(Modifier.height(Spacing.sm))
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSubmit, enabled = copy.canSubmit) {
+                Text(if (copy.busy) "提交中…" else "开始复制")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
@@ -840,6 +943,7 @@ private fun NodeActionsSheet(
     canMove: Boolean,
     canDownload: Boolean,
     canDirectLink: Boolean,
+    canCloudCopy: Boolean,
     onDismiss: () -> Unit,
     onRename: () -> Unit,
     onMove: () -> Unit,
@@ -847,6 +951,7 @@ private fun NodeActionsSheet(
     onDownload: () -> Unit,
     onLink: () -> Unit,
     onShare: () -> Unit,
+    onCloudCopy: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -866,6 +971,9 @@ private fun NodeActionsSheet(
                 }
                 if (!node.isDir && canDirectLink) {
                     ActionRow("复制直链", Icons.Default.Link, onLink)
+                }
+                if (!node.isDir && canCloudCopy) {
+                    ActionRow("复制到其他网盘", Icons.Default.SyncAlt, onCloudCopy)
                 }
                 if (canShare) {
                     ActionRow("创建分享", Icons.Default.Share, onShare)

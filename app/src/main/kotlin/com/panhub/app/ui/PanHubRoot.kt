@@ -60,6 +60,7 @@ fun PanHubRoot(session: SessionManager, transfers: TransferEngine) {
                         accountId = AccountId(raw),
                         launcher = transfers,
                         uploader = transfers,
+                        copier = transfers,
                     )
                 },
             )

@@ -73,6 +73,9 @@ object PanHubContainer {
             sessionProvider = { accountId -> session.connect(accountId) },
             downloader = HttpFileDownloader(),
             sink = DirectorySink(root),
+            // 中转临时文件放 cacheDir：系统空间吃紧时可以直接回收，
+            // 也不会被当成用户的下载留下一堆半成品。
+            scratchDir = File(app.cacheDir, "cloud-copy"),
         )
     }
 

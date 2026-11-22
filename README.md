@@ -27,7 +27,7 @@
 | \`:core:design\` | 蓝云风格 Compose 主题、间距规范与公共组件 |
 | \`:core:storage\` | 账号持久化（JSON + AES-GCM 加密） |
 | \`:core:session\` | 会话管理：登录、恢复、跨 provider 的账号表 |
-| \`:core:transfer\` | 上传/下载队列（串行执行、可取消、可重试） |
+| \`:core:transfer\` | 上传/下载队列与跨网盘转存（串行执行、可取消、可重试） |
 | \`:core:kernel\` | Rust 内核 + JNI 桥接（MD5/SHA1/SHA256/CRC32、分片 MD5） |
 | \`:core:platform\` | 只依赖系统的能力：Android Keystore 加密 |
 | \`:provider:api\` | PanProvider 接口 + ProviderRegistry + ScopedPanProvider + UploadSource |
@@ -53,6 +53,10 @@
 | 天翼云盘 | 网页 Cookie | ✅ | ✅ | — | — |
 | 夸克网盘 | 网页 Cookie | ✅ | ✅ | — | — |
 | 百度网盘 | 网页 Cookie | ✅ | ✅ | — | ✅ 可列出与取消 |
+
+跨网盘转存不需要服务商提供额外接口：源端取下载直链、目标端走上传，
+任何同时支持下载与上传的两个账号之间都能转存。中间文件落应用缓存目录，
+传完即删。
 
 阿里云盘按设计不接入：两条接口路线分别要开放平台密钥和设备签名，
 与本项目「粘贴凭据即可用」的登录形态不兼容，详见 \`docs/recon/aliyun.md\`。
