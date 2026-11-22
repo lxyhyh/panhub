@@ -20,6 +20,7 @@ import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.ProviderCredentials
 import com.panhub.provider.api.ProviderSession
+import com.panhub.provider.api.UploadSource
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -44,6 +45,7 @@ class QuarkProvider(
 ) : PanProvider {
 
     private val api = QuarkApi(engine)
+    private val uploader = QuarkUploader(api)
 
     /**
      * accountId -> 服务端轮换过的 Cookie 字段。
@@ -68,6 +70,8 @@ class QuarkProvider(
             delete = true,
             createFolder = true,
             directLink = true,
+            upload = true,
+            uploadChunked = true,
         ),
     )
 
@@ -328,6 +332,25 @@ class QuarkProvider(
             rememberRenewed(accountId, raw.value.renewed)
             PanResult.Success(Unit)
         }
+    }
+
+    override suspend fun upload(
+        session: ProviderSession,
+        parentId: NodeId?,
+        source: UploadSource,
+        listener: PanProvider.UploadProgress,
+    ): PanResult<RemoteNode> {
+        if (cookieOf(session) == null) {
+            return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        }
+        val accountId = session.accountId.value
+        return uploader.upload(
+            parentId = parentId,
+            source = source,
+            cookieProvider = { cookieOf(session) },
+            onRenewed = { renewed -> rememberRenewed(accountId, renewed) },
+            listener = listener,
+        )
     }
 
     override suspend fun downloadUrl(

@@ -33,6 +33,31 @@ object FileDigest {
         return digest.digest().toHex()
     }
 
+    /**
+     * 一次遍历同时算出 MD5 与 SHA-1。
+     *
+     * 夸克网盘上传前要同时提交这两个摘要（服务端据此判断能否秒传），
+     * 分两遍读同一个文件既慢又要求流可重放，所以这里一次喂给两个摘要器。
+     */
+    fun md5AndSha1(
+        input: InputStream,
+        onProgress: ((Long) -> Unit)? = null,
+    ): Pair<String, String> {
+        val md5 = MessageDigest.getInstance("MD5")
+        val sha1 = MessageDigest.getInstance("SHA-1")
+        val buffer = ByteArray(BUFFER_SIZE)
+        var read = 0L
+        while (true) {
+            val n = input.read(buffer)
+            if (n == -1) break
+            md5.update(buffer, 0, n)
+            sha1.update(buffer, 0, n)
+            read += n
+            onProgress?.invoke(read)
+        }
+        return md5.digest().toHex() to sha1.digest().toHex()
+    }
+
     /** 小数据量的 MD5，主要给测试用。 */
     fun md5(bytes: ByteArray): String =
         MessageDigest.getInstance("MD5").digest(bytes).toHex()

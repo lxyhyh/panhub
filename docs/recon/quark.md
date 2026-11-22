@@ -35,7 +35,34 @@
 | 容量/会员 | GET | `/member` | `fetch_subscribe=false&_ch=home&fetch_identity=false` |
 | 健康检查 | GET | `/config` | 无 |
 
-上传（本期未实现）：`/file/upload/pre`、`/file/upload/auth`、`/file/upload/finish`、`/file/update/hash`。
+| 上传票据 | POST | `/file/upload/pre` | `{ccp_hash_update:true, dir_name:"", file_name, format_type, l_created_at, l_updated_at, pdir_fid, size}` |
+| 秒传校验 | POST | `/file/update/hash` | `{md5, sha1, task_id}` → `data.finish` |
+| 分片签名 | POST | `/file/upload/auth` | `{auth_info, auth_meta, task_id}` → `data.auth_key` |
+| 上传收尾 | POST | `/file/upload/finish` | `{obj_key, task_id}` |
+
+## 上传（分片走阿里 OSS）
+
+夸克本体不接收字节，只发票据与签名；真正的 PUT/POST 打在预签名地址上。四步：
+
+1. **pre**：响应 `data` 里有 `task_id`、`bucket`、`obj_key`、`upload_id`、`upload_url`、
+   `auth_info`、`fid`、`callback{callbackUrl, callbackBody}`；分片大小在 `metadata.part_size`
+   （注意：这条接口的 metadata 装的是 part_size，不是分页信息）。
+2. **hash**：`data.finish == true` 表示服务端已有同内容文件，秒传完成，一个字节都不用传。
+3. **分片**：每片先 `/file/upload/auth` 换签名，再 PUT 到
+   `https://<bucket>.<upload_url 去掉 scheme>/<obj_key>?partNumber=N&uploadId=...`，
+   响应头里的 `Etag` 要逐个记下来。
+4. **收尾**：先换一次 POST 签名，向同一个地址提交 `CompleteMultipartUpload`（XML，
+   带 `Content-MD5` 与 `x-oss-callback`），再 `/file/upload/finish`。
+
+待签串是 OSS V1 格式，换行不能少：
+
+```
+PUT\n\n<Content-Type>\n<Date>\nx-oss-date:<Date>\nx-oss-user-agent:<UA>\n/<bucket>/<objKey>?partNumber=N&uploadId=...
+POST\n<Content-MD5>\napplication/xml\n<Date>\nx-oss-callback:<b64>\nx-oss-date:<Date>\nx-oss-user-agent:<UA>\n/<bucket>/<objKey>?uploadId=...
+```
+
+`upload_url` 的处理**不按参考实现写死的 `[7:]` 切**，改成剥掉任意 scheme
+（http/https），免得上游换成 https 就拼出错地址。
 
 ## 字段
 
@@ -62,5 +89,6 @@ OpenList 里没有任何 share 相关实现，APK 的 dex 里也没找到可读�
 
 ## 已实现
 
-`provider/quark` — 列表、容量、建目录、重命名、移动、删除、取下载地址。
-单测覆盖信封判定、错误映射、HTML 实体反转义、根目录常量。
+`provider/quark` — 列表、容量、建目录、重命名、移动、删除、取下载地址、分片上传（含秒传）。
+单测覆盖信封判定、错误映射、HTML 实体反转义、根目录常量，以及 OSS 待签串与
+合并 XML 的逐字格式（`QuarkOssTest`）。

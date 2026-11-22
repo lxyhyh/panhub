@@ -16,6 +16,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
@@ -88,6 +89,48 @@ internal class QuarkApi(
                     return@use PanResult.Failure(PanError.unknown("服务端返回空响应"))
                 }
                 check(text, renewedCookies(response.headers("Set-Cookie")))
+            }
+        }
+    }
+
+    /**
+     * 往一个**绝对**地址发请求（预签名 URL 用），并把状态码与响应头原样带回来。
+     *
+     * 不能走 [send]：那条路假设响应是夸克的 JSON 信封，而 OSS 的 PUT/POST 返回的是
+     * 空的 200 加一个 Etag 头，套上信封解析只会报「响应解析失败」。
+     */
+    suspend fun executeAbs(
+        method: String,
+        url: String,
+        headers: Map<String, String>,
+        body: RequestBody? = null,
+    ): PanResult<QuarkRawResponse> {
+        val parsed: HttpUrl = try {
+            url.toHttpUrl()
+        } catch (e: IllegalArgumentException) {
+            return PanResult.Failure(PanError.unknown("上传地址不合法", url, e))
+        }
+        val builder = Request.Builder().url(parsed)
+        headers.forEach { (k, v) -> builder.header(k, v) }
+        builder.method(method, body)
+
+        return when (val result = engine.executeRaw(builder.build())) {
+            is PanResult.Failure -> result
+            is PanResult.Success -> result.value.use { response ->
+                val text = try {
+                    response.body.string()
+                } catch (io: IOException) {
+                    return@use PanResult.Failure(
+                        PanError.network(io.message ?: "读取响应失败", io),
+                    )
+                }
+                PanResult.Success(
+                    QuarkRawResponse(
+                        code = response.code,
+                        text = text,
+                        etag = response.header("Etag") ?: response.header("ETag"),
+                    ),
+                )
             }
         }
     }
@@ -173,6 +216,10 @@ internal class QuarkApi(
         const val PATH_FILE_DOWNLOAD = "/file/download"
         const val PATH_MEMBER = "/member"
         const val PATH_CONFIG = "/config"
+        const val PATH_UPLOAD_PRE = "/file/upload/pre"
+        const val PATH_UPLOAD_HASH = "/file/update/hash"
+        const val PATH_UPLOAD_AUTH = "/file/upload/auth"
+        const val PATH_UPLOAD_FINISH = "/file/upload/finish"
 
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
@@ -182,6 +229,15 @@ internal class QuarkApi(
             else -> toString()
         }
     }
+}
+
+/** 直发预签名地址的产物：状态码、响应体、Etag 头（分片上传时必须记下来）。 */
+internal data class QuarkRawResponse(
+    val code: Int,
+    val text: String,
+    val etag: String? = null,
+) {
+    val isSuccessful: Boolean get() = code in 200..299
 }
 
 /** 一次成功请求的产物：原始 JSON、已解析的响应树、可能轮换过的 Cookie。 */

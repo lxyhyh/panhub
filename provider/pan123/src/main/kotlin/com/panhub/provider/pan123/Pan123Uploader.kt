@@ -7,12 +7,12 @@ import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.network.StreamRequestBody
+import com.panhub.core.network.bounded
 import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.UploadSource
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.io.InputStream
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -173,48 +173,5 @@ internal class Pan123Uploader(
 
         /** 一次批量最多换 10 个分片的签名。 */
         const val BATCH_SIZE = 10
-    }
-}
-
-/**
- * 从 [offset] 开始、只读 [length] 字节的视图。
- *
- * 必须要它：每个分片都要重新 openStream()（流的定位能力不保证），
- * 而 OkHttp 会按 contentLength 精确读取，多给一个字节就会破坏分片边界。
- */
-internal fun InputStream.bounded(offset: Long, length: Long): InputStream {
-    // 手写跳过而不是 skipNBytes：后者是 Java 12 才加的，Android 上要到 API 33
-    // 才存在，minSdk 26 的机器会直接 NoSuchMethodError。
-    var skipped = 0L
-    while (skipped < offset) {
-        val n = skip(offset - skipped)
-        if (n <= 0) {
-            if (read() == -1) break
-            skipped++
-        } else {
-            skipped += n
-        }
-    }
-    return object : InputStream() {
-        private var remaining = length
-
-        override fun read(): Int {
-            if (remaining <= 0) return -1
-            val value = this@bounded.read()
-            if (value >= 0) remaining--
-            return value
-        }
-
-        override fun read(b: ByteArray, off: Int, len: Int): Int {
-            if (remaining <= 0) return -1
-            val want = minOf(len.toLong(), remaining).toInt()
-            val read = this@bounded.read(b, off, want)
-            if (read > 0) remaining -= read
-            return read
-        }
-
-        override fun close() {
-            this@bounded.close()
-        }
     }
 }

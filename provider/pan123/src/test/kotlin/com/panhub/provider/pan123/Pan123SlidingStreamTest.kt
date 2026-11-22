@@ -1,5 +1,6 @@
 package com.panhub.provider.pan123
 
+import com.panhub.core.network.bounded
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test

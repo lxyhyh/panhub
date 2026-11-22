@@ -67,3 +67,65 @@ internal data class QuarkDownloadItem(
 internal data class QuarkCreateDirData(
     @SerialName("fid") val fid: String? = null,
 )
+/**
+ * /file/upload/pre 的 data：一次上传的完整票据。
+ *
+ * [uploadUrl] 是 OSS 的 endpoint 主机（形如 xxx.oss-cn-xxx.aliyuncs.com 或带 scheme），
+ * 真正 PUT 的地址要拼成 https://<bucket>.<uploadUrl 去掉 scheme>/<objKey>，见 QuarkUploader。
+ */
+@Serializable
+internal data class QuarkUploadPre(
+    @SerialName("task_id") val taskId: String? = null,
+    @SerialName("finish") val finish: Boolean = false,
+    @SerialName("upload_id") val uploadId: String? = null,
+    @SerialName("obj_key") val objKey: String? = null,
+    @SerialName("upload_url") val uploadUrl: String? = null,
+    @SerialName("fid") val fid: String? = null,
+    @SerialName("bucket") val bucket: String? = null,
+    @SerialName("callback") val callback: QuarkUploadCallback? = null,
+    @SerialName("format_type") val formatType: String? = null,
+    @SerialName("size") val size: Long? = null,
+    @SerialName("auth_info") val authInfo: String? = null,
+)
+
+/** 收尾时要原样回传给 OSS 的回调描述。 */
+@Serializable
+internal data class QuarkUploadCallback(
+    @SerialName("callbackUrl") val callbackUrl: String? = null,
+    @SerialName("callbackBody") val callbackBody: String? = null,
+)
+
+/**
+ * upload/pre 的信封。
+ *
+ * 不能复用 [QuarkEnvelope]：那一个的 metadata 是分页信息（_size/_page/_total），
+ * 而上传这条接口的 metadata 装的是 part_size，同名不同义。
+ */
+@Serializable
+internal data class QuarkUploadPreEnvelope(
+    @SerialName("status") val status: Int = 0,
+    @SerialName("code") val code: Int = 0,
+    @SerialName("message") val message: String? = null,
+    @SerialName("data") val data: QuarkUploadPre? = null,
+    @SerialName("metadata") val metadata: QuarkUploadPreMeta? = null,
+)
+
+/** 分片大小在 metadata 里，不在 data 里。 */
+@Serializable
+internal data class QuarkUploadPreMeta(
+    @SerialName("part_size") val partSize: Long? = null,
+    @SerialName("part_thread") val partThread: Int? = null,
+)
+
+/** /file/update/hash：finish=true 表示服务端已有同样内容，秒传完成。 */
+@Serializable
+internal data class QuarkHashData(
+    @SerialName("finish") val finish: Boolean = false,
+    @SerialName("fid") val fid: String? = null,
+)
+
+/** /file/upload/auth：auth_key 直接当 OSS 的 Authorization 头用。 */
+@Serializable
+internal data class QuarkUploadAuth(
+    @SerialName("auth_key") val authKey: String? = null,
+)
