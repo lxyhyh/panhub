@@ -3,6 +3,7 @@ package com.panhub.feature.browser
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Delete
@@ -85,6 +88,7 @@ fun BrowserScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val picker by viewModel.picker.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -237,12 +241,17 @@ fun BrowserScreen(
             canShare = state.canShare,
             canRename = state.canRename,
             canDelete = state.canDelete,
+            canMove = state.canMove,
             canDownload = state.canDownload,
             canDirectLink = state.canDirectLink,
             onDismiss = { actionNode = null },
             onRename = {
                 actionNode = null
                 renameNode = node
+            },
+            onMove = {
+                actionNode = null
+                viewModel.openFolderPicker(node)
             },
             onDelete = {
                 actionNode = null
@@ -288,6 +297,125 @@ fun BrowserScreen(
             },
         )
     }
+
+    if (picker.visible) {
+        FolderPickerDialog(
+            picker = picker,
+            onDismiss = viewModel::closeFolderPicker,
+            onEnter = viewModel::enterPickerFolder,
+            onUp = viewModel::leavePickerFolder,
+            onConfirm = viewModel::confirmMove,
+        )
+    }
+}
+
+/**
+ * 目标目录选择器。
+ *
+ * 用对话框而不是新页面：移动只是浏览过程中的一个短暂动作，
+ * 开新页面要处理一次返回栈，还会让人以为已经离开了当前目录。
+ */
+@Composable
+private fun FolderPickerDialog(
+    picker: FolderPickerState,
+    onDismiss: () -> Unit,
+    onEnter: (RemoteNode) -> Unit,
+    onUp: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "移动到",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (picker.stack.isNotEmpty()) {
+                        IconButton(onClick = onUp) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "上一级",
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        text = picker.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                when {
+                    picker.loading -> Box(
+                        modifier = Modifier.fillMaxWidth().height(96.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    picker.error != null -> Text(
+                        text = picker.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(vertical = Spacing.lg),
+                    )
+                    picker.folders.isEmpty() -> Text(
+                        text = "这里没有子文件夹",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = Spacing.lg),
+                    )
+                    else -> LazyColumn(
+                        modifier = Modifier.heightIn(max = 320.dp),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    ) {
+                        items(picker.folders, key = { it.id.value }) { folder ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(Radius.card))
+                                    .clickable { onEnter(folder) }
+                                    .padding(vertical = Spacing.md, horizontal = Spacing.sm),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Default.Folder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.size(Spacing.md))
+                                Text(
+                                    text = folder.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = picker.canConfirm) {
+                Text("移动到这里")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 @Composable
@@ -393,10 +521,12 @@ private fun NodeActionsSheet(
     canShare: Boolean,
     canRename: Boolean,
     canDelete: Boolean,
+    canMove: Boolean,
     canDownload: Boolean,
     canDirectLink: Boolean,
     onDismiss: () -> Unit,
     onRename: () -> Unit,
+    onMove: () -> Unit,
     onDelete: () -> Unit,
     onDownload: () -> Unit,
     onLink: () -> Unit,
@@ -411,6 +541,9 @@ private fun NodeActionsSheet(
                 // 界面不认识服务商，也就不可能在新增网盘时漏改这里。
                 if (canRename) {
                     ActionRow("重命名", Icons.Default.Edit, onRename)
+                }
+                if (canMove) {
+                    ActionRow("移动到", Icons.AutoMirrored.Filled.DriveFileMove, onMove)
                 }
                 if (!node.isDir && canDownload) {
                     ActionRow("下载", Icons.Default.Download, onDownload)

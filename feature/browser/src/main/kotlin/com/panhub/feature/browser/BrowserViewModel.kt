@@ -43,6 +43,7 @@ data class BrowserUiState(
     val canUpload: Boolean = false,
     val canRename: Boolean = false,
     val canDelete: Boolean = false,
+    val canMove: Boolean = false,
     val canDownload: Boolean = false,
     val canDirectLink: Boolean = false,
     val error: PanError? = null,
@@ -65,6 +66,40 @@ data class BrowserUiState(
 }
 
 /**
+ * 「移动到」对话框的状态。
+ *
+ * 目录导航单独放一份栈，而不是复用 [BrowserUiState.stack]：用户在选择目标目录时
+ * 不应该把浏览页也一起带跑（取消后要回到原来的位置）。
+ */
+data class FolderPickerState(
+    val visible: Boolean = false,
+    /** 被移动的节点。 */
+    val node: RemoteNode? = null,
+    /** 被移动节点原来所在的目录；null 表示根目录。 */
+    val originParentId: NodeId? = null,
+    val stack: List<RemoteNode> = emptyList(),
+    val folders: List<RemoteNode> = emptyList(),
+    val loading: Boolean = false,
+    val error: String? = null,
+) {
+    val current: RemoteNode? get() = stack.lastOrNull()
+
+    /** 当前所在目录；null 表示根目录。 */
+    val targetId: NodeId? get() = current?.id
+
+    val title: String get() = if (stack.isEmpty()) "全部文件" else stack.joinToString(" / ") { it.name }
+
+    /**
+     * 目标目录等于原目录时不能确认。
+     *
+     * 这不是防呆而是必要判断：多数服务商的移动接口在「移到原地」上行为不一致，
+     * 有的报错「目标已存在」，有的把文件改名加后缀，有的静默成功。
+     * 与其让用户看到莫名其妙的失败，不如在这里直接挡住。
+     */
+    val canConfirm: Boolean get() = node != null && !loading && targetId != originParentId
+}
+
+/**
  * 文件浏览。
  *
  * 深模块化的关键点：这一层只认识 [ScopedPanProvider] 和 [RemoteNode]，
@@ -80,8 +115,108 @@ class BrowserViewModel(
     private val _state = MutableStateFlow(BrowserUiState(accountId = accountId))
     val state: StateFlow<BrowserUiState> = _state.asStateFlow()
 
+    private val _picker = MutableStateFlow(FolderPickerState())
+    val picker: StateFlow<FolderPickerState> = _picker.asStateFlow()
+
     private var scoped: ScopedPanProvider? = null
     private var loadJob: Job? = null
+
+    /**
+     * 打开「移动到」选择器。
+     *
+     * 起始目录固定在根目录而不是上次的位置：移动是做一次性的目录选择，
+     * 记住上次位置反而容易让用户在手快时把文件丢进一个不相干的目录。
+     */
+    fun openFolderPicker(node: RemoteNode) {
+        val provider = scoped ?: return
+        _picker.value = FolderPickerState(visible = true, node = node, loading = true)
+        loadPicker(provider, null)
+    }
+
+    fun closeFolderPicker() {
+        _picker.value = FolderPickerState()
+    }
+
+    /** 进入选择器里的下一级文件夹。 */
+    fun enterPickerFolder(folder: RemoteNode) {
+        val provider = scoped ?: return
+        if (!folder.isDir) return
+        _picker.update { it.copy(stack = it.stack + folder, loading = true, error = null) }
+        loadPicker(provider, folder.id)
+    }
+
+    /** 选择器里返回上一级。 */
+    fun leavePickerFolder() {
+        val provider = scoped ?: return
+        val stack = _picker.value.stack
+        if (stack.isEmpty()) return
+        val next = stack.dropLast(1)
+        _picker.update { it.copy(stack = next, loading = true, error = null) }
+        loadPicker(provider, next.lastOrNull()?.id)
+    }
+
+    /** 确认移动到当前目录。 */
+    fun confirmMove() {
+        val provider = scoped ?: return
+        val snapshot = _picker.value
+        val node = snapshot.node ?: return
+        if (!snapshot.canConfirm) return
+        val target = snapshot.targetId
+        closeFolderPicker()
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            when (val result = provider.move(node.id, target)) {
+                is PanResult.Success -> {
+                    _state.update { it.copy(busy = false, message = "已移动 " + node.name) }
+                    load(refresh = true)
+                }
+                is PanResult.Failure -> _state.update {
+                    it.copy(busy = false, message = it.errorText(result.error))
+                }
+            }
+        }
+    }
+
+    /**
+     * 只列文件夹，不列文件。
+     *
+     * 为什么不在这一层过滤：服务商的分页是逐页的，如果这一页全是文件，
+     * 过滤后就是空白页，「加载更多」会出现但点了也没东西——用户会以为坏了。
+     * 所以这里顺着游标往后翻，直到攒够一页文件夹或翻到底，最多 5 次请求
+     * （再多就是在拿用户的流量做无用功）。
+     */
+    private fun loadPicker(provider: ScopedPanProvider, parentId: NodeId?) {
+        viewModelScope.launch {
+            var cursor: String? = null
+            var rounds = 0
+            val folders = mutableListOf<RemoteNode>()
+            while (true) {
+                when (
+                    val result = provider.list(
+                        parentId,
+                        PageRequest(cursor = cursor, limit = PICKER_PAGE_SIZE),
+                    )
+                ) {
+                    is PanResult.Failure -> {
+                        _picker.update { it.copy(loading = false, folders = emptyList(), error = result.error.message) }
+                        return@launch
+                    }
+                    is PanResult.Success -> {
+                        val page = result.value
+                        folders += page.items.filter { it.isDir }
+                        cursor = page.nextCursor
+                        rounds++
+                        if (folders.isNotEmpty() || cursor == null || rounds >= PICKER_MAX_ROUNDS) {
+                            _picker.update {
+                                it.copy(loading = false, folders = folders, error = null)
+                            }
+                            return@launch
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     /** 打开任意节点（文件夹则进入，文件则展示信息）。 */
     fun open(node: RemoteNode) {
@@ -259,6 +394,7 @@ class BrowserViewModel(
                             canUpload = descriptor.capabilities.upload,
                             canRename = descriptor.capabilities.rename,
                             canDelete = descriptor.capabilities.delete,
+                            canMove = descriptor.capabilities.move,
                             canDownload = descriptor.capabilities.download,
                             canDirectLink = descriptor.capabilities.directLink,
                         )
@@ -356,4 +492,12 @@ class BrowserViewModel(
     }
 
     private fun BrowserUiState.errorText(error: PanError): String = error.message
+
+    private companion object {
+        /** 选择目标目录时每页多大。只要文件夹，页面越小越快攒够一屏。 */
+        const val PICKER_PAGE_SIZE = 50
+
+        /** 连续翻页找文件夹的上限，避免一页全是文件时无限翻下去。 */
+        const val PICKER_MAX_ROUNDS = 5
+    }
 }
