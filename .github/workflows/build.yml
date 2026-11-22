@@ -40,7 +40,9 @@ jobs:
             :core:network:test \
             :provider:api:test \
             :provider:webdav:test \
-            :provider:pan123:test
+            :provider:pan123:test \
+            :core:storage:test \
+            :core:session:test
 
   # Rust 内核单独一个 job：它只在改了 core/kernel 时才需要重编，
   # 缓存命中率高，而且失败原因一眼能看清是 C 还是 Kotlin 的问题。
