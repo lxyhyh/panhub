@@ -13,9 +13,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val session = PanHubContainer.sessionManager(this)
+        val transfers = PanHubContainer.transferEngine(this)
         setContent {
             PanHubTheme {
-                PanHubRoot(session)
+                PanHubRoot(session, transfers)
             }
         }
     }

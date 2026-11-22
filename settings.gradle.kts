@@ -47,3 +47,4 @@ include(":provider:baidu")
 // feature 层：每个页面一个模块，只依赖 core 的契约，互不依赖
 include(":feature:accounts")
 include(":feature:browser")
+include(":feature:transfers")

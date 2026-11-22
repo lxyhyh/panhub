@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
@@ -77,6 +78,7 @@ import java.util.Locale
 fun AccountsScreen(
     viewModel: AccountsViewModel,
     onOpenAccount: (AccountId) -> Unit,
+    onOpenTransfers: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val form by viewModel.form.collectAsStateWithLifecycle()
@@ -96,6 +98,11 @@ fun AccountsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("账号") },
+                actions = {
+                    IconButton(onClick = onOpenTransfers) {
+                        Icon(Icons.Default.SwapVert, contentDescription = "传输列表")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),

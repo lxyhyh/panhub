@@ -9,6 +9,7 @@ import com.panhub.core.model.NodeId
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.session.SessionManager
+import com.panhub.core.transfer.DownloadLauncher
 import com.panhub.provider.api.ScopedPanProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,6 +60,7 @@ data class BrowserUiState(
 class BrowserViewModel(
     private val session: SessionManager,
     private val accountId: AccountId,
+    private val launcher: DownloadLauncher? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(BrowserUiState(accountId = accountId))
@@ -176,6 +178,20 @@ class BrowserViewModel(
                 }
             }
         }
+    }
+
+    /** 把文件加入下载队列。文件夹不支持（需要先有递归遍历与打包策略）。 */
+    fun download(node: RemoteNode) {
+        if (node.isDir) {
+            _state.update { it.copy(message = "暂不支持下载整个文件夹") }
+            return
+        }
+        val target = launcher ?: run {
+            _state.update { it.copy(message = "下载功能不可用") }
+            return
+        }
+        target.download(accountId, node.id, node.name, node.size.takeIf { it > 0L })
+        _state.update { it.copy(message = "已加入下载队列：" + node.name) }
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }

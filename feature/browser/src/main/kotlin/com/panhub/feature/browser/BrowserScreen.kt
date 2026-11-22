@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -200,6 +201,10 @@ fun BrowserScreen(
                 actionNode = null
                 viewModel.delete(node)
             },
+            onDownload = {
+                actionNode = null
+                viewModel.download(node)
+            },
             onLink = {
                 actionNode = null
                 viewModel.directLink(node) { url -> context.openUrl(url) }
@@ -304,6 +309,7 @@ private fun NodeActionsSheet(
     onDismiss: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onDownload: () -> Unit,
     onLink: () -> Unit,
     onShare: () -> Unit,
 ) {
@@ -314,6 +320,7 @@ private fun NodeActionsSheet(
             Column {
                 ActionRow("重命名", Icons.Default.Description, onRename)
                 if (!node.isDir) {
+                    ActionRow("下载", Icons.Default.Download, onDownload)
                     ActionRow("复制直链", Icons.Default.Link, onLink)
                 }
                 if (canShare) {

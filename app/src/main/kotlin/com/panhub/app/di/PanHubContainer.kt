@@ -7,6 +7,13 @@ import com.panhub.core.platform.KeystoreCipher
 import com.panhub.core.session.DefaultSessionManager
 import com.panhub.core.session.SessionManager
 import com.panhub.core.storage.JsonAccountStore
+import com.panhub.core.transfer.DirectorySink
+import com.panhub.core.transfer.HttpFileDownloader
+import com.panhub.core.transfer.TransferEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.plus
 import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.ProviderRegistry
 import com.panhub.provider.baidu.BaiduProvider
@@ -34,14 +41,40 @@ object PanHubContainer {
     @Volatile
     private var instance: SessionManager? = null
 
+    @Volatile
+    private var engine: TransferEngine? = null
+
     /** 进程级单例。第一次调用时装配。 */
     fun sessionManager(context: Context): SessionManager =
         instance ?: synchronized(this) {
             instance ?: build(applicationContext(context)).also { instance = it }
         }
 
+    /**
+     * 下载队列。
+     *
+     * 用 application 级作用域，所以退出某个页面不会打断正在进行的下载；
+     * 用 SupervisorJob，单个任务失败不会带走整个队列。
+     */
+    fun transferEngine(context: Context): TransferEngine =
+        engine ?: synchronized(this) {
+            engine ?: buildEngine(applicationContext(context)).also { engine = it }
+        }
+
     private fun applicationContext(context: Context): Context =
         context.applicationContext ?: context
+
+    private fun buildEngine(app: Context): TransferEngine {
+        val session = sessionManager(app)
+        // 目录固定为应用私有 downloads：无需任何存储权限，卸载即回收。
+        val root = File(app.filesDir, "downloads")
+        return TransferEngine(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            sessionProvider = { accountId -> session.connect(accountId) },
+            downloader = HttpFileDownloader(),
+            sink = DirectorySink(root),
+        )
+    }
 
     private fun build(app: Context): SessionManager {
         val engine = HttpEngine()

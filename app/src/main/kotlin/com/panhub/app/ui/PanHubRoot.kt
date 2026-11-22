@@ -11,6 +11,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.panhub.core.model.AccountId
 import com.panhub.core.session.SessionManager
+import com.panhub.core.transfer.TransferEngine
+import com.panhub.feature.transfers.TransfersScreen
+import com.panhub.feature.transfers.TransfersViewModel
 import com.panhub.feature.accounts.AccountsScreen
 import com.panhub.feature.accounts.AccountsViewModel
 import com.panhub.feature.browser.BrowserScreen
@@ -26,7 +29,7 @@ import com.panhub.feature.browser.BrowserViewModel
  * 也都不认识导航，加一个新页面只改这里。
  */
 @Composable
-fun PanHubRoot(session: SessionManager) {
+fun PanHubRoot(session: SessionManager, transfers: TransferEngine) {
     val nav = rememberNavController()
 
     NavHost(navController = nav, startDestination = Routes.ACCOUNTS) {
@@ -37,6 +40,7 @@ fun PanHubRoot(session: SessionManager) {
                 onOpenAccount = { accountId ->
                     nav.navigate(Routes.browser(accountId.value))
                 },
+                onOpenTransfers = { nav.navigate(Routes.TRANSFERS) },
             )
         }
         composable(
@@ -45,15 +49,24 @@ fun PanHubRoot(session: SessionManager) {
         ) { entry ->
             val raw = entry.arguments?.getString(Routes.ARG_ACCOUNT).orEmpty()
             val vm: BrowserViewModel = viewModel(
-                factory = factoryOf { BrowserViewModel(session, AccountId(raw)) },
+                factory = factoryOf {
+                    BrowserViewModel(session, AccountId(raw), transfers)
+                },
             )
             BrowserScreen(viewModel = vm, onBack = { nav.popBackStack() })
+        }
+        composable(Routes.TRANSFERS) {
+            val vm: TransfersViewModel = viewModel(
+                factory = factoryOf { TransfersViewModel(transfers) },
+            )
+            TransfersScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
     }
 }
 
 private object Routes {
     const val ACCOUNTS = "accounts"
+    const val TRANSFERS = "transfers"
     const val ARG_ACCOUNT = "accountId"
     const val BROWSER = "browser/{$ARG_ACCOUNT}"
 
