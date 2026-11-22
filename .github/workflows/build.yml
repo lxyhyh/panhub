@@ -113,6 +113,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # compileSdk 是 37.2（Compose BOM 2026.11.01 与 core-ktx 1.19 的要求），
+      # runner 镜像里通常只有整数版平台，次版本要自己装。
+      - name: Install Android platform 37.2
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-37.2" "build-tools;37.0.0"
+
       - name: Download native libs
         uses: actions/download-artifact@v4
         with:
