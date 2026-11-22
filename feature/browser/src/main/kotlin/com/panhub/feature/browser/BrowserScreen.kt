@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Delete
@@ -31,9 +34,11 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +52,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -126,23 +132,39 @@ fun BrowserScreen(
             Column {
                 TopAppBar(
                     navigationIcon = {
-                        IconButton(onClick = { if (!viewModel.goUp()) onBack() }) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "返回",
-                            )
+                        if (state.selectionMode) {
+                            IconButton(onClick = viewModel::clearSelection) {
+                                Icon(Icons.Default.Close, contentDescription = "退出多选")
+                            }
+                        } else {
+                            IconButton(onClick = { if (!viewModel.goUp()) onBack() }) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "返回",
+                                )
+                            }
                         }
                     },
                     title = {
                         Text(
-                            text = state.title,
+                            text = if (state.selectionMode) {
+                                "已选择 " + state.selectedCount + " 项"
+                            } else {
+                                state.title
+                            },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     },
                     actions = {
-                        IconButton(onClick = viewModel::refresh) {
-                            Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                        if (state.selectionMode) {
+                            IconButton(onClick = viewModel::toggleSelectAll) {
+                                Icon(Icons.Default.SelectAll, contentDescription = "全选")
+                            }
+                        } else {
+                            IconButton(onClick = viewModel::refresh) {
+                                Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -169,7 +191,19 @@ fun BrowserScreen(
             }
         },
         floatingActionButton = {
-            Column(
+            // 多选时收起新建/上传：此刻唯一该做的事是对已选项目下手，
+            // 留着两个会误触的按钮只会让人犹豫。
+            if (state.selectionMode) {
+                if (state.canDelete) {
+                    FloatingActionButton(
+                        onClick = viewModel::deleteSelected,
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "删除所选")
+                    }
+                }
+            } else Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
@@ -191,6 +225,16 @@ fun BrowserScreen(
                         Icon(Icons.Default.CreateNewFolder, contentDescription = "新建文件夹")
                     }
                 }
+            }
+        },
+        bottomBar = {
+            if (state.selectionMode && (state.canShare || state.canMove)) {
+                SelectionActionBar(
+                    canShare = state.canShare,
+                    canMove = state.canMove,
+                    onShare = { viewModel.withSelection { viewModel.openShareSheet(it) } },
+                    onMove = { viewModel.withSelection { viewModel.openFolderPicker(it) } },
+                )
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -220,7 +264,12 @@ fun BrowserScreen(
                     items(state.sorted, key = { it.id.value }) { node ->
                         NodeRow(
                             node = node,
-                            onClick = { viewModel.open(node) },
+                            selectionMode = state.selectionMode,
+                            selected = node.id in state.selected,
+                            onClick = {
+                                if (state.selectionMode) viewModel.toggleSelect(node) else viewModel.open(node)
+                            },
+                            onLongClick = { viewModel.toggleSelect(node) },
                             onMore = { actionNode = node },
                         )
                     }
@@ -253,7 +302,7 @@ fun BrowserScreen(
             },
             onMove = {
                 actionNode = null
-                viewModel.openFolderPicker(node)
+                viewModel.openFolderPicker(listOf(node))
             },
             onDelete = {
                 actionNode = null
@@ -269,7 +318,7 @@ fun BrowserScreen(
             },
             onShare = {
                 actionNode = null
-                viewModel.openShareSheet(node)
+                viewModel.openShareSheet(listOf(node))
             },
         )
     }
@@ -320,6 +369,56 @@ fun BrowserScreen(
             onShare = { url, text -> context.shareText(text ?: url) },
             onCopy = { text -> context.copyText(text) },
         )
+    }
+}
+
+/**
+ * 多选时底部的操作条。
+ *
+ * 删除没有放进来：它是不可撤销的破坏性操作，放在和"分享""移动"并排的位置
+ * 太容易被手滑点到，单独留在右下角的 FAB 上更安全。
+ */
+@Composable
+private fun SelectionActionBar(
+    canShare: Boolean,
+    canMove: Boolean,
+    onShare: () -> Unit,
+    onMove: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shadowElevation = 8.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            if (canShare) {
+                SelectionAction("分享", Icons.Default.Share, onShare)
+            }
+            if (canMove) {
+                SelectionAction("移动", Icons.AutoMirrored.Filled.DriveFileMove, onMove)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectionAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(Radius.card))
+            .clickable(onClick = onClick)
+            .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.size(Spacing.xs))
+        Text(text = label, style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -435,11 +534,31 @@ private fun FolderPickerDialog(
 @Composable
 private fun NodeRow(
     node: RemoteNode,
+    selectionMode: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onMore: () -> Unit,
 ) {
-    PanCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    PanCard(onClick = onClick, onLongClick = onLongClick, modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (selectionMode) {
+                Icon(
+                    imageVector = if (selected) {
+                        Icons.Filled.CheckCircle
+                    } else {
+                        Icons.Outlined.Circle
+                    },
+                    contentDescription = null,
+                    tint = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    },
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.size(Spacing.md))
+            }
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -690,7 +809,7 @@ private fun ShareDialog(
             } else {
                 Column {
                     Text(
-                        text = share.node?.name.orEmpty(),
+                        text = share.subject,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

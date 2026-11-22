@@ -2,6 +2,7 @@ package com.panhub.core.design
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,18 +35,25 @@ import androidx.compose.ui.unit.dp
  * 之所以做成组件而不是让每个页面自己写 Card：圆角、阴影、内边距
  * 在蓝云风格里是统一的，散落在各处就会很快漂移。
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun PanCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(Radius.card)
     val base = modifier
         .fillMaxWidth()
         .clip(shape)
+    val clickable = when {
+        onClick == null -> base
+        onLongClick == null -> base.clickable(onClick = onClick)
+        else -> base.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    }
     Card(
-        modifier = if (onClick != null) base.clickable(onClick = onClick) else base,
+        modifier = clickable,
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = Elevation.card),

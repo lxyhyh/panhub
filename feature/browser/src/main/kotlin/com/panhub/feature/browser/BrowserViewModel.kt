@@ -53,8 +53,18 @@ data class BrowserUiState(
     val error: PanError? = null,
     val message: String? = null,
     val busy: Boolean = false,
+    /** 多选模式下被勾选的节点。空集合就代表不在多选模式。 */
+    val selected: Set<NodeId> = emptySet(),
 ) {
     val currentFolder: RemoteNode? get() = stack.lastOrNull()
+
+    /** 有勾选项即进入多选模式：不需要额外的开关，少一个状态就少一处不一致。 */
+    val selectionMode: Boolean get() = selected.isNotEmpty()
+
+    val selectedCount: Int get() = selected.size
+
+    /** 当前已加载的项目是否全选。只在多选模式下有意义。 */
+    val allSelected: Boolean get() = nodes.isNotEmpty() && nodes.all { it.id in selected }
     val title: String get() = currentFolder?.name ?: accountName
     val canGoUp: Boolean get() = stack.isNotEmpty()
     val parentId: NodeId? get() = currentFolder?.id
@@ -77,8 +87,8 @@ data class BrowserUiState(
  */
 data class FolderPickerState(
     val visible: Boolean = false,
-    /** 被移动的节点。 */
-    val node: RemoteNode? = null,
+    /** 被移动的节点；多选时会有多个。 */
+    val nodes: List<RemoteNode> = emptyList(),
     /** 被移动节点原来所在的目录；null 表示根目录。 */
     val originParentId: NodeId? = null,
     val stack: List<RemoteNode> = emptyList(),
@@ -100,7 +110,7 @@ data class FolderPickerState(
      * 有的报错「目标已存在」，有的把文件改名加后缀，有的静默成功。
      * 与其让用户看到莫名其妙的失败，不如在这里直接挡住。
      */
-    val canConfirm: Boolean get() = node != null && !loading && targetId != originParentId
+    val canConfirm: Boolean get() = nodes.isNotEmpty() && !loading && targetId != originParentId
 }
 
 /**
@@ -111,7 +121,8 @@ data class FolderPickerState(
  */
 data class ShareSheetState(
     val visible: Boolean = false,
-    val node: RemoteNode? = null,
+    /** 被分享的节点；多选时会有多个。 */
+    val nodes: List<RemoteNode> = emptyList(),
     /** 访问密码；空表示不设。只有服务商支持时才展示这一项。 */
     val password: String = "",
     /** 有效期天数；null 表示永久。只有服务商支持时才展示这一项。 */
@@ -122,6 +133,14 @@ data class ShareSheetState(
     val result: ShareLink? = null,
 ) {
     val done: Boolean get() = result != null
+
+    /** 对话框标题里显示的对象：一个就写名字，多个写数量。 */
+    val subject: String
+        get() = when (nodes.size) {
+            0 -> ""
+            1 -> nodes.first().name
+            else -> nodes.size.toString() + " 个项目"
+        }
 }
 
 /**
@@ -155,9 +174,17 @@ class BrowserViewModel(
      * 起始目录固定在根目录而不是上次的位置：移动是做一次性的目录选择，
      * 记住上次位置反而容易让用户在手快时把文件丢进一个不相干的目录。
      */
-    fun openFolderPicker(node: RemoteNode) {
+    fun openFolderPicker(nodes: List<RemoteNode>) {
         val provider = scoped ?: return
-        _picker.value = FolderPickerState(visible = true, node = node, loading = true)
+        if (nodes.isEmpty()) return
+        _picker.value = FolderPickerState(
+            visible = true,
+            nodes = nodes,
+            // 多选时这些节点可能来自不同目录，无法判定"原目录"，
+            // 于是传一个不可能等于任何目标目录的哨兵，一律允许确认。
+            originParentId = nodes.singleOrNull()?.parentId ?: UNSET_PARENT,
+            loading = true,
+        )
         loadPicker(provider, null)
     }
 
@@ -187,22 +214,38 @@ class BrowserViewModel(
     fun confirmMove() {
         val provider = scoped ?: return
         val snapshot = _picker.value
-        val node = snapshot.node ?: return
+        val nodes = snapshot.nodes
         if (!snapshot.canConfirm) return
         val target = snapshot.targetId
         closeFolderPicker()
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
-            when (val result = provider.move(node.id, target)) {
-                is PanResult.Success -> {
-                    _state.update { it.copy(busy = false, message = "已移动 " + node.name) }
-                    load(refresh = true)
-                }
-                is PanResult.Failure -> _state.update {
-                    it.copy(busy = false, message = it.errorText(result.error))
+            // 逐个移动而不是找批量接口：只有少数服务商有批量移动，
+            // 而逐个移动的失败语义是明确的——成功几个就是几个，报错也只针对那一个。
+            var moved = 0
+            var firstError: String? = null
+            for (node in nodes) {
+                when (val result = provider.move(node.id, target)) {
+                    is PanResult.Success -> moved++
+                    is PanResult.Failure -> if (firstError == null) firstError = result.error.message
                 }
             }
+            _state.update {
+                it.copy(
+                    busy = false,
+                    message = moveMessage(moved, nodes.size, firstError),
+                    selected = emptySet(),
+                )
+            }
+            load(refresh = true)
         }
+    }
+
+    /** 移动结果的一句话。部分成功要说清楚，否则用户会以为全成了。 */
+    private fun moveMessage(moved: Int, total: Int, error: String?): String = when {
+        moved == total -> "已移动 " + total + " 项"
+        moved == 0 -> error ?: "移动失败"
+        else -> "已移动 " + moved + "/" + total + " 项：" + (error ?: "部分失败")
     }
 
     /**
@@ -343,9 +386,75 @@ class BrowserViewModel(
         }
     }
 
+    /**
+     * 多选：切换某一项的勾选状态。
+     *
+     * 勾选即进入多选模式，取消最后一个勾选就退出——不需要一个单独的"进入多选"
+     * 开关，少一个状态就少一处会和列表不同步的地方。
+     */
+    fun toggleSelect(node: RemoteNode) {
+        _state.update {
+            val next = if (node.id in it.selected) it.selected - node.id else it.selected + node.id
+            it.copy(selected = next)
+        }
+    }
+
+    /** 全选当前已加载的项目；已全选则清空（同一个入口来回切）。 */
+    fun toggleSelectAll() {
+        _state.update {
+            it.copy(selected = if (it.allSelected) emptySet() else it.nodes.mapTo(mutableSetOf()) { n -> n.id })
+        }
+    }
+
+    fun clearSelection() = _state.update { it.copy(selected = emptySet()) }
+
+    private fun selectedNodes(): List<RemoteNode> {
+        val current = _state.value
+        val byId = current.nodes.associateBy { it.id }
+        return current.selected.mapNotNull { byId[it] }
+    }
+
+    /** 把多选的项目交给某个动作；动作结束后统一清空选择。 */
+    fun withSelection(action: (List<RemoteNode>) -> Unit) {
+        val nodes = selectedNodes()
+        if (nodes.isEmpty()) return
+        action(nodes)
+    }
+
+    /** 批量删除。没有批量接口，逐个删并统计结果。 */
+    fun deleteSelected() {
+        val provider = scoped ?: return
+        val nodes = selectedNodes()
+        if (nodes.isEmpty()) return
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            var done = 0
+            var firstError: String? = null
+            for (node in nodes) {
+                when (val result = provider.delete(node.id)) {
+                    is PanResult.Success -> done++
+                    is PanResult.Failure -> if (firstError == null) firstError = result.error.message
+                }
+            }
+            _state.update {
+                it.copy(
+                    busy = false,
+                    selected = emptySet(),
+                    message = when {
+                        done == nodes.size -> "已删除 " + done + " 项"
+                        done == 0 -> firstError ?: "删除失败"
+                        else -> "已删除 " + done + "/" + nodes.size + " 项"
+                    },
+                )
+            }
+            load(refresh = true)
+        }
+    }
+
     /** 打开分享对话框。 */
-    fun openShareSheet(node: RemoteNode) {
-        _share.value = ShareSheetState(visible = true, node = node)
+    fun openShareSheet(nodes: List<RemoteNode>) {
+        if (nodes.isEmpty()) return
+        _share.value = ShareSheetState(visible = true, nodes = nodes)
     }
 
     fun closeShareSheet() {
@@ -365,15 +474,15 @@ class BrowserViewModel(
     fun submitShare() {
         val provider = scoped ?: return
         val snapshot = _share.value
-        val node = snapshot.node ?: return
-        if (snapshot.busy) return
+        val nodes = snapshot.nodes
+        if (nodes.isEmpty() || snapshot.busy) return
         _share.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             val options = ShareOptions(
                 password = snapshot.password.trim().takeIf { it.isNotEmpty() },
                 expireDays = snapshot.expireDays,
             )
-            when (val result = provider.createShare(listOf(node.id), options)) {
+            when (val result = provider.createShare(nodes.map { it.id }, options)) {
                 is PanResult.Success -> _share.update {
                     it.copy(busy = false, result = result.value, error = null)
                 }
@@ -554,5 +663,13 @@ class BrowserViewModel(
 
         /** 连续翻页找文件夹的上限，避免一页全是文件时无限翻下去。 */
         const val PICKER_MAX_ROUNDS = 5
+
+        /**
+         * 「没有原目录」的哨兵值。
+         *
+         * NodeId 不允许为空串，多选跨目录时又确实没有单一的原目录，
+         * 所以用一个不可能真实存在的 id 表示它——这样"目标≠原目录"的判断不用改。
+         */
+        val UNSET_PARENT = NodeId("__unset__")
     }
 }
