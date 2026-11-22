@@ -41,6 +41,10 @@ data class BrowserUiState(
     val canShare: Boolean = false,
     val canCreateFolder: Boolean = false,
     val canUpload: Boolean = false,
+    val canRename: Boolean = false,
+    val canDelete: Boolean = false,
+    val canDownload: Boolean = false,
+    val canDirectLink: Boolean = false,
     val error: PanError? = null,
     val message: String? = null,
     val busy: Boolean = false,
@@ -253,6 +257,10 @@ class BrowserViewModel(
                             canShare = descriptor.capabilities.share,
                             canCreateFolder = descriptor.capabilities.createFolder,
                             canUpload = descriptor.capabilities.upload,
+                            canRename = descriptor.capabilities.rename,
+                            canDelete = descriptor.capabilities.delete,
+                            canDownload = descriptor.capabilities.download,
+                            canDirectLink = descriptor.capabilities.directLink,
                         )
                     }
                     loadQuota(result.value)

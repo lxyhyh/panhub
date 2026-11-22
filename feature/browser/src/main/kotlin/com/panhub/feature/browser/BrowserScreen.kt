@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
@@ -233,6 +235,10 @@ fun BrowserScreen(
         NodeActionsSheet(
             node = node,
             canShare = state.canShare,
+            canRename = state.canRename,
+            canDelete = state.canDelete,
+            canDownload = state.canDownload,
+            canDirectLink = state.canDirectLink,
             onDismiss = { actionNode = null },
             onRename = {
                 actionNode = null
@@ -385,6 +391,10 @@ private fun LoadMoreRow(loading: Boolean, onClick: () -> Unit) {
 private fun NodeActionsSheet(
     node: RemoteNode,
     canShare: Boolean,
+    canRename: Boolean,
+    canDelete: Boolean,
+    canDownload: Boolean,
+    canDirectLink: Boolean,
     onDismiss: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
@@ -397,15 +407,23 @@ private fun NodeActionsSheet(
         title = { Text(node.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         text = {
             Column {
-                ActionRow("重命名", Icons.Default.Description, onRename)
-                if (!node.isDir) {
+                // 每一项都由 provider 的能力声明决定是否出现：
+                // 界面不认识服务商，也就不可能在新增网盘时漏改这里。
+                if (canRename) {
+                    ActionRow("重命名", Icons.Default.Edit, onRename)
+                }
+                if (!node.isDir && canDownload) {
                     ActionRow("下载", Icons.Default.Download, onDownload)
+                }
+                if (!node.isDir && canDirectLink) {
                     ActionRow("复制直链", Icons.Default.Link, onLink)
                 }
                 if (canShare) {
                     ActionRow("创建分享", Icons.Default.Share, onShare)
                 }
-                ActionRow("删除", Icons.Default.Description, onDelete, danger = true)
+                if (canDelete) {
+                    ActionRow("删除", Icons.Default.Delete, onDelete, danger = true)
+                }
             }
         },
         confirmButton = {},
