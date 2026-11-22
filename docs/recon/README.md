@@ -17,4 +17,4 @@
 | 百度网盘 | 待补 | 官方 xpan OAuth | 规划中 |
 | 阿里云盘 | 待补 | App 内 REST | 规划中 |
 | 夸克网盘 | 待补 | App 内 REST | 规划中 |
-| 天翼云盘 | 待补 | App 内 REST | 规划中 |
+| 天翼云盘 | [cloud189.md](cloud189.md) | 网页 Cookie + open 接口 | 已实现（待真机验证） |

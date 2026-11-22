@@ -42,6 +42,7 @@ jobs:
             :provider:webdav:test \
             :provider:pan123:test \
             :provider:lanzou:test \
+            :provider:cloud189:test \
             :core:storage:test \
             :core:session:test
 

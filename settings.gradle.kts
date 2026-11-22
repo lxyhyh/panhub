@@ -39,6 +39,7 @@ include(":provider:api")
 include(":provider:webdav")
 include(":provider:pan123")
 include(":provider:lanzou")
+include(":provider:cloud189")
 
 // feature 层：每个页面一个模块，只依赖 core 的契约，互不依赖
 include(":feature:accounts")
