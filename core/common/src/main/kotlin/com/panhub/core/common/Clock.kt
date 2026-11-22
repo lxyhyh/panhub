@@ -5,6 +5,7 @@ fun interface Clock {
     fun nowMillis(): Long
 
     companion object {
-        val System: Clock = Clock { System.currentTimeMillis() }
+        /** 默认实现。注意不能命名为 System，否则会遮蔽 java.lang.System。 */
+        val Default: Clock = Clock { java.lang.System.currentTimeMillis() }
     }
 }
