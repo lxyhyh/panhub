@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DriveFolderUpload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
@@ -133,6 +134,19 @@ fun BrowserScreen(
             if (copied.size < uris.size) {
                 viewModel.showMessage("有 " + (uris.size - copied.size) + " 个文件读取失败，已跳过")
             }
+        }
+    }
+
+    // 选整个文件夹：Android 只给一棵 document tree，遍历由 LocalFilePicker 负责。
+    val pickFolder = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val copied = LocalFilePicker.copyTreeToCache(context, uri)
+        if (copied == null) {
+            viewModel.showMessage("读取文件夹失败")
+        } else {
+            viewModel.uploadFolder(copied)
         }
     }
 
@@ -241,6 +255,15 @@ fun BrowserScreen(
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     ) {
                         Icon(Icons.Default.UploadFile, contentDescription = "上传文件")
+                    }
+                    // 文件夹入口故意和文件入口并排而不是塞进菜单：
+                    // 两者是同一次「把本地东西放上来」的两种粒度。
+                    SmallFloatingActionButton(
+                        onClick = { pickFolder.launch(null) },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ) {
+                        Icon(Icons.Default.DriveFolderUpload, contentDescription = "上传文件夹")
                     }
                 }
                 if (state.canCreateFolder) {

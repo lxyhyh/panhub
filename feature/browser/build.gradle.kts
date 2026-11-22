@@ -30,6 +30,8 @@ dependencies {
     api(project(":core:transfer"))
 
     implementation(libs.androidx.activity.compose)
+    // 选整个文件夹要遍历 document tree，File 读不到 content:// 下的子项。
+    implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.android)

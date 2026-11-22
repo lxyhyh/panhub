@@ -163,7 +163,9 @@ private fun TaskCard(
                         TransferState.COMPLETED -> Icons.Default.CheckCircle
                         TransferState.FAILED -> Icons.Default.ErrorOutline
                         else -> when (task.direction) {
-                            TransferDirection.UPLOAD -> Icons.Default.Upload
+                            TransferDirection.UPLOAD,
+                            TransferDirection.UPLOAD_FOLDER,
+                            -> Icons.Default.Upload
                             TransferDirection.CLOUD_COPY,
                             TransferDirection.CLOUD_COPY_FOLDER,
                             -> Icons.Default.CloudUpload
@@ -235,6 +237,7 @@ private fun statusLine(task: TransferTask): String {
     // 按普通任务拼「已传 / 总共」只会给出一行看不懂的数字。
     if (task.direction == TransferDirection.DOWNLOAD_FOLDER) return folderLine(task)
     if (task.direction == TransferDirection.CLOUD_COPY_FOLDER) return copyFolderLine(task)
+    if (task.direction == TransferDirection.UPLOAD_FOLDER) return uploadFolderLine(task)
     val done = formatBytes(task.bytes)
     val total = task.totalBytes?.let { formatBytes(it) }
     return when (task.state) {
@@ -277,11 +280,20 @@ private fun copyFolderLine(task: TransferTask): String = when (task.state) {
     TransferState.CANCELED -> "已取消复制文件夹"
 }
 
+private fun uploadFolderLine(task: TransferTask): String = when (task.state) {
+    TransferState.QUEUED -> "等待整理本地文件夹"
+    TransferState.RUNNING -> task.phase?.let { "正在" + it } ?: "正在整理本地文件夹"
+    TransferState.COMPLETED -> task.phase?.let { "已整理 " + it } ?: "已整理本地文件夹"
+    TransferState.FAILED -> "整理失败" + (task.error?.let { " · " + it } ?: "")
+    TransferState.CANCELED -> "已取消整理"
+}
+
 private fun queuedLine(task: TransferTask): String = when (task.direction) {
     TransferDirection.UPLOAD -> "等待上传"
     TransferDirection.CLOUD_COPY -> "等待转存"
     TransferDirection.DOWNLOAD_FOLDER -> "等待整理文件列表"
     TransferDirection.CLOUD_COPY_FOLDER -> "等待复制文件夹"
+    TransferDirection.UPLOAD_FOLDER -> "等待整理本地文件夹"
     TransferDirection.DOWNLOAD -> "排队中"
 }
 
@@ -299,6 +311,7 @@ private fun finishedLine(task: TransferTask): String = when (task.direction) {
     TransferDirection.CLOUD_COPY -> "已转存"
     TransferDirection.DOWNLOAD_FOLDER -> "已整理文件列表"
     TransferDirection.CLOUD_COPY_FOLDER -> "已复制文件夹"
+    TransferDirection.UPLOAD_FOLDER -> "已整理本地文件夹"
     TransferDirection.DOWNLOAD -> "已完成"
 }
 

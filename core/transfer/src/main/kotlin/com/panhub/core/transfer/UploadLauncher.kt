@@ -24,4 +24,19 @@ interface UploadLauncher {
         name: String,
         size: Long,
     ): String
+
+    /**
+     * 把本地一个目录整个传上去，返回整理任务的 id。
+     *
+     * 和单文件一样只收本地路径：目录遍历在核心层用 [java.io.File] 就够了，
+     * content:// 那套在 feature 层先落到缓存目录。
+     *
+     * [rootName] 是网盘上要建的文件夹名，可以不等于 [localDir] 的名字。
+     */
+    fun uploadFolder(
+        accountId: AccountId,
+        parentId: NodeId?,
+        localDir: String,
+        rootName: String,
+    ): String
 }

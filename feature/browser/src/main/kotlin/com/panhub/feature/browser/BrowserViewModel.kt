@@ -707,6 +707,26 @@ class BrowserViewModel(
     }
 
     /**
+     * 上传整个本地文件夹。
+     *
+     * 目录遍历在 View 层做完了（见 LocalFilePicker），这里只负责入队：
+     * 整理型任务会在传输页里自己显示「正在整理本地文件夹」。
+     */
+    fun uploadFolder(directory: LocalDirectory) {
+        val target = uploader ?: run {
+            _state.update { it.copy(message = "上传功能不可用") }
+            return
+        }
+        target.uploadFolder(
+            accountId = accountId,
+            parentId = _state.value.parentId,
+            localDir = directory.path,
+            rootName = directory.name,
+        )
+        _state.update { it.copy(message = "已加入上传队列，正在整理「" + directory.name + "」") }
+    }
+
+    /**
      * 打开「复制到其他网盘」。
      *
      * 候选账号在打开时才取：账号可能刚在别的页面被删掉，

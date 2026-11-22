@@ -14,6 +14,9 @@ import com.panhub.core.model.NodeId
  *
  * [CLOUD_COPY_FOLDER] 是跨网盘复制整个文件夹：同样不传字节，先扫源目录、
  * 在目标端把目录结构建出来，再把每个文件拆成普通的 [CLOUD_COPY] 子任务。
+ *
+ * [UPLOAD_FOLDER] 是把本地一个文件夹传上去：先在网盘里把目录建出来，
+ * 再把每个文件拆成普通的 [UPLOAD] 子任务。
  */
 enum class TransferDirection {
     DOWNLOAD,
@@ -21,6 +24,7 @@ enum class TransferDirection {
     CLOUD_COPY,
     DOWNLOAD_FOLDER,
     CLOUD_COPY_FOLDER,
+    UPLOAD_FOLDER,
 }
 
 /**

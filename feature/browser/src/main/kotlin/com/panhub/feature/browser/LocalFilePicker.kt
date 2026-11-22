@@ -3,6 +3,7 @@ package com.panhub.feature.browser
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.documentfile.provider.DocumentFile
 import java.io.File
 
 /**
@@ -74,6 +75,65 @@ internal object LocalFilePicker {
         }
     }
 
+    /**
+     * 把用户选中的整个目录复制到缓存，返回「缓存目录 + 显示名」。
+     *
+     * 为什么整个复制而不是传的时候再读：content:// 授权随进程结束失效，
+     * 而上传是异步排队；目录里还可能有几十个文件，边传边读会让授权
+     * 的生命周期和队列长度纠缠在一起。
+     *
+     * 返回的不是 [File] 而是 [LocalDirectory]：目录本身的父级要能对上，
+     * 否则核心层按路径反推不出层级。
+     */
+    fun copyTreeToCache(context: Context, uri: Uri): LocalDirectory? {
+        val name = sanitize(displayName(context, uri))
+        val root = uniqueDir(File(context.cacheDir, "upload"), name)
+        if (!root.mkdirs()) return null
+        val copied = runCatching { copyTree(context, uri, root) }.getOrNull() ?: return null
+        // 一个文件都没读到说明授权已经失效，留着空目录只会让用户
+        // 看到一条「已整理 0 个文件」的任务，等于什么也没说。
+        return if (copied == 0) null else LocalDirectory(root, name)
+    }
+
+    /** 递归复制，返回复制成功的文件数。读不出来的子项跳过而不是整体失败。 */
+    private fun copyTree(context: Context, uri: Uri, target: File): Int {
+        val dir = DocumentFile.fromTreeUri(context, uri) ?: return 0
+        var copied = 0
+        for (child in dir.listFiles()) {
+            val childName = sanitize(child.name ?: continue)
+            if (child.isDirectory) {
+                val sub = File(target, childName)
+                if (!sub.mkdirs() && !sub.isDirectory) continue
+                copied += copyTree(context, child.uri, sub)
+            } else if (child.isFile) {
+                val output = uniqueFile(target, childName)
+                val ok = runCatching {
+                    context.contentResolver.openInputStream(child.uri)?.use { input ->
+                        output.outputStream().use { out -> input.copyTo(out) }
+                    } ?: return@runCatching false
+                    true
+                }.getOrDefault(false)
+                if (ok && output.length() > 0L) {
+                    copied++
+                } else {
+                    output.delete()
+                }
+            }
+        }
+        return copied
+    }
+
+    /** 目录也要避重名：缓存目录会跨多次选择保留。 */
+    private fun uniqueDir(parent: File, name: String): File {
+        var candidate = File(parent, name)
+        var index = 1
+        while (candidate.exists()) {
+            candidate = File(parent, name + "(" + index + ")")
+            index++
+        }
+        return candidate
+    }
+
     fun displayName(context: Context, uri: Uri): String {
         val fromProvider = runCatching {
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -98,4 +158,14 @@ internal object LocalFilePicker {
     }
 
     private val ILLEGAL = charArrayOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')
+}
+
+/**
+ * 已经落到缓存里的一个本地目录。
+ *
+ * [path] 用绝对路径而不是 [File]：跨模块边界（到 core:transfer）时
+ * 只传字符串，核心层不需要认识 Android 的任何类型。
+ */
+data class LocalDirectory(val dir: File, val name: String) {
+    val path: String get() = dir.absolutePath
 }

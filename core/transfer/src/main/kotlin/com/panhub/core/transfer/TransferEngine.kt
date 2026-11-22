@@ -132,6 +132,35 @@ class TransferEngine(
     }
 
     /**
+     * 把本地一个目录整个传上去。
+     *
+     * 自己不算一次字节传输，只负责在网盘里把目录建出来、再把文件逐个排队，
+     * 和整目录下载、整目录转存是同一种「整理型」任务。
+     */
+    override fun uploadFolder(
+        accountId: AccountId,
+        parentId: NodeId?,
+        localDir: String,
+        rootName: String,
+    ): String {
+        val now = clock.nowMillis()
+        val id = "uf-" + counter.incrementAndGet()
+        val task = TransferTask(
+            id = id,
+            accountId = accountId,
+            nodeId = parentId,
+            name = rootName,
+            direction = TransferDirection.UPLOAD_FOLDER,
+            filePath = localDir,
+            createdAt = now,
+            updatedAt = now,
+        )
+        _tasks.update { it + task }
+        pump()
+        return id
+    }
+
+    /**
      * 跨网盘复制：先下到临时目录，再传到目标账号，最后删掉临时文件。
      *
      * 两步各自的进度都会写回同一个任务，[TransferTask.phase] 告诉用户现在在哪一段，
@@ -314,6 +343,7 @@ class TransferEngine(
             TransferDirection.CLOUD_COPY -> runCloudCopy(id, task, scoped)
             TransferDirection.DOWNLOAD_FOLDER -> runFolderDownload(id, task, scoped)
             TransferDirection.CLOUD_COPY_FOLDER -> runCloudCopyFolder(id, task, scoped)
+            TransferDirection.UPLOAD_FOLDER -> runUploadFolder(id, task, scoped)
         }
     }
 
@@ -361,6 +391,106 @@ class TransferEngine(
                 null
             }
         }
+    }
+
+    /**
+     * 上传整个本地文件夹。
+     *
+     * 先把本地目录层级摸清楚、在网盘里照同样的层级建出空目录，
+     * 再为每个文件放一个普通的 [TransferDirection.UPLOAD] 子任务。
+     *
+     * 空目录也建：用户选的就是这个文件夹，建完留个空壳比什么都不做更接近本意。
+     * 已经建好的目录不回滚：网盘端没有通用的批量删除，硬清理反而可能删错东西。
+     */
+    private suspend fun runUploadFolder(
+        id: String,
+        task: TransferTask,
+        scoped: ScopedPanProvider,
+    ): PanError? {
+        val dir = task.filePath?.let(::File) ?: return PanError.unknown("缺少本地目录路径")
+        if (!dir.isDirectory) return PanError.notFound("本地文件夹已不存在")
+
+        update(id) { it.copy(phase = "扫描本地文件夹") }
+        val rootName = DirectorySink.sanitize(task.name)
+        val createdRoot = when (val created = scoped.createFolder(task.nodeId, rootName)) {
+            is PanResult.Failure -> return stage("网盘新建文件夹失败：", created.error)
+            is PanResult.Success -> created.value
+        }
+
+        // 每项是「本地目录、网盘上对应的目录 id」。
+        // BFS 保证父目录先于子目录处理，所以建子目录时上级一定已经就位。
+        val pending = ArrayDeque<Pair<File, NodeId>>()
+        pending.addLast(dir to createdRoot.id)
+        val files = ArrayList<Triple<File, String, NodeId>>()
+        var skipped = 0
+
+        while (pending.isNotEmpty()) {
+            currentCoroutineContext().ensureActive()
+            val (folder, remoteFolder) = pending.removeFirst()
+            // 排序：目录顺序不稳定时两次上传建出来的层级顺序不同，排查问题会变难。
+            val children = folder.listFiles()?.sortedBy { it.name }
+                ?: return PanError.unknown("读取本地文件夹失败：" + folder.name)
+            for (child in children) {
+                // 大目录（几千个文件）逐项检查取消，点了取消要能立刻停下。
+                currentCoroutineContext().ensureActive()
+                val name = DirectorySink.sanitize(child.name)
+                if (child.isDirectory) {
+                    val created = when (val made = scoped.createFolder(remoteFolder, name)) {
+                        is PanResult.Failure -> return stage("网盘新建文件夹失败：", made.error)
+                        is PanResult.Success -> made.value
+                    }
+                    pending.addLast(child to created.id)
+                } else if (child.isFile) {
+                    // 空文件传不上去：多数网盘直接拒绝，留下来只会变成一条
+                    // 必然失败的任务，还要用户自己去传输页找原因。
+                    if (child.length() > 0L) files += Triple(child, name, remoteFolder) else skipped++
+                }
+            }
+        }
+
+        if (files.isEmpty()) {
+            // 目录里只有空文件时不能说「空文件夹」——用户明明看到有文件，
+            // 得说清楚是它们没法传。
+            val empty = if (skipped == 0) "空文件夹" else "空文件夹（跳过 " + skipped + " 个空文件）"
+            update(id) {
+                it.copy(
+                    state = TransferState.COMPLETED,
+                    bytes = 0L,
+                    totalBytes = 0L,
+                    phase = empty,
+                    updatedAt = clock.nowMillis(),
+                )
+            }
+            return null
+        }
+
+        val children = files.map { (file, name, remoteFolder) ->
+            TransferTask(
+                id = "ul-" + counter.incrementAndGet(),
+                accountId = task.accountId,
+                // 子任务直接落到已经建好的那一级目录里，不再重复建目录。
+                nodeId = remoteFolder,
+                name = name,
+                direction = TransferDirection.UPLOAD,
+                totalBytes = file.length().takeIf { size -> size > 0L },
+                filePath = file.absolutePath,
+                createdAt = clock.nowMillis(),
+                updatedAt = clock.nowMillis(),
+            )
+        }
+        _tasks.update { it + children }
+        update(id) {
+            val total = files.sumOf { entry -> entry.first.length() }
+            it.copy(
+                state = TransferState.COMPLETED,
+                bytes = total,
+                totalBytes = total,
+                phase = files.size.toString() + " 个文件" +
+                    if (skipped == 0) "" else "（跳过 " + skipped + " 个空文件）",
+                updatedAt = clock.nowMillis(),
+            )
+        }
+        return null
     }
 
     private suspend fun runDownload(id: String, task: TransferTask, scoped: ScopedPanProvider): PanError? {
