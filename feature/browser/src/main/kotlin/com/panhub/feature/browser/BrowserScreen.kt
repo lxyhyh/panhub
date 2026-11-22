@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -81,6 +82,8 @@ import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareLink
+import com.panhub.core.model.SortOrder
+import com.panhub.core.model.SortSpec
 
 /**
  * 文件浏览页。
@@ -102,6 +105,7 @@ fun BrowserScreen(
     var showNewFolder by remember { mutableStateOf(false) }
     var actionNode by remember { mutableStateOf<RemoteNode?>(null) }
     var renameNode by remember { mutableStateOf<RemoteNode?>(null) }
+    var showSort by remember { mutableStateOf(false) }
 
     // 选完文件先复制到缓存再入队：content:// 授权随进程结束失效，
     // 而上传是异步排队，可能在用户离开本页之后才开始。
@@ -162,6 +166,9 @@ fun BrowserScreen(
                                 Icon(Icons.Default.SelectAll, contentDescription = "全选")
                             }
                         } else {
+                            IconButton(onClick = { showSort = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
+                            }
                             IconButton(onClick = viewModel::refresh) {
                                 Icon(Icons.Default.Refresh, contentDescription = "刷新")
                             }
@@ -370,6 +377,15 @@ fun BrowserScreen(
             onCopy = { text -> context.copyText(text) },
         )
     }
+
+    if (showSort) {
+        SortDialog(
+            spec = state.sort,
+            onOrder = viewModel::setSortOrder,
+            onToggleDirection = viewModel::toggleSortDirection,
+            onDismiss = { showSort = false },
+        )
+    }
 }
 
 /**
@@ -420,6 +436,73 @@ private fun SelectionAction(label: String, icon: androidx.compose.ui.graphics.ve
         Spacer(Modifier.size(Spacing.xs))
         Text(text = label, style = MaterialTheme.typography.labelMedium)
     }
+}
+
+/**
+ * 排序对话框。
+ *
+ * 不做成下拉菜单：选项只有三个，加一个方向开关一共四次点击以内就能完成，
+ * 而菜单弹出再收起会让用户丢失当前列表的可见上下文。
+ */
+@Composable
+private fun SortDialog(
+    spec: SortSpec,
+    onOrder: (SortOrder) -> Unit,
+    onToggleDirection: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("排序方式") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                SortOrder.entries.forEach { order ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(Radius.card))
+                            .clickable { onOrder(order) }
+                            .padding(vertical = Spacing.md, horizontal = Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = if (spec.order == order) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+                            contentDescription = null,
+                            tint = if (spec.order == order) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outline
+                            },
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.size(Spacing.md))
+                        Text(text = order.label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(Radius.card))
+                        .clickable(onClick = onToggleDirection)
+                        .padding(vertical = Spacing.md, horizontal = Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Sort,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.size(Spacing.md))
+                    Text(
+                        text = if (spec.descending) "反向：降序" else "反向：升序",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("完成") } },
+    )
 }
 
 /**

@@ -11,6 +11,9 @@ import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
+import com.panhub.core.model.SortOrder
+import com.panhub.core.model.SortSpec
+import com.panhub.core.model.sortedFor
 import com.panhub.core.session.SessionManager
 import com.panhub.core.transfer.DownloadLauncher
 import com.panhub.core.transfer.UploadLauncher
@@ -55,6 +58,8 @@ data class BrowserUiState(
     val busy: Boolean = false,
     /** 多选模式下被勾选的节点。空集合就代表不在多选模式。 */
     val selected: Set<NodeId> = emptySet(),
+    /** 列表排序。纯本地行为，与服务商无关，所以不需要能力门控。 */
+    val sort: SortSpec = SortSpec(),
 ) {
     val currentFolder: RemoteNode? get() = stack.lastOrNull()
 
@@ -72,11 +77,8 @@ data class BrowserUiState(
     /** 服务商还有下一页时为 true，界面据此显示「加载更多」。 */
     val hasMore: Boolean get() = nextCursor != null
 
-    /** 文件夹在前、同类按名字排。服务商返回的顺序各不相同，这里统一。 */
-    val sorted: List<RemoteNode>
-        get() = nodes.sortedWith(
-            compareByDescending<RemoteNode> { it.isDir }.thenBy { it.name.lowercase() },
-        )
+    /** 服务商返回的顺序各不相同，一律按用户选的规格重排后再显示。 */
+    val sorted: List<RemoteNode> get() = nodes.sortedFor(sort)
 }
 
 /**
@@ -407,6 +409,28 @@ class BrowserViewModel(
     }
 
     fun clearSelection() = _state.update { it.copy(selected = emptySet()) }
+
+    /**
+     * 换排序依据。
+     *
+     * 方向有一个"合理默认"：名称从小到大、时间与大小从新/从大到小——
+     * 找文件时想先看最新的，但按名字找时想从 A 开始。
+     * 再点一次已经选中的依据就翻转方向，这样用户不必先去按下面的"反向"。
+     */
+    fun setSortOrder(order: SortOrder) = _state.update {
+        val same = it.sort.order == order
+        it.copy(
+            sort = SortSpec(
+                order = order,
+                descending = if (same) !it.sort.descending else order.defaultDescending,
+            ),
+        )
+    }
+
+    /** 反转当前排序方向。 */
+    fun toggleSortDirection() = _state.update {
+        it.copy(sort = it.sort.copy(descending = !it.sort.descending))
+    }
 
     private fun selectedNodes(): List<RemoteNode> {
         val current = _state.value
