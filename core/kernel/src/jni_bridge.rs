@@ -4,27 +4,32 @@
 //! Java 异常。任何业务判断都不在这里。
 //!
 //! 函数名遵循 JNI 规范：Java_com_panhub_core_kernel_NativeKernel_<method>。
-//! 注意：jni crate 0.22 起 `JNIEnv` 的方法要 `&mut`，JString 不再有 `into()`
-//! 直接转 String，统一走 `env.get_string(...)?.to_string_lossy()`。
+//!
+//! jni 0.22 起 `JNIEnv` 拆成 `Env`（已附着线程的句柄）与 `EnvUnowned`
+//! （原生方法收到的裸 JNIEnv 指针）。约定：
+//!  - 原生方法第一个参数是 `EnvUnowned<'caller>`；
+//!  - 所有 JNI 调用放进 `with_env` 的闭包（内部 catch_unwind，panic 不会
+//!    穿过 FFI 把进程 abort）；
+//!  - 用 `resolve::<ThrowRuntimeExAndDefault>()` 把 Rust 错误转成
+//!    java.lang.RuntimeException，并返回 null 作为默认值。
 
 use crate::{digest, error::KernelError, Hashes};
+use jni::errors::{Error as JniError, ThrowRuntimeExAndDefault};
 use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jlong, jstring};
-use jni::JNIEnv;
+use jni::EnvUnowned;
 
-/// 把 Rust 的 Result 落成 Java 返回值或抛出 Java 异常。
-fn finish<T>(
-    env: &mut JNIEnv,
-    result: Result<T, KernelError>,
-    on_ok: impl FnOnce(&mut JNIEnv, T) -> jstring,
-) -> jstring {
-    match result {
-        Ok(value) => on_ok(env, value),
-        Err(err) => {
-            let _ = env.throw_new("java/lang/RuntimeException", err.to_string());
-            std::ptr::null_mut()
-        }
-    }
+/// JNI 边界上的错误：要么来自业务逻辑，要么来自 JNI 调用本身。
+///
+/// 单独定义一个类型（而不是给 [KernelError] 加 jni 变体），是为了让
+/// core 层的错误类型保持与 JNI 无关，方便在纯 Rust 测试里使用。
+#[derive(Debug, thiserror::Error)]
+enum BridgeError {
+    #[error("{0}")]
+    Kernel(#[from] KernelError),
+
+    #[error("JNI 调用失败：{0}")]
+    Jni(#[from] JniError),
 }
 
 /// 把 [Hashes] 序列化成一行 JSON，避免定义复杂 Java 类。
@@ -36,98 +41,77 @@ fn hashes_to_json(h: &Hashes) -> String {
     )
 }
 
-fn jstring_to_string(env: &mut JNIEnv, s: &JString) -> Result<String, KernelError> {
-    env.get_string(s)
-        .map(|v| v.to_string_lossy())
-        .map_err(|e| KernelError::Argument(format!("无法读取字符串参数：{e}")))
-}
+/// 统一的返回值出口：闭包算出 String，出错就抛 Java 异常并回 null。
+fn return_string<'caller, F>(unowned: &mut EnvUnowned<'caller>, work: F) -> jstring
+where
+    F: FnOnce(&mut jni::Env<'caller>) -> Result<String, BridgeError>,
+{
+    let created: Option<JString<'caller>> = unowned
+        .with_env(
+            move |env| -> Result<Option<JString<'caller>>, BridgeError> {
+                let value = work(env)?;
+                let jstr = env.new_string(value)?;
+                Ok(Some(jstr))
+            },
+        )
+        .resolve::<ThrowRuntimeExAndDefault>();
 
-#[no_mangle]
-pub extern "system" fn Java_com_panhub_core_kernel_NativeKernel_hashFile(
-    mut env: JNIEnv,
-    _class: JClass,
-    path: JString,
-) -> jstring {
-    let result = jstring_to_string(&mut env, &path)
-        .and_then(|p| digest::hash_file(std::path::Path::new(&p)));
-
-    let json = match result {
-        Ok(hashes) => hashes_to_json(&hashes),
-        Err(err) => {
-            let _ = env.throw_new("java/lang/RuntimeException", err.to_string());
-            return std::ptr::null_mut();
-        }
-    };
-
-    match env.new_string(json) {
-        Ok(s) => s.into_raw(),
-        Err(_) => std::ptr::null_mut(),
+    match created {
+        Some(s) => s.into_raw(),
+        None => std::ptr::null_mut(),
     }
 }
 
-#[no_mangle]
-pub extern "system" fn Java_com_panhub_core_kernel_NativeKernel_hashBytes(
-    mut env: JNIEnv,
-    _class: JClass,
-    data: JByteArray,
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_panhub_core_kernel_NativeKernel_hashFile<'caller>(
+    mut unowned_env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    path: JString<'caller>,
 ) -> jstring {
-    let bytes = match env.convert_byte_array(&data) {
-        Ok(b) => b,
-        Err(e) => {
-            let _ = env.throw_new("java/lang/RuntimeException", format!("无法读取字节数组：{e}"));
-            return std::ptr::null_mut();
-        }
-    };
-
-    let json = hashes_to_json(&digest::hash_bytes(&bytes));
-    match env.new_string(json) {
-        Ok(s) => s.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    return_string(&mut unowned_env, move |env| {
+        let path_str = path.try_to_string(env)?;
+        let hashes = digest::hash_file(std::path::Path::new(&path_str))?;
+        Ok(hashes_to_json(&hashes))
+    })
 }
 
-#[no_mangle]
-pub extern "system" fn Java_com_panhub_core_kernel_NativeKernel_sliceMd5(
-    mut env: JNIEnv,
-    _class: JClass,
-    path: JString,
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_panhub_core_kernel_NativeKernel_hashBytes<'caller>(
+    mut unowned_env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    data: JByteArray<'caller>,
+) -> jstring {
+    return_string(&mut unowned_env, move |env| {
+        let bytes = env.convert_byte_array(&data)?;
+        Ok(hashes_to_json(&digest::hash_bytes(&bytes)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_panhub_core_kernel_NativeKernel_sliceMd5<'caller>(
+    mut unowned_env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    path: JString<'caller>,
     offset: jlong,
     length: jlong,
 ) -> jstring {
-    let result = (|| -> Result<String, KernelError> {
+    return_string(&mut unowned_env, move |env| {
         if offset < 0 || length < 0 {
-            return Err(KernelError::Argument("offset/length 不能为负".into()));
+            return Err(KernelError::Argument("offset/length 不能为负".into()).into());
         }
-        let path_str = jstring_to_string(&mut env, &path)?;
-        digest::slice_md5(
-            std::path::Path::new(&path_str),
-            offset as u64,
-            length as u64,
-        )
-    })();
-
-    let md5 = match result {
-        Ok(v) => v,
-        Err(err) => {
-            let _ = env.throw_new("java/lang/RuntimeException", err.to_string());
-            return std::ptr::null_mut();
-        }
-    };
-
-    match env.new_string(md5) {
-        Ok(s) => s.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+        let path_str = path.try_to_string(env)?;
+        let md5 = digest::slice_md5(std::path::Path::new(&path_str), offset as u64, length as u64)?;
+        Ok(md5)
+    })
 }
 
 /// 内核版本号，用来确认 .so 与 Kotlin 侧是否同批构建。
-#[no_mangle]
-pub extern "system" fn Java_com_panhub_core_kernel_NativeKernel_kernelVersion(
-    mut env: JNIEnv,
-    _class: JClass,
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_panhub_core_kernel_NativeKernel_kernelVersion<'caller>(
+    mut unowned_env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
 ) -> jstring {
-    match env.new_string(env!("CARGO_PKG_VERSION")) {
-        Ok(s) => s.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    return_string(&mut unowned_env, |_env| {
+        Ok(env!("CARGO_PKG_VERSION").to_string())
+    })
 }
