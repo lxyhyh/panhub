@@ -50,7 +50,14 @@ fun PanHubRoot(session: SessionManager, transfers: TransferEngine) {
             val raw = entry.arguments?.getString(Routes.ARG_ACCOUNT).orEmpty()
             val vm: BrowserViewModel = viewModel(
                 factory = factoryOf {
-                    BrowserViewModel(session, AccountId(raw), transfers)
+                    // 同一个 TransferEngine 同时是下载与上传入口：它自己排队，
+                    // 这里不需要分清是哪一种，只把宽接口收窄成两个窄接口传进去。
+                    BrowserViewModel(
+                        session = session,
+                        accountId = AccountId(raw),
+                        launcher = transfers,
+                        uploader = transfers,
+                    )
                 },
             )
             BrowserScreen(viewModel = vm, onBack = { nav.popBackStack() })
