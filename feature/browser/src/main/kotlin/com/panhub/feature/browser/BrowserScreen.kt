@@ -74,6 +74,7 @@ import com.panhub.core.design.Radius
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
 import com.panhub.core.model.RemoteNode
+import com.panhub.core.model.ShareLink
 
 /**
  * 文件浏览页。
@@ -89,6 +90,7 @@ fun BrowserScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val picker by viewModel.picker.collectAsStateWithLifecycle()
+    val share by viewModel.share.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -267,9 +269,7 @@ fun BrowserScreen(
             },
             onShare = {
                 actionNode = null
-                viewModel.createShare(node) { url ->
-                    context.shareText(url)
-                }
+                viewModel.openShareSheet(node)
             },
         )
     }
@@ -305,6 +305,20 @@ fun BrowserScreen(
             onEnter = viewModel::enterPickerFolder,
             onUp = viewModel::leavePickerFolder,
             onConfirm = viewModel::confirmMove,
+        )
+    }
+
+    if (share.visible) {
+        ShareDialog(
+            share = share,
+            canPassword = state.canSharePassword,
+            canExpiry = state.canShareExpiry,
+            onPassword = viewModel::setSharePassword,
+            onExpiry = viewModel::setShareExpireDays,
+            onSubmit = viewModel::submitShare,
+            onDismiss = viewModel::closeShareSheet,
+            onShare = { url, text -> context.shareText(text ?: url) },
+            onCopy = { text -> context.copyText(text) },
         )
     }
 }
@@ -626,6 +640,156 @@ private fun android.content.Context.openUrl(url: String) {
     runCatching {
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
+}
+
+/**
+ * 分享对话框。
+ *
+ * 分成「填参数」和「看结果」两段视图：分享的目的就是拿到一条能发出去的链接，
+ * 如果创建成功后还要用户自己关掉再去找，等于把最容易丢的东西丢在了对话框里。
+ */
+@Composable
+private fun ShareDialog(
+    share: ShareSheetState,
+    canPassword: Boolean,
+    canExpiry: Boolean,
+    onPassword: (String) -> Unit,
+    onExpiry: (Int?) -> Unit,
+    onSubmit: () -> Unit,
+    onDismiss: () -> Unit,
+    onShare: (String, String?) -> Unit,
+    onCopy: (String) -> Unit,
+) {
+    val result = share.result
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = if (result != null) "分享链接" else "创建分享",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        text = {
+            if (result != null) {
+                Column {
+                    Text(
+                        text = result.url,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    result.password?.takeIf { it.isNotEmpty() }?.let { pwd ->
+                        Spacer(Modifier.size(Spacing.sm))
+                        Text(
+                            text = "提取码：" + pwd,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            } else {
+                Column {
+                    Text(
+                        text = share.node?.name.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (canPassword) {
+                        Spacer(Modifier.size(Spacing.md))
+                        OutlinedTextField(
+                            value = share.password,
+                            onValueChange = onPassword,
+                            singleLine = true,
+                            label = { Text("访问密码（留空则无密码）") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (canExpiry) {
+                        Spacer(Modifier.size(Spacing.md))
+                        Text(
+                            text = "有效期",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.size(Spacing.xs))
+                        Row {
+                            EXPIRY_CHOICES.forEach { days ->
+                                val selected = share.expireDays == days
+                                Text(
+                                    text = if (days == null) "永久" else days.toString() + " 天",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(Radius.pill))
+                                        .background(
+                                            if (selected) {
+                                                MaterialTheme.colorScheme.primaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceVariant
+                                            },
+                                        )
+                                        .clickable { onExpiry(days) }
+                                        .padding(
+                                            horizontal = Spacing.md,
+                                            vertical = Spacing.sm,
+                                        ),
+                                )
+                                Spacer(Modifier.size(Spacing.sm))
+                            }
+                        }
+                    }
+                    if (share.busy) {
+                        Spacer(Modifier.size(Spacing.lg))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    share.error?.let { message ->
+                        Spacer(Modifier.size(Spacing.md))
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (result != null) {
+                val text = shareTextOf(result)
+                Row {
+                    TextButton(onClick = { onCopy(text) }) { Text("复制") }
+                    TextButton(onClick = { onShare(result.url, text) }) { Text("发送") }
+                }
+            } else {
+                TextButton(onClick = onSubmit, enabled = !share.busy) { Text("创建") }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(if (result != null) "完成" else "取消") } },
+    )
+}
+
+/** 分享给别人的一句话：链接和提取码必须一起出去，分开抄很容易漏。 */
+private fun shareTextOf(link: ShareLink): String =
+    if (link.password.isNullOrEmpty()) {
+        link.url
+    } else {
+        link.url + " 提取码：" + link.password
+    }
+
+/** 有效期候选。null = 永久，与服务商的「0 表示永久」约定对应。 */
+private val EXPIRY_CHOICES: List<Int?> = listOf(null, 1, 7, 30)
+
+/** 复制到剪贴板。比弹一个「已复制」的 Toast 更轻，但用户需要知道成功了。 */
+private fun android.content.Context.copyText(text: String) {
+    val manager = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    manager.setPrimaryClip(android.content.ClipData.newPlainText("PanHub", text))
+    android.widget.Toast.makeText(this, "已复制", android.widget.Toast.LENGTH_SHORT).show()
 }
 
 private fun android.content.Context.shareText(url: String) {

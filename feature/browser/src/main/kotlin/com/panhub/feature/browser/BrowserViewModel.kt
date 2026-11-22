@@ -9,6 +9,8 @@ import com.panhub.core.model.NodeId
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
+import com.panhub.core.model.ShareLink
+import com.panhub.core.model.ShareOptions
 import com.panhub.core.session.SessionManager
 import com.panhub.core.transfer.DownloadLauncher
 import com.panhub.core.transfer.UploadLauncher
@@ -39,6 +41,8 @@ data class BrowserUiState(
     val loadingMore: Boolean = false,
     val quota: Quota? = null,
     val canShare: Boolean = false,
+    val canSharePassword: Boolean = false,
+    val canShareExpiry: Boolean = false,
     val canCreateFolder: Boolean = false,
     val canUpload: Boolean = false,
     val canRename: Boolean = false,
@@ -100,6 +104,27 @@ data class FolderPickerState(
 }
 
 /**
+ * 分享对话框的状态。
+ *
+ * 为什么把表单和结果放在同一个状态里：分享是一次「填完 → 拿到链接」的连贯动作，
+ * 分成两个对话框会让用户在中途失去上下文（尤其是想确认密码有没有生效时）。
+ */
+data class ShareSheetState(
+    val visible: Boolean = false,
+    val node: RemoteNode? = null,
+    /** 访问密码；空表示不设。只有服务商支持时才展示这一项。 */
+    val password: String = "",
+    /** 有效期天数；null 表示永久。只有服务商支持时才展示这一项。 */
+    val expireDays: Int? = null,
+    val busy: Boolean = false,
+    val error: String? = null,
+    /** 创建成功后拿到的链接；非空时对话框切换到结果视图。 */
+    val result: ShareLink? = null,
+) {
+    val done: Boolean get() = result != null
+}
+
+/**
  * 文件浏览。
  *
  * 深模块化的关键点：这一层只认识 [ScopedPanProvider] 和 [RemoteNode]，
@@ -117,6 +142,9 @@ class BrowserViewModel(
 
     private val _picker = MutableStateFlow(FolderPickerState())
     val picker: StateFlow<FolderPickerState> = _picker.asStateFlow()
+
+    private val _share = MutableStateFlow(ShareSheetState())
+    val share: StateFlow<ShareSheetState> = _share.asStateFlow()
 
     private var scoped: ScopedPanProvider? = null
     private var loadJob: Job? = null
@@ -315,17 +343,42 @@ class BrowserViewModel(
         }
     }
 
-    fun createShare(node: RemoteNode, onReady: (String) -> Unit) {
+    /** 打开分享对话框。 */
+    fun openShareSheet(node: RemoteNode) {
+        _share.value = ShareSheetState(visible = true, node = node)
+    }
+
+    fun closeShareSheet() {
+        _share.value = ShareSheetState()
+    }
+
+    fun setSharePassword(value: String) = _share.update { it.copy(password = value, error = null) }
+
+    fun setShareExpireDays(days: Int?) = _share.update { it.copy(expireDays = days, error = null) }
+
+    /**
+     * 创建分享。
+     *
+     * 参数只在服务商声明支持时才转发：123 云盘的 sharePwd 传空串会被当成
+     * 「设一个空密码」而不是「不要密码」，所以这里显式给 null 而不是空串。
+     */
+    fun submitShare() {
         val provider = scoped ?: return
-        _state.update { it.copy(busy = true) }
+        val snapshot = _share.value
+        val node = snapshot.node ?: return
+        if (snapshot.busy) return
+        _share.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            when (val result = provider.createShare(listOf(node.id))) {
-                is PanResult.Success -> {
-                    _state.update { it.copy(busy = false) }
-                    onReady(result.value.url)
+            val options = ShareOptions(
+                password = snapshot.password.trim().takeIf { it.isNotEmpty() },
+                expireDays = snapshot.expireDays,
+            )
+            when (val result = provider.createShare(listOf(node.id), options)) {
+                is PanResult.Success -> _share.update {
+                    it.copy(busy = false, result = result.value, error = null)
                 }
-                is PanResult.Failure -> _state.update {
-                    it.copy(busy = false, message = it.errorText(result.error))
+                is PanResult.Failure -> _share.update {
+                    it.copy(busy = false, error = result.error.message)
                 }
             }
         }
@@ -390,6 +443,8 @@ class BrowserViewModel(
                         it.copy(
                             accountName = summary?.displayName ?: descriptor.displayName,
                             canShare = descriptor.capabilities.share,
+                            canSharePassword = descriptor.capabilities.sharePassword,
+                            canShareExpiry = descriptor.capabilities.shareExpiry,
                             canCreateFolder = descriptor.capabilities.createFolder,
                             canUpload = descriptor.capabilities.upload,
                             canRename = descriptor.capabilities.rename,
