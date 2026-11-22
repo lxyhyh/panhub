@@ -192,6 +192,17 @@ data class ShareSheetState(
 }
 
 /**
+ * 文件详情面板的状态。
+ *
+ * 只用列表里已有的字段，不再单独查一次：详情面板是「多看一眼」的动作，
+ * 为了几个字段再发一次请求，用户要等的却是肉眼可见的转圈。
+ */
+data class NodeDetailsState(
+    val visible: Boolean = false,
+    val node: RemoteNode? = null,
+)
+
+/**
  * 文件浏览。
  *
  * 深模块化的关键点：这一层只认识 [ScopedPanProvider] 和 [RemoteNode]，
@@ -220,6 +231,9 @@ class BrowserViewModel(
 
     private val _share = MutableStateFlow(ShareSheetState())
     val share: StateFlow<ShareSheetState> = _share.asStateFlow()
+
+    private val _details = MutableStateFlow(NodeDetailsState())
+    val details: StateFlow<NodeDetailsState> = _details.asStateFlow()
 
     private var scoped: ScopedPanProvider? = null
     private var loadJob: Job? = null
@@ -347,11 +361,21 @@ class BrowserViewModel(
 
     /** 打开任意节点（文件夹则进入，文件则展示信息）。 */
     fun open(node: RemoteNode) {
-        if (node.isDir) {
-            enter(node)
-        } else {
-            _state.update { it.copy(message = node.name) }
-        }
+        if (node.isDir) enter(node) else openDetails(node)
+    }
+
+    /**
+     * 打开详情面板。
+     *
+     * 点文件和点文件夹的区别就在这里：文件夹要进去，文件没有「进去」这回事，
+     * 与其弹一条只有名字的提示，不如把手上已知的信息摊开。
+     */
+    fun openDetails(node: RemoteNode) {
+        _details.value = NodeDetailsState(visible = true, node = node)
+    }
+
+    fun closeDetails() {
+        _details.value = NodeDetailsState()
     }
 
     fun enter(folder: RemoteNode) {

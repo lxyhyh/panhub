@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -76,6 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
+import com.panhub.core.design.LabeledRow
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.QuotaBar
@@ -87,6 +89,9 @@ import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.SortOrder
 import com.panhub.core.model.SortSpec
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 文件浏览页。
@@ -105,6 +110,7 @@ fun BrowserScreen(
     val share by viewModel.share.collectAsStateWithLifecycle()
     val search by viewModel.search.collectAsStateWithLifecycle()
     val copy by viewModel.copy.collectAsStateWithLifecycle()
+    val details by viewModel.details.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -352,6 +358,10 @@ fun BrowserScreen(
                 actionNode = null
                 viewModel.openCloudCopy(listOf(node))
             },
+            onDetails = {
+                actionNode = null
+                viewModel.openDetails(node)
+            },
         )
     }
 
@@ -421,6 +431,16 @@ fun BrowserScreen(
             onSubmit = viewModel::submitCloudCopy,
             onDismiss = viewModel::closeCloudCopy,
         )
+    }
+
+    if (details.visible) {
+        details.node?.let { node ->
+            NodeDetailsDialog(
+                node = node,
+                accountName = state.accountName,
+                onDismiss = viewModel::closeDetails,
+            )
+        }
     }
 
     if (showSort) {
@@ -952,6 +972,7 @@ private fun NodeActionsSheet(
     onLink: () -> Unit,
     onShare: () -> Unit,
     onCloudCopy: () -> Unit,
+    onDetails: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -960,6 +981,7 @@ private fun NodeActionsSheet(
             Column {
                 // 每一项都由 provider 的能力声明决定是否出现：
                 // 界面不认识服务商，也就不可能在新增网盘时漏改这里。
+                ActionRow("查看详情", Icons.Default.Info, onDetails)
                 if (canRename) {
                     ActionRow("重命名", Icons.Default.Edit, onRename)
                 }
@@ -1020,6 +1042,46 @@ private fun ActionRow(
         }
     }
 }
+
+/**
+ * 文件详情。
+ *
+ * 只展示列表里已经带上来的字段：详情面板是「多看一眼」的动作，
+ * 为了几行信息再发一次请求，用户等到的是肉眼可见的转圈。
+ * 没有值的行直接不画，一排「—」看不出任何信息。
+ */
+@Composable
+private fun NodeDetailsDialog(
+    node: RemoteNode,
+    accountName: String,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = node.name,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        text = {
+            Column {
+                LabeledRow("类型", if (node.isDir) "文件夹" else (node.mimeType ?: "文件"))
+                LabeledRow("大小", if (node.isDir) "—" else formatBytes(node.size))
+                node.modifiedAt?.let { LabeledRow("修改时间", formatTime(it)) }
+                node.createdAt?.let { LabeledRow("创建时间", formatTime(it)) }
+                node.providerPath?.takeIf { it.isNotBlank() }?.let { LabeledRow("路径", it) }
+                if (accountName.isNotBlank()) LabeledRow("账号", accountName)
+                LabeledRow("标识", node.id.value)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+}
+
+private fun formatTime(millis: Long): String =
+    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(millis))
 
 @Composable
 private fun NameDialog(
