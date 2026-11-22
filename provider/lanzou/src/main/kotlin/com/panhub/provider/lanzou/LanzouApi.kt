@@ -9,6 +9,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 
 /**
@@ -69,6 +70,82 @@ internal class LanzouApi(
                 PanResult.Success(response.body.string())
             }
         }
+    }
+
+    /**
+     * 上传一个文件。
+     *
+     * 蓝奏云的上传是一个巨大的 multipart 表单（task=1），字段名与网页版一字不差。
+     * [openStream] 在这里才被调用：签名要拿文件大小，但内容要等真正发送时才读，
+     * 否则大文件会先把内存吃满。
+     */
+    suspend fun upload(
+        folderId: String,
+        name: String,
+        size: Long,
+        openStream: () -> java.io.InputStream,
+        onBytes: (Long) -> Unit,
+    ): PanResult<Unit> {
+        throttle()
+        val body = okhttp3.MultipartBody.Builder()
+            .setType(okhttp3.MultipartBody.FORM)
+            .addFormDataPart("task", "1")
+            .addFormDataPart("vie", "2")
+            .addFormDataPart("ve", "2")
+            .addFormDataPart("id", "WU_FILE_0")
+            .addFormDataPart("folder_id_bb_n", folderId)
+            .addFormDataPart("name", name)
+            .addFormDataPart("size", size.toString())
+            .addFormDataPart("type", "application/octet-stream")
+            .addFormDataPart("lastModifiedDate", lastModified())
+            .addFormDataPart(
+                "upload_file",
+                name,
+                com.panhub.core.network.StreamRequestBody(
+                    openStream = openStream,
+                    length = size,
+                    contentType = OCTET_STREAM,
+                    onBytes = onBytes,
+                ),
+            )
+            .build()
+        val request = Request.Builder()
+            .url(BASE_URL + "/" + UPLOAD_PATH)
+            .post(body)
+            .header("User-Agent", USER_AGENT)
+            .header("Referer", BASE_URL + "/mydisk.php")
+            .apply { cookie.header(BASE_HOST)?.let { header("Cookie", it) } }
+            .build()
+        return when (val result = engine.execute(request)) {
+            is PanResult.Failure -> result
+            is PanResult.Success -> result.value.use { response ->
+                cookie.save(response.headers)
+                val raw = response.body.string()
+                val root = decodeObject(raw)
+                when (root) {
+                    is PanResult.Failure -> root
+                    is PanResult.Success -> {
+                        val zt = root.value["zt"]?.toString()?.trim('"')
+                        if (zt != "1") {
+                            val info = root.value["info"]?.toString()?.trim('"')
+                            PanResult.Failure(PanError.unknown(info ?: "上传失败"))
+                        } else {
+                            PanResult.Success(Unit)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** 蓝奏云要求这个字段形如 "Tue Nov 22 2026 19:04:38 GMT+0800 (China Standard Time)"。 */
+    private fun lastModified(): String {
+        val now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Shanghai"))
+        val fmt = java.time.format.DateTimeFormatter.ofPattern(
+            "EEE MMM dd yyyy HH:mm:ss 'GMT'Z",
+            java.util.Locale.US,
+        )
+        return now.format(fmt) + " (China Standard Time)"
     }
 
     /** GET 一个网页并自动处理人机校验，返回正文 HTML。 */
@@ -174,6 +251,7 @@ internal class LanzouApi(
         const val PATH_DOUPLOAD = "/doupload.php"
         const val AJAXM = "ajaxm.php"
         const val UPLOAD_PATH = "html5up.php"
+        private val OCTET_STREAM = "application/octet-stream".toMediaType()
 
         /**
          * 网页版 UA。蓝奏云按 UA 返回不同模板：桌面版分享页里有简介表格，

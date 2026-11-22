@@ -21,6 +21,8 @@ import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.ProviderCredentials
 import com.panhub.provider.api.ProviderSession
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -464,6 +466,54 @@ class LanzouProvider(
 
     override suspend fun cancelShare(session: ProviderSession, shareId: String): PanResult<Unit> =
         PanResult.Failure(PanError.notSupported("蓝奏云无法取消分享，只能删除文件"))
+
+    /**
+     * 上传。
+     *
+     * 失败重试策略：蓝奏云对上传有体积上限（免费账号约 100MB），
+     * 超限时服务端返回 zt != 1 且 info 是一句中文提示，这里原样透传给用户，
+     * 比统一成「上传失败」有用得多。
+     */
+    override suspend fun upload(
+        session: ProviderSession,
+        parentId: NodeId?,
+        source: com.panhub.provider.api.UploadSource,
+        listener: PanProvider.UploadProgress,
+    ): PanResult<RemoteNode> {
+        restore(session)
+        val folder = parentId?.value ?: ROOT_ID
+        val name = LanzouParsing.sanitizeFolderName(source.name).ifBlank { source.name }
+        val total = source.size
+
+        val channel = kotlinx.coroutines.channels.Channel<Long>(
+            kotlinx.coroutines.channels.Channel.CONFLATED,
+        )
+        return kotlinx.coroutines.coroutineScope {
+            val reporter = launch {
+                for (sent in channel) listener.onProgress(sent.coerceAtMost(total), total)
+            }
+            try {
+                when (val result = api.upload(folder, name, total, { source.openStream() }) { sent ->
+                    channel.trySend(sent)
+                }) {
+                    is PanResult.Failure -> result
+                    is PanResult.Success -> PanResult.Success<RemoteNode>(
+                        RemoteNode(
+                            id = NodeId("uploaded:" + name),
+                            parentId = parentId,
+                            name = name,
+                            kind = NodeKind.FILE,
+                            size = total,
+                            mimeType = source.mimeType,
+                        ),
+                    )
+                }
+            } finally {
+                channel.close()
+                reporter.join()
+            }
+        }
+    }
 
     private fun objectOf(raw: String): JsonObject? =
         runCatching { api.json.parseToJsonElement(raw).jsonObject }.getOrNull()

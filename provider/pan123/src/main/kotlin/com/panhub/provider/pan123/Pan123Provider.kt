@@ -38,6 +38,7 @@ class Pan123Provider(
 
     private val api = Pan123Api(engine)
     private val json = api.json
+    private val uploader = Pan123Uploader(api, json)
 
     override val descriptor = ProviderDescriptor(
         id = ProviderId(ID),
@@ -286,6 +287,13 @@ class Pan123Provider(
             decode = { raw -> json.decodeFromString(ApiEnvelope.serializer(JsonUnit), raw) },
         ).map { }
     }
+
+    override suspend fun upload(
+        session: ProviderSession,
+        parentId: NodeId?,
+        source: com.panhub.provider.api.UploadSource,
+        listener: PanProvider.UploadProgress,
+    ): PanResult<RemoteNode> = uploader.upload(tokenOf(session), parentId, source, listener)
 
     private suspend fun fetchUserInfo(token: String?): PanResult<UserInfoData> =
         api.get(

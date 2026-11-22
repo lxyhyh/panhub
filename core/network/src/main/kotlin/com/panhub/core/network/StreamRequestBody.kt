@@ -1,4 +1,4 @@
-package com.panhub.provider.webdav
+package com.panhub.core.network
 
 import okhttp3.MediaType
 import okhttp3.RequestBody
@@ -8,13 +8,13 @@ import java.io.InputStream
 /**
  * 从 [InputStream] 流式读取的请求体。
  *
- * 为什么不用 `InputStream.toRequestBody()`：那会把整个文件读进内存，
+ * 为什么不用 InputStream.toRequestBody()：那会把整个文件读进内存，
  * 手机上放一个 2GB 的视频直接 OOM。这里边读边写，内存占用只有一个缓冲块。
  *
  * [onBytes] 是**非挂起**回调：它在 OkHttp 的写线程里被调用，
- * 调用方负责把它桥接到自己的协程里（见 WebDavClient.put）。
+ * 调用方负责把它桥接到自己的协程里。
  */
-internal class StreamRequestBody(
+class StreamRequestBody(
     private val openStream: () -> InputStream,
     private val length: Long,
     private val contentType: MediaType? = null,

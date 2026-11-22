@@ -7,6 +7,7 @@ import com.panhub.core.network.HttpEngine
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
@@ -105,6 +106,20 @@ class Pan123Api(
         )
     }
 
+    /**
+     * 直接 PUT 到预签名 URL。
+     *
+     * 注意：**不能**带 Authorization 头。S3 的预签名 URL 把签名写在 query 里，
+     * 多加一个鉴权头会因为签名不匹配被拒。
+     */
+    suspend fun putUrl(url: String, body: RequestBody): PanResult<Unit> {
+        val request = Request.Builder().url(url).put(body).build()
+        return when (val result = engine.execute(request)) {
+            is PanResult.Failure -> result
+            is PanResult.Success -> result.value.use { PanResult.Success(Unit) }
+        }
+    }
+
     fun encodeLogin(request: LoginRequest): String = json.encodeToString(request)
 
     companion object {
@@ -117,6 +132,10 @@ class Pan123Api(
         const val PATH_FILE_LIST = "/api/file/list/new"
         const val PATH_DOWNLOAD_INFO = "/api/file/download_info"
         const val PATH_UPLOAD_REQUEST = "/api/file/upload_request"
+        const val PATH_UPLOAD_COMPLETE = "/api/file/upload_complete"
+        const val PATH_UPLOAD_COMPLETE_V2 = "/api/file/upload_complete/v2"
+        const val PATH_S3_AUTH = "/api/file/s3_upload_object/auth"
+        const val PATH_S3_PARTS = "/api/file/s3_repare_upload_parts_batch"
         const val PATH_RENAME = "/api/file/rename"
         const val PATH_MOD_PID = "/api/file/mod_pid"
         const val PATH_DELETE = "/api/file/delete"

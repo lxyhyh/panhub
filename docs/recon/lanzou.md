@@ -86,7 +86,30 @@ arg1 = `0123456789ABCDEF0123456789ABCDEF01234567` → `d2c7186598ab1a508a4f6064e
 
 - 文件夹列表只取第 1 页：`task 47` 没有页码参数的迹象，按「一次给全」处理。
 - `task 46` 的重命名失败一律归因为「需要会员」，也可能撞上命名规则限制。
-- 未实现上传：`html5up.php` 需要 `task=1` 的 multipart 表单，字段较多，留待后续单独一轮。
+- 上传已实现（见下节），走 `html5up.php` 的 `task=1` multipart 表单。
+
+## 上传（已实现，事实来自 LanCloud 的 `uploadFile`）
+
+- 地址：`https://pc.woozooo.com/html5up.php`（`fileup.php` 是旧版备选）。
+- 方法是 **multipart/form-data**，普通字段：
+
+  | 字段 | 值 |
+  |---|---|
+  | `task` | `1` |
+  | `vie` / `ve` | 都是 `2` |
+  | `id` | `WU_FILE_0` |
+  | `folder_id_bb_n` | 目标文件夹 id（根目录 `-1`） |
+  | `name` | 文件名 |
+  | `size` | 字节数（字符串） |
+  | `type` | `application/octet-stream` |
+  | `lastModifiedDate` | `Tue Nov 22 2026 19:04:38 GMT+0800 (China Standard Time)` 形式 |
+
+  文件部分字段名是 `upload_file`。
+- Referer 必须是 `https://pc.woozooo.com/mydisk.php`。
+- 超时要放宽：发送 2 小时、接收 10 分钟（LanCloud 原值）。
+- 成功判据同样是 `zt == "1"`；失败时 `info` 是一句中文提示（常见是超过免费账号体积上限），
+  直接透传给用户比统一成「上传失败」有用。
+- 上传接口**不返回新文件的 id**，需要重新列一次目录才能拿到。
 
 ## 与其它网盘的差异（摊平进 `ProviderCapabilities`）
 

@@ -2,8 +2,8 @@ package com.panhub.provider.webdav
 
 import com.panhub.core.common.PanResult
 import com.panhub.core.network.HttpEngine
+import com.panhub.core.network.StreamRequestBody
 import com.panhub.provider.api.UploadSource
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
