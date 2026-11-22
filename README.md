@@ -27,7 +27,7 @@
 | \`:core:design\` | 蓝云风格 Compose 主题、间距规范与公共组件 |
 | \`:core:storage\` | 账号持久化（JSON + AES-GCM 加密） |
 | \`:core:session\` | 会话管理：登录、恢复、跨 provider 的账号表 |
-| \`:core:transfer\` | 上传/下载队列与跨网盘转存（串行执行、可取消、网络抖动自动退避重试） |
+| \`:core:transfer\` | 上传/下载队列、整目录下载与跨网盘转存（串行执行、可取消、网络抖动自动退避重试） |
 | \`:core:kernel\` | Rust 内核 + JNI 桥接（MD5/SHA1/SHA256/CRC32、分片 MD5） |
 | \`:core:platform\` | 只依赖系统的能力：Android Keystore 加密 |
 | \`:provider:api\` | PanProvider 接口 + ProviderRegistry + ScopedPanProvider + UploadSource |
@@ -57,6 +57,9 @@
 跨网盘转存不需要服务商提供额外接口：源端取下载直链、目标端走上传，
 任何同时支持下载与上传的两个账号之间都能转存。中间文件落应用缓存目录，
 传完即删。
+
+下载整个文件夹时会先排一个「整理文件列表」的任务，把目录逐层列完再放出
+每个文件的下载任务，本地按原来的层级还原（同名文件夹不会被摊平成一个）。
 
 传输遇到断网、限流、服务端 5xx 会自动重试（默认 3 次，1 秒起翻倍退避），
 退避期间任务让出队列，后面的文件可以先传。鉴权过期、文件不存在这类

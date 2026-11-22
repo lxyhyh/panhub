@@ -5,11 +5,15 @@ import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeId
+import com.panhub.core.model.PageRequest
+import com.panhub.core.model.RemoteNode
 import com.panhub.provider.api.FileUploadSource
 import com.panhub.provider.api.ScopedPanProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +76,28 @@ class TransferEngine(
 
     override fun download(accountId: AccountId, nodeId: NodeId, name: String, size: Long?) {
         enqueue(accountId, nodeId, name, size)
+    }
+
+    /**
+     * 整目录下载：先排一个「整理文件列表」的任务，扫完再放出真正的下载任务。
+     *
+     * 扫描放在队列里而不是调用方：一个几千文件的大目录要翻很多页，
+     * 让用户在浏览页干等、还没法取消，是最难受的形态。
+     */
+    override fun downloadFolder(accountId: AccountId, nodeId: NodeId, name: String) {
+        val now = clock.nowMillis()
+        val id = "df-" + counter.incrementAndGet()
+        val task = TransferTask(
+            id = id,
+            accountId = accountId,
+            nodeId = nodeId,
+            name = name,
+            direction = TransferDirection.DOWNLOAD_FOLDER,
+            createdAt = now,
+            updatedAt = now,
+        )
+        _tasks.update { it + task }
+        pump()
     }
 
     /**
@@ -256,6 +282,7 @@ class TransferEngine(
             TransferDirection.DOWNLOAD -> runDownload(id, task, scoped)
             TransferDirection.UPLOAD -> runUpload(id, task, scoped)
             TransferDirection.CLOUD_COPY -> runCloudCopy(id, task, scoped)
+            TransferDirection.DOWNLOAD_FOLDER -> runFolderDownload(id, task, scoped)
         }
     }
 
@@ -407,6 +434,88 @@ class TransferEngine(
             // 无论成功还是失败都删：这个文件本来就是过程产物，留着只是占手机空间。
             runCatching { scratch.delete() }
         }
+    }
+
+    /**
+     * 扫描一个目录，把里面每个文件都排进下载队列。
+     *
+     * 遍历不设深度上限（用户点的是「下载这个文件夹」，不是「下载第一层」），
+     * 但每页都会检查取消：几千个文件翻页途中用户改了主意，得能立刻停下来。
+     */
+    private suspend fun runFolderDownload(
+        id: String,
+        task: TransferTask,
+        scoped: ScopedPanProvider,
+    ): PanError? {
+        val rootNode = task.nodeId ?: return PanError.unknown("缺少文件夹 id")
+        val rootName = DirectorySink.sanitize(task.name)
+        // 值是文件所在的子目录（相对文件夹根，空串表示就在根下），不是文件自己的路径：
+        // 落地时目录和文件名是分开处理的，混在一起会把文件名也当成一级目录。
+        val files = ArrayList<Pair<RemoteNode, String>>()
+        val pending = ArrayDeque<Pair<NodeId, String>>()
+        pending.addLast(rootNode to "")
+
+        while (pending.isNotEmpty()) {
+            currentCoroutineContext().ensureActive()
+            val (folderId, prefix) = pending.removeFirst()
+            var cursor: String? = null
+            do {
+                // 取消是「标记状态 + 取消协程」，这里必须自己中断，
+                // 否则一个几万文件的大目录会一直翻页到结束。
+                currentCoroutineContext().ensureActive()
+                val page = when (val result = scoped.list(folderId, PageRequest(cursor = cursor))) {
+                    is PanResult.Failure -> return result.error
+                    is PanResult.Success -> result.value
+                }
+                for (item in page.items) {
+                    if (item.isDir) {
+                        val path = if (prefix.isEmpty()) item.name else prefix + "/" + item.name
+                        pending.addLast(item.id to path)
+                    } else {
+                        files += item to prefix
+                    }
+                }
+                cursor = page.nextCursor
+            } while (cursor != null)
+        }
+
+        if (files.isEmpty()) {
+            update(id) {
+                it.copy(
+                    state = TransferState.COMPLETED,
+                    bytes = 0L,
+                    totalBytes = 0L,
+                    updatedAt = clock.nowMillis(),
+                )
+            }
+            return null
+        }
+
+        // 一次性放出所有子任务。串行队列本来就一次只跑一个，
+        // 逐个放出只会让用户在界面里看不到「还有多少没传」。
+        val children = files.map { (node, folder) ->
+            TransferTask(
+                id = "dl-" + counter.incrementAndGet(),
+                accountId = task.accountId,
+                nodeId = node.id,
+                name = node.name,
+                totalBytes = node.size.takeIf { it > 0L },
+                relativePath = if (folder.isEmpty()) rootName else rootName + "/" + folder,
+                createdAt = clock.nowMillis(),
+                updatedAt = clock.nowMillis(),
+            )
+        }
+        _tasks.update { it + children }
+        update(id) {
+            it.copy(
+                state = TransferState.COMPLETED,
+                totalBytes = files.sumOf { node -> node.first.size },
+                bytes = files.sumOf { node -> node.first.size },
+                phase = files.size.toString() + " 个文件",
+                updatedAt = clock.nowMillis(),
+            )
+        }
+        return null
     }
 
     /** 给错误加上「在哪一段失败的」前缀，其余字段原样保留——重试判断还要用 retryable。 */

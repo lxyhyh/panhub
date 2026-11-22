@@ -228,6 +228,9 @@ private fun TaskCard(
 }
 
 private fun statusLine(task: TransferTask): String {
+    // 整目录下载本身不传字节，它的进度要看那些子任务，
+    // 按普通任务拼「已传 / 总共」只会给出一行看不懂的数字。
+    if (task.direction == TransferDirection.DOWNLOAD_FOLDER) return folderLine(task)
     val done = formatBytes(task.bytes)
     val total = task.totalBytes?.let { formatBytes(it) }
     return when (task.state) {
@@ -254,9 +257,18 @@ private fun attemptNote(task: TransferTask): String {
     }
 }
 
+private fun folderLine(task: TransferTask): String = when (task.state) {
+    TransferState.QUEUED -> "等待整理文件列表"
+    TransferState.RUNNING -> "正在整理文件列表"
+    TransferState.COMPLETED -> task.phase?.let { "已整理 " + it } ?: "已整理文件列表"
+    TransferState.FAILED -> "整理失败" + (task.error?.let { " · " + it } ?: "")
+    TransferState.CANCELED -> "已取消整理"
+}
+
 private fun queuedLine(task: TransferTask): String = when (task.direction) {
     TransferDirection.UPLOAD -> "等待上传"
     TransferDirection.CLOUD_COPY -> "等待转存"
+    TransferDirection.DOWNLOAD_FOLDER -> "等待整理文件列表"
     TransferDirection.DOWNLOAD -> "排队中"
 }
 
@@ -272,6 +284,7 @@ private fun runningLine(task: TransferTask, done: String, total: String?): Strin
 private fun finishedLine(task: TransferTask): String = when (task.direction) {
     TransferDirection.UPLOAD -> "已上传"
     TransferDirection.CLOUD_COPY -> "已转存"
+    TransferDirection.DOWNLOAD_FOLDER -> "已整理文件列表"
     TransferDirection.DOWNLOAD -> "已完成"
 }
 

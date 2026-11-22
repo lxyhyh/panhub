@@ -500,10 +500,10 @@ class BrowserViewModel(
     }
 
     /**
-     * 批量下载。
+     * 批量下载。文件夹会各自展开成一个扫描任务，文件单独排队。
      *
-     * 只挑文件：服务商普遍没有「打包下载整个文件夹」的接口，
-     * 把文件夹也排进队列只会得到一串失败任务，用户还得自己去猜哪条是文件夹。
+     * 这里不预先统计文件数：目录里有什么要等服务商列完才知道，
+     * 先给出一个凭空的数字反而误导。
      */
     fun downloadSelected() {
         val target = launcher ?: run {
@@ -511,26 +511,27 @@ class BrowserViewModel(
             return
         }
         val picked = selectedNodes()
-        val files = picked.filterNot { it.isDir }
-        if (files.isEmpty()) {
-            _state.update { it.copy(message = "选中的都是文件夹，暂不支持下载整个文件夹") }
-            return
+        if (picked.isEmpty()) return
+        for (node in picked) {
+            if (node.isDir) {
+                target.downloadFolder(accountId, node.id, node.name)
+            } else {
+                target.download(accountId, node.id, node.name, node.size.takeIf { it > 0L })
+            }
         }
-        for (node in files) {
-            target.download(accountId, node.id, node.name, node.size.takeIf { it > 0L })
-        }
-        val skipped = picked.size - files.size
+        val folders = picked.count { it.isDir }
+        val files = picked.size - folders
         _state.update {
             it.copy(
                 selected = emptySet(),
                 message = buildString {
                     append("已加入下载队列：")
-                    append(files.size)
+                    append(files)
                     append(" 个文件")
-                    if (skipped > 0) {
-                        append("，跳过 ")
-                        append(skipped)
-                        append(" 个文件夹")
+                    if (folders > 0) {
+                        append("，")
+                        append(folders)
+                        append(" 个文件夹正在整理")
                     }
                 },
             )
@@ -609,14 +610,15 @@ class BrowserViewModel(
         }
     }
 
-    /** 把文件加入下载队列。文件夹不支持（需要先有递归遍历与打包策略）。 */
+    /** 把文件或文件夹加入下载队列。目录会先扫描再逐个下载。 */
     fun download(node: RemoteNode) {
-        if (node.isDir) {
-            _state.update { it.copy(message = "暂不支持下载整个文件夹") }
-            return
-        }
         val target = launcher ?: run {
             _state.update { it.copy(message = "下载功能不可用") }
+            return
+        }
+        if (node.isDir) {
+            target.downloadFolder(accountId, node.id, node.name)
+            _state.update { it.copy(message = "正在整理「" + node.name + "」里的文件，稍后开始下载") }
             return
         }
         target.download(accountId, node.id, node.name, node.size.takeIf { it > 0L })

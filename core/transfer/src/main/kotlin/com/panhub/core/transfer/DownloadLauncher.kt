@@ -13,6 +13,14 @@ import com.panhub.core.model.NodeId
 interface DownloadLauncher {
     fun download(accountId: AccountId, nodeId: NodeId, name: String, size: Long?)
 
+    /**
+     * 把一个文件夹整个下载下来。
+     *
+     * 单独一个方法而不是给 [download] 加个 isDir 开关：调用方不该在
+     * 「文件」和「目录」之间做分支判断，那属于队列自己的事。
+     */
+    fun downloadFolder(accountId: AccountId, nodeId: NodeId, name: String)
+
     /** 该服务商是否支持下载；不支持时界面应隐藏入口。 */
     fun supportsDownload(accountId: AccountId): Boolean = true
 }

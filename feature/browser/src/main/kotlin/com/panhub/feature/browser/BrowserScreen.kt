@@ -966,8 +966,13 @@ private fun NodeActionsSheet(
                 if (canMove) {
                     ActionRow("移动到", Icons.AutoMirrored.Filled.DriveFileMove, onMove)
                 }
-                if (!node.isDir && canDownload) {
-                    ActionRow("下载", Icons.Default.Download, onDownload)
+                // 文件夹也能下载：队列会先把里面的文件列出来再逐个传。
+                if (canDownload) {
+                    ActionRow(
+                        if (node.isDir) "下载文件夹" else "下载",
+                        Icons.Default.Download,
+                        onDownload,
+                    )
                 }
                 if (!node.isDir && canDirectLink) {
                     ActionRow("复制直链", Icons.Default.Link, onLink)

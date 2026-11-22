@@ -22,9 +22,11 @@ interface DownloadSink {
 class DirectorySink(private val root: File) : DownloadSink {
 
     override fun destinationFor(task: TransferTask): File {
-        if (!root.exists()) root.mkdirs()
+        // 整目录下载的子任务要还原目录层级，否则几十个同名文件全挤在根目录里。
+        val parent = task.relativePath?.let { dirFor(it) } ?: root
+        if (!parent.exists()) parent.mkdirs()
         val safeName = sanitize(task.name)
-        var candidate = File(root, safeName)
+        var candidate = File(parent, safeName)
         if (!candidate.exists()) return candidate
 
         val dot = safeName.lastIndexOf('.')
@@ -32,10 +34,25 @@ class DirectorySink(private val root: File) : DownloadSink {
         val ext = if (dot > 0) safeName.substring(dot) else ""
         var index = 1
         while (candidate.exists()) {
-            candidate = File(root, "$base ($index)$ext")
+            candidate = File(parent, "$base ($index)$ext")
             index++
         }
         return candidate
+    }
+
+    /**
+     * 相对路径 → 实际目录。
+     *
+     * 每一段单独清洗：只对整串调用 sanitize 会把斜杠也换成下划线，
+     * 层级就没了。空段（连续斜杠、结尾斜杠）直接丢掉。
+     */
+    private fun dirFor(relative: String): File {
+        var dir = root
+        for (segment in relative.split('/')) {
+            if (segment.isEmpty()) continue
+            dir = File(dir, sanitize(segment))
+        }
+        return dir
     }
 
     companion object {

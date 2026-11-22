@@ -8,8 +8,11 @@ import com.panhub.core.model.NodeId
  *
  * [CLOUD_COPY] 是跨网盘中转：从源账号下载到本地临时目录，再上传到目标账号。
  * 两家的服务端不会互相说话，只能这样搬一次。
+ *
+ * [DOWNLOAD_FOLDER] 是整目录下载：它自己不算一次字节传输，只负责把文件夹里
+ * 的每个文件拆成普通的 [DOWNLOAD] 任务，进度还是要看那些子任务。
  */
-enum class TransferDirection { DOWNLOAD, UPLOAD, CLOUD_COPY }
+enum class TransferDirection { DOWNLOAD, UPLOAD, CLOUD_COPY, DOWNLOAD_FOLDER }
 
 /**
  * 一个传输任务的状态机：
@@ -56,6 +59,13 @@ data class TransferTask(
      * 界面直接展示这行字，不用去猜进度条为什么重新开始了。
      */
     val phase: String? = null,
+    /**
+     * 落在下载根目录下的相对路径，只有整目录下载拆出来的子任务才有值。
+     *
+     * 用字符串而不是一堆父目录对象：它只用来算落盘位置，
+     * 序列化成一行也简单。分隔符固定是 /，落盘时逐段清洗。
+     */
+    val relativePath: String? = null,
     /**
      * 已经跑过几次（含正在进行的那次）。
      *
