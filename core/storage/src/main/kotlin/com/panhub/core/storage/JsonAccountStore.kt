@@ -2,7 +2,6 @@ package com.panhub.core.storage
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -17,7 +16,9 @@ import java.io.File
  * 为什么不是数据库：账号数量是个位数，读写频率极低（只在登录/切换时），
  * 引入 Room 只会增加构建时间和迁移负担。整体读、整体写足够了。
  *
- * 所有敏感字段经过 [SecretCipher] 加密；文件本身放在应用私有目录。
+ * 内存缓存里始终是**明文**，加密只在落盘/读盘这一层做——这是不变式：
+ * 缓存里的 [AccountRecord.secret] 一定是可直接用的凭据，加密后的字符串
+ * 永远不会离开 [persist] / [readFile]。
  */
 class JsonAccountStore(
     private val file: File,
@@ -30,7 +31,7 @@ class JsonAccountStore(
     private var loaded = false
 
     override fun observeAll(): Flow<List<AccountRecord>> =
-        cache.asStateFlow().map { records -> records.sortedByDescending { it.lastUsedAt } }
+        cache.map { records -> records.sortedByDescending { it.lastUsedAt } }
 
     override suspend fun list(): List<AccountRecord> = mutex.withLock {
         ensureLoaded()
@@ -44,8 +45,7 @@ class JsonAccountStore(
 
     override suspend fun save(record: AccountRecord) = mutex.withLock {
         ensureLoaded()
-        val next = cache.value.filterNot { it.id == record.id } +
-            record.copy(secret = cipher.encrypt(record.secret.orEmpty()))
+        val next = cache.value.filterNot { it.id == record.id } + record
         persist(next)
     }
 
@@ -72,14 +72,16 @@ class JsonAccountStore(
         return runCatching {
             val stored = json.decodeFromString(StoredAccounts.serializer(), file.readText())
             stored.accounts.map { record ->
-                record.copy(secret = cipher.decrypt(record.secret.orEmpty()).orEmpty())
+                record.copy(secret = record.secret?.let { cipher.decrypt(it) })
             }
         }.getOrElse { emptyList() }
     }
 
     private fun persist(records: List<AccountRecord>) {
         cache.value = records
-        val encrypted = StoredAccounts(records.map { it.copy(secret = cipher.encrypt(it.secret.orEmpty())) })
+        val encrypted = StoredAccounts(
+            accounts = records.map { it.copy(secret = it.secret?.let(cipher::encrypt)) },
+        )
         file.parentFile?.mkdirs()
         // 先写临时文件再改名，避免写到一半掉电把账号库写坏。
         val tmp = File(file.parentFile, "${file.name}.tmp")
@@ -89,7 +91,6 @@ class JsonAccountStore(
             tmp.delete()
         }
     }
-
 }
 
 @kotlinx.serialization.Serializable
