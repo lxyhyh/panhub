@@ -15,6 +15,9 @@ captures/
 # Rust
 rust/*/target/
 rust/target/
+core/kernel/target/
+# cargo-ndk 的产物由 CI 生成并注入，不入库
+core/kernel/src/main/jniLibs/
 
 # Recon (local only, never committed)
 .recon/
