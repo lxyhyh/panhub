@@ -110,14 +110,18 @@ fun BrowserScreen(
     // 选完文件先复制到缓存再入队：content:// 授权随进程结束失效，
     // 而上传是异步排队，可能在用户离开本页之后才开始。
     val pickFile = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val copied = LocalFilePicker.copyToCache(context, uri)
-        if (copied == null) {
+        contract = ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isNullOrEmpty()) return@rememberLauncherForActivityResult
+        // 单个文件走同一条路径：多选一次只选一个时不该有第二套行为。
+        val copied = LocalFilePicker.copyAllToCache(context, uris)
+        if (copied.isEmpty()) {
             viewModel.showMessage("读取文件失败")
         } else {
-            viewModel.upload(copied, LocalFilePicker.displayName(context, uri))
+            viewModel.uploadAll(copied)
+            if (copied.size < uris.size) {
+                viewModel.showMessage("有 " + (uris.size - copied.size) + " 个文件读取失败，已跳过")
+            }
         }
     }
 

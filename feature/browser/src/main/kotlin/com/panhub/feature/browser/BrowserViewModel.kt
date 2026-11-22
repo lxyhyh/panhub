@@ -591,6 +591,42 @@ class BrowserViewModel(
     }
 
     /** 只用于把视图层的失败反馈带出去（例如选文件失败）。 */
+    /**
+     * 一次上传多个文件。
+     *
+     * 与单个上传的差别只有汇总提示：每个文件仍然是一条独立任务，
+     * 由传输队列串行跑。空文件在入队前就筛掉，否则它会变成一条
+     * 必然失败的任务，还要用户自己去传输页里找原因。
+     */
+    fun uploadAll(files: List<Pair<File, String>>) {
+        val target = uploader ?: run {
+            _state.update { it.copy(message = "上传功能不可用") }
+            return
+        }
+        if (files.isEmpty()) return
+        val parentId = _state.value.parentId
+        var queued = 0
+        var skipped = 0
+        for ((file, name) in files) {
+            val size = file.length()
+            if (size <= 0L) {
+                skipped++
+                continue
+            }
+            target.upload(accountId, parentId, file.absolutePath, name, size)
+            queued++
+        }
+        _state.update {
+            it.copy(
+                message = when {
+                    queued == 0 -> "选中的文件都是空的，无法上传"
+                    skipped == 0 -> "已加入上传队列：" + queued + " 个文件"
+                    else -> "已加入上传队列：" + queued + " 个文件，跳过 " + skipped + " 个空文件"
+                },
+            )
+        }
+    }
+
     fun showMessage(text: String) = _state.update { it.copy(message = text) }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
