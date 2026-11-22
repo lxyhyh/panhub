@@ -9,12 +9,14 @@ import com.panhub.provider.api.FileUploadSource
 import com.panhub.provider.api.ScopedPanProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -27,6 +29,8 @@ import java.util.concurrent.atomic.AtomicLong
  *   不需要知道有几个协程在跑。
  * - 取消是「标记 + 中断协程」两步：先改状态让界面立刻有反馈，
  *   再 cancel job 真正停止 IO。
+ * - 值得重试的错误（断网、限流、服务端 5xx）自己退避重试几次，
+ *   手机上这种抖动太常见，让人手动点「重试」是在做机器该做的事。
  */
 class TransferEngine(
     private val scope: CoroutineScope,
@@ -41,6 +45,10 @@ class TransferEngine(
      * 所以放临时目录并在传完后删掉，不混进下载目录。
      */
     private val scratchDir: File = File(System.getProperty("java.io.tmpdir") ?: ".", "panhub-scratch"),
+    /** 同一个任务最多跑几次（含第一次）。1 表示不自动重试。 */
+    private val maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
+    /** 第一次重试前等多久，之后每次翻倍。 */
+    private val retryBaseDelayMillis: Long = DEFAULT_RETRY_DELAY_MILLIS,
 ) : DownloadLauncher, UploadLauncher, CloudCopyLauncher {
 
     private val counter = AtomicLong(0L)
@@ -49,6 +57,18 @@ class TransferEngine(
 
     private val jobs = HashMap<String, Job>()
     private var running = false
+
+    /**
+     * 正在退避等待的任务 id。
+     *
+     * 这些任务在 [tasks] 里仍然是 QUEUED（用户看到的就是「排队中」），
+     * 但 [pump] 会跳过它们：等重试的那几秒不该占着唯一的执行位，
+     * 后面排队的文件可以先传。
+     */
+    private val waiting = ConcurrentHashMap.newKeySet<String>()
+
+    /** 正在退避的任务对应的计时协程，取消任务时要一并停掉。 */
+    private val retries = ConcurrentHashMap<String, Job>()
 
     override fun download(accountId: AccountId, nodeId: NodeId, name: String, size: Long?) {
         enqueue(accountId, nodeId, name, size)
@@ -141,6 +161,9 @@ class TransferEngine(
         val task = _tasks.value.firstOrNull { it.id == id } ?: return false
         if (task.isFinished) return false
         jobs.remove(id)?.cancel()
+        // 退避中的任务没有正在跑 job，但计时器还在，一并停掉。
+        retries.remove(id)?.cancel()
+        waiting.remove(id)
         update(id) { it.copy(state = TransferState.CANCELED, updatedAt = clock.nowMillis()) }
         pump()
         return true
@@ -157,6 +180,8 @@ class TransferEngine(
                 state = TransferState.QUEUED,
                 bytes = 0L,
                 error = null,
+                // 手动重试是重新开始计数，不该沿用上一次自动重试的次数。
+                attempt = 0,
                 updatedAt = clock.nowMillis(),
             )
         }
@@ -172,7 +197,10 @@ class TransferEngine(
     /** 串行泵：没有在跑的任务时，取队列里第一个 QUEUED 的启动。 */
     private fun pump() {
         if (running) return
-        val next = _tasks.value.firstOrNull { it.state == TransferState.QUEUED } ?: return
+        // 正在退避的任务也是 QUEUED，但它此刻还不该跑，先跳过。
+        val next = _tasks.value.firstOrNull {
+            it.state == TransferState.QUEUED && it.id !in waiting
+        } ?: return
         running = true
         val job = scope.launch { runTask(next.id) }
         jobs[next.id] = job
@@ -183,16 +211,48 @@ class TransferEngine(
         }
     }
 
+    /**
+     * 跑一次任务，按需重试。
+     *
+     * 重试期间任务回到 QUEUED 并让出执行位（见 [waiting]），
+     * 所以一个文件连续断网不会把整条队列堵死。
+     */
     private suspend fun runTask(id: String) {
+        update(id) {
+            it.copy(
+                state = TransferState.RUNNING,
+                attempt = it.attempt + 1,
+                updatedAt = clock.nowMillis(),
+            )
+        }
         val task = _tasks.value.firstOrNull { it.id == id } ?: return
-        update(id) { it.copy(state = TransferState.RUNNING, updatedAt = clock.nowMillis()) }
 
+        val error = attemptOnce(id, task) ?: return
+        if (!shouldRetry(error, task.attempt + 1)) return fail(id, error)
+
+        // 回到队列等一会儿再试；[bytes] 归零，否则界面会显示上一轮的进度。
+        update(id) { it.copy(state = TransferState.QUEUED, bytes = 0L) }
+        waiting.add(id)
+        val backoff = retryDelayMillis(task.attempt + 1)
+        val timer = scope.launch {
+            try {
+                delay(backoff)
+            } finally {
+                waiting.remove(id)
+            }
+            pump()
+        }
+        retries[id] = timer
+        timer.invokeOnCompletion { retries.remove(id) }
+    }
+
+    /** 跑一遍，成功返回 null，失败返回可展示的错误。 */
+    private suspend fun attemptOnce(id: String, task: TransferTask): PanError? {
         val scoped = when (val result = sessionProvider(task.accountId)) {
-            is PanResult.Failure -> return fail(id, result.error)
+            is PanResult.Failure -> return result.error
             is PanResult.Success -> result.value
         }
-
-        when (task.direction) {
+        return when (task.direction) {
             TransferDirection.DOWNLOAD -> runDownload(id, task, scoped)
             TransferDirection.UPLOAD -> runUpload(id, task, scoped)
             TransferDirection.CLOUD_COPY -> runCloudCopy(id, task, scoped)
@@ -200,12 +260,26 @@ class TransferEngine(
     }
 
     /**
+     * 只重试服务商明确说是「等一下再来」的错误。
+     *
+     * 鉴权过期、文件不存在、不支持的操作重试多少次都一样，
+     * 反复重试只会让用户多等几轮才看到真正的失败原因。
+     */
+    private fun shouldRetry(error: PanError, nextAttempt: Int): Boolean =
+        nextAttempt <= maxAttempts && error.retryable
+
+    private fun retryDelayMillis(attempt: Int): Long {
+        val exponent = (attempt - 2).coerceIn(0, MAX_BACKOFF_SHIFT)
+        return retryBaseDelayMillis * (1L shl exponent)
+    }
+
+    /**
      * 上传。本地文件已不存在时直接失败，不要拿着一个空流去连服务器。
      */
-    private suspend fun runUpload(id: String, task: TransferTask, scoped: ScopedPanProvider) {
-        val path = task.filePath ?: return fail(id, PanError.unknown("缺少本地文件路径"))
+    private suspend fun runUpload(id: String, task: TransferTask, scoped: ScopedPanProvider): PanError? {
+        val path = task.filePath ?: return PanError.unknown("缺少本地文件路径")
         val file = File(path)
-        if (!file.isFile) return fail(id, PanError.notFound("本地文件已不存在"))
+        if (!file.isFile) return PanError.notFound("本地文件已不存在")
 
         val outcome = scoped.upload(
             parentId = task.nodeId,
@@ -216,22 +290,25 @@ class TransferEngine(
                 }
             },
         )
-        when (outcome) {
-            is PanResult.Failure -> fail(id, outcome.error)
-            is PanResult.Success -> update(id) {
-                it.copy(
-                    state = TransferState.COMPLETED,
-                    bytes = it.totalBytes ?: it.bytes,
-                    updatedAt = clock.nowMillis(),
-                )
+        return when (outcome) {
+            is PanResult.Failure -> outcome.error
+            is PanResult.Success -> {
+                update(id) {
+                    it.copy(
+                        state = TransferState.COMPLETED,
+                        bytes = it.totalBytes ?: it.bytes,
+                        updatedAt = clock.nowMillis(),
+                    )
+                }
+                null
             }
         }
     }
 
-    private suspend fun runDownload(id: String, task: TransferTask, scoped: ScopedPanProvider) {
-        val nodeId = task.nodeId ?: return fail(id, PanError.unknown("缺少远端节点 id"))
+    private suspend fun runDownload(id: String, task: TransferTask, scoped: ScopedPanProvider): PanError? {
+        val nodeId = task.nodeId ?: return PanError.unknown("缺少远端节点 id")
         val target = when (val result = scoped.downloadUrl(nodeId)) {
-            is PanResult.Failure -> return fail(id, result.error)
+            is PanResult.Failure -> return result.error
             is PanResult.Success -> result.value
         }
 
@@ -248,14 +325,17 @@ class TransferEngine(
                 }
             },
         )
-        when (outcome) {
-            is PanResult.Failure -> fail(id, outcome.error)
-            is PanResult.Success -> update(id) {
-                it.copy(
-                    state = TransferState.COMPLETED,
-                    bytes = it.totalBytes ?: it.bytes,
-                    updatedAt = clock.nowMillis(),
-                )
+        return when (outcome) {
+            is PanResult.Failure -> outcome.error
+            is PanResult.Success -> {
+                update(id) {
+                    it.copy(
+                        state = TransferState.COMPLETED,
+                        bytes = it.totalBytes ?: it.bytes,
+                        updatedAt = clock.nowMillis(),
+                    )
+                }
+                null
             }
         }
     }
@@ -266,24 +346,22 @@ class TransferEngine(
      * 两段各自失败都要如实报告在哪一段失败：用户在传输页看到的只是一行错误，
      * 分不清「源网盘拒绝了下载链接」和「目标网盘拒收」，就没法判断该换哪一个账号。
      */
-    private suspend fun runCloudCopy(id: String, task: TransferTask, source: ScopedPanProvider) {
-        val nodeId = task.nodeId ?: return fail(id, PanError.unknown("缺少源文件 id"))
-        val targetAccount = task.targetAccountId
-            ?: return fail(id, PanError.unknown("缺少目标账号"))
+    private suspend fun runCloudCopy(
+        id: String,
+        task: TransferTask,
+        source: ScopedPanProvider,
+    ): PanError? {
+        val nodeId = task.nodeId ?: return PanError.unknown("缺少源文件 id")
+        val targetAccount = task.targetAccountId ?: return PanError.unknown("缺少目标账号")
 
         val destination = when (val resolved = source.downloadUrl(nodeId)) {
-            is PanResult.Failure -> return fail(id, PanError(
-                kind = resolved.error.kind,
-                message = "源网盘下载失败：" + resolved.error.message,
-                detail = resolved.error.detail,
-                retryable = resolved.error.retryable,
-                cause = resolved.error.cause,
-            ))
+            is PanResult.Failure -> return resolved.error
+                .let { stage("源网盘下载失败：", it) }
             is PanResult.Success -> resolved.value
         }
 
         val targetProvider = when (val connected = sessionProvider(targetAccount)) {
-            is PanResult.Failure -> return fail(id, connected.error)
+            is PanResult.Failure -> return connected.error
             is PanResult.Success -> connected.value
         }
 
@@ -299,13 +377,7 @@ class TransferEngine(
                 },
             )
             if (downloaded is PanResult.Failure) {
-                return fail(id, PanError(
-                    kind = downloaded.error.kind,
-                    message = "源网盘下载失败：" + downloaded.error.message,
-                    detail = downloaded.error.detail,
-                    retryable = downloaded.error.retryable,
-                    cause = downloaded.error.cause,
-                ))
+                return stage("源网盘下载失败：", downloaded.error)
             }
 
             // 第二段的进度从 0 重新算：它是「上传了多少」，和第一段的字节数不是同一件事。
@@ -317,14 +389,8 @@ class TransferEngine(
                     update(id) { it.copy(bytes = sent, totalBytes = total.takeIf { t -> t > 0L } ?: it.totalBytes) }
                 },
             )
-            when (uploaded) {
-                is PanResult.Failure -> fail(id, PanError(
-                    kind = uploaded.error.kind,
-                    message = "目标网盘上传失败：" + uploaded.error.message,
-                    detail = uploaded.error.detail,
-                    retryable = uploaded.error.retryable,
-                    cause = uploaded.error.cause,
-                ))
+            return when (uploaded) {
+                is PanResult.Failure -> stage("目标网盘上传失败：", uploaded.error)
                 is PanResult.Success -> {
                     update(id) { current ->
                         current.copy(
@@ -334,6 +400,7 @@ class TransferEngine(
                             updatedAt = clock.nowMillis(),
                         )
                     }
+                    null
                 }
             }
         } finally {
@@ -341,6 +408,15 @@ class TransferEngine(
             runCatching { scratch.delete() }
         }
     }
+
+    /** 给错误加上「在哪一段失败的」前缀，其余字段原样保留——重试判断还要用 retryable。 */
+    private fun stage(prefix: String, error: PanError): PanError = PanError(
+        kind = error.kind,
+        message = prefix + error.message,
+        detail = error.detail,
+        retryable = error.retryable,
+        cause = error.cause,
+    )
 
     private fun fail(id: String, error: PanError) {
         update(id) {
@@ -354,5 +430,16 @@ class TransferEngine(
 
     private inline fun update(id: String, transform: (TransferTask) -> TransferTask) {
         _tasks.update { list -> list.map { if (it.id == id) transform(it) else it } }
+    }
+
+    companion object {
+        /** 默认最多跑 3 次：多数网络抖动在一两次重试内就过去了，再多只是让人干等。 */
+        const val DEFAULT_MAX_ATTEMPTS = 3
+
+        /** 退避基数：1 秒、2 秒、4 秒…… */
+        const val DEFAULT_RETRY_DELAY_MILLIS = 1_000L
+
+        /** 退避最多翻到 2^5，防止把等待拉成几分钟。 */
+        private const val MAX_BACKOFF_SHIFT = 5
     }
 }

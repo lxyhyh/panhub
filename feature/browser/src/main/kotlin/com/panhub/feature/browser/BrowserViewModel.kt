@@ -644,7 +644,6 @@ class BrowserViewModel(
         _state.update { it.copy(message = "已加入上传队列：" + name) }
     }
 
-    /** 只用于把视图层的失败反馈带出去（例如选文件失败）。 */
     /**
      * 一次上传多个文件。
      *

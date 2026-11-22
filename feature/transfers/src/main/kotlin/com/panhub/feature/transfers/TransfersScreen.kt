@@ -231,11 +231,26 @@ private fun statusLine(task: TransferTask): String {
     val done = formatBytes(task.bytes)
     val total = task.totalBytes?.let { formatBytes(it) }
     return when (task.state) {
-        TransferState.QUEUED -> queuedLine(task) + (total?.let { " · " + it } ?: "")
-        TransferState.RUNNING -> runningLine(task, done, total)
+        TransferState.QUEUED -> queuedLine(task) + attemptNote(task) + (total?.let { " · " + it } ?: "")
+        TransferState.RUNNING -> runningLine(task, done, total) + attemptNote(task)
         TransferState.COMPLETED -> finishedLine(task) + " · " + done
         TransferState.FAILED -> "失败" + (task.error?.let { " · " + it } ?: "")
         TransferState.CANCELED -> "已取消 · " + done
+    }
+}
+
+/**
+ * 自动重试的提示。
+ *
+ * 重试期间进度会归零重来，不说明的话用户会以为任务出了问题；
+ * 第一次尝试不提示，那是正常流程。
+ */
+private fun attemptNote(task: TransferTask): String {
+    if (task.attempt <= 1) return ""
+    return if (task.state == TransferState.QUEUED) {
+        " · 第 " + (task.attempt + 1) + " 次尝试即将开始"
+    } else {
+        " · 第 " + task.attempt + " 次尝试"
     }
 }
 

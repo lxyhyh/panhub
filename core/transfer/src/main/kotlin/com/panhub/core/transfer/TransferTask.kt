@@ -56,6 +56,13 @@ data class TransferTask(
      * 界面直接展示这行字，不用去猜进度条为什么重新开始了。
      */
     val phase: String? = null,
+    /**
+     * 已经跑过几次（含正在进行的那次）。
+     *
+     * 界面据此告诉用户「正在第 2 次尝试」，否则自动重试期间
+     * 进度条忽然回到 0 看起来像是出了新问题。
+     */
+    val attempt: Int = 0,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
 ) {
