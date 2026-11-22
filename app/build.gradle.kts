@@ -5,12 +5,13 @@ plugins {
 
 android {
     namespace = "com.panhub.app"
-    compileSdk = 36
+    compileSdk = 37
+    compileSdkMinor = 2
 
     defaultConfig {
         applicationId = "com.panhub.app"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
     }
@@ -44,6 +45,15 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:common"))
     implementation(project(":core:design"))
+    implementation(project(":core:session"))
+    implementation(project(":core:network"))
+    implementation(project(":core:platform"))
+    implementation(project(":core:storage"))
+    implementation(project(":provider:api"))
+    implementation(project(":provider:webdav"))
+    implementation(project(":provider:pan123"))
+    implementation(project(":feature:accounts"))
+    implementation(project(":feature:browser"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

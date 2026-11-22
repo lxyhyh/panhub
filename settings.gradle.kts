@@ -32,8 +32,13 @@ include(":core:design")
 include(":core:kernel")
 include(":core:storage")
 include(":core:session")
+include(":core:platform")
 
 // provider 契约层 + 各网盘实现，每个实现一个模块，新增网盘只加模块不改 UI
 include(":provider:api")
 include(":provider:webdav")
 include(":provider:pan123")
+
+// feature 层：每个页面一个模块，只依赖 core 的契约，互不依赖
+include(":feature:accounts")
+include(":feature:browser")

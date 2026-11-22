@@ -24,9 +24,35 @@ data class ProviderCapabilities(
     val offlineDownload: Boolean = false,
 )
 
-/** 服务商的静态描述，账号列表/新建账号界面靠它渲染。 */
+/**
+ * 登录方式。
+ *
+ * 为什么放进 descriptor 而不是让 UI 猜：各服务商的认证形态完全不同
+ * （坚果云是固定的邮箱+应用密码，123 云盘是账号密码或浏览器 token），
+ * 让 UI 用 `if (providerId == "pan123")` 判断会把服务商细节泄漏到视图层，
+ * 新增一个网盘就得改 UI。声明式的能力开关让新增网盘只改 provider 模块。
+ */
+enum class AuthMethod {
+    /** 只用账号 + 密码（WebDAV 类）。 */
+    PASSWORD,
+
+    /** 只用令牌。 */
+    TOKEN,
+
+    /** 两者都支持，用户自己选。 */
+    BOTH,
+}
+
+/**
+ * 服务商的静态描述，账号列表 / 新建账号界面靠它渲染。
+ *
+ * [authHint] 是给用户看的一句话说明，用来说明去哪里拿密码/token；
+ * 空表示不需要额外解释。
+ */
 data class ProviderDescriptor(
     val id: ProviderId,
     val displayName: String,
     val capabilities: ProviderCapabilities,
+    val authMethod: AuthMethod = AuthMethod.PASSWORD,
+    val authHint: String? = null,
 )

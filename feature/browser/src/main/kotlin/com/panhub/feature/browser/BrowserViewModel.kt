@@ -1,0 +1,259 @@
+package com.panhub.feature.browser
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.panhub.core.common.PanError
+import com.panhub.core.common.PanResult
+import com.panhub.core.model.AccountId
+import com.panhub.core.model.NodeId
+import com.panhub.core.model.Quota
+import com.panhub.core.model.RemoteNode
+import com.panhub.core.session.SessionManager
+import com.panhub.provider.api.ScopedPanProvider
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+/**
+ * 文件浏览页的状态。
+ *
+ * [stack] 是导航栈：网盘大多没有"路径"概念，只有父子 id，
+ * 用栈来支持返回上一级比反复查询父节点可靠（有些服务商不返回 parentId）。
+ */
+data class BrowserUiState(
+    val accountId: AccountId? = null,
+    val accountName: String = "",
+    val loading: Boolean = true,
+    val refreshing: Boolean = false,
+    val nodes: List<RemoteNode> = emptyList(),
+    val stack: List<RemoteNode> = emptyList(),
+    val quota: Quota? = null,
+    val canShare: Boolean = false,
+    val canCreateFolder: Boolean = false,
+    val error: PanError? = null,
+    val message: String? = null,
+    val busy: Boolean = false,
+) {
+    val currentFolder: RemoteNode? get() = stack.lastOrNull()
+    val title: String get() = currentFolder?.name ?: accountName
+    val canGoUp: Boolean get() = stack.isNotEmpty()
+    val parentId: NodeId? get() = currentFolder?.id
+
+    /** 文件夹在前、同类按名字排。服务商返回的顺序各不相同，这里统一。 */
+    val sorted: List<RemoteNode>
+        get() = nodes.sortedWith(
+            compareByDescending<RemoteNode> { it.isDir }.thenBy { it.name.lowercase() },
+        )
+}
+
+/**
+ * 文件浏览。
+ *
+ * 深模块化的关键点：这一层只认识 [ScopedPanProvider] 和 [RemoteNode]，
+ * 完全不知道底下是 WebDAV 还是 123 云盘。所以新增网盘时这个文件不用改。
+ */
+class BrowserViewModel(
+    private val session: SessionManager,
+    private val accountId: AccountId,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(BrowserUiState(accountId = accountId))
+    val state: StateFlow<BrowserUiState> = _state.asStateFlow()
+
+    private var scoped: ScopedPanProvider? = null
+    private var loadJob: Job? = null
+
+    /** 打开任意节点（文件夹则进入，文件则展示信息）。 */
+    fun open(node: RemoteNode) {
+        if (node.isDir) {
+            enter(node)
+        } else {
+            _state.update { it.copy(message = node.name) }
+        }
+    }
+
+    fun enter(folder: RemoteNode) {
+        if (!folder.isDir) return
+        _state.update { it.copy(stack = it.stack + folder) }
+        load()
+    }
+
+    /** 返回上一级；已在根目录时返回 false，交给系统返回键处理。 */
+    fun goUp(): Boolean {
+        val stack = _state.value.stack
+        if (stack.isEmpty()) return false
+        _state.update { it.copy(stack = stack.dropLast(1)) }
+        load()
+        return true
+    }
+
+    fun refresh() = load(refresh = true)
+
+    fun createFolder(name: String) {
+        val provider = scoped ?: return
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            when (val result = provider.createFolder(_state.value.parentId, trimmed)) {
+                is PanResult.Success -> {
+                    _state.update { it.copy(busy = false, message = "已创建 ${result.value.name}") }
+                    load(refresh = true)
+                }
+                is PanResult.Failure -> _state.update {
+                    it.copy(busy = false, message = it.errorText(result.error))
+                }
+            }
+        }
+    }
+
+    fun rename(node: RemoteNode, newName: String) {
+        val provider = scoped ?: return
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty() || trimmed == node.name) return
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            when (val result = provider.rename(node.id, trimmed)) {
+                is PanResult.Success -> {
+                    _state.update { it.copy(busy = false, message = "已重命名") }
+                    load(refresh = true)
+                }
+                is PanResult.Failure -> _state.update {
+                    it.copy(busy = false, message = it.errorText(result.error))
+                }
+            }
+        }
+    }
+
+    fun delete(node: RemoteNode) {
+        val provider = scoped ?: return
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            when (val result = provider.delete(node.id)) {
+                is PanResult.Success -> {
+                    _state.update { it.copy(busy = false, message = "已删除 ${node.name}") }
+                    load(refresh = true)
+                }
+                is PanResult.Failure -> _state.update {
+                    it.copy(busy = false, message = it.errorText(result.error))
+                }
+            }
+        }
+    }
+
+    /** 拿到直链后交给浏览器/下载器；这里只负责取。 */
+    fun directLink(node: RemoteNode, onReady: (String) -> Unit) {
+        val provider = scoped ?: return
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            when (val result = provider.downloadUrl(node.id)) {
+                is PanResult.Success -> {
+                    _state.update { it.copy(busy = false) }
+                    onReady(result.value.url)
+                }
+                is PanResult.Failure -> _state.update {
+                    it.copy(busy = false, message = it.errorText(result.error))
+                }
+            }
+        }
+    }
+
+    fun createShare(node: RemoteNode, onReady: (String) -> Unit) {
+        val provider = scoped ?: return
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            when (val result = provider.createShare(listOf(node.id))) {
+                is PanResult.Success -> {
+                    _state.update { it.copy(busy = false) }
+                    onReady(result.value.url)
+                }
+                is PanResult.Failure -> _state.update {
+                    it.copy(busy = false, message = it.errorText(result.error))
+                }
+            }
+        }
+    }
+
+    fun clearMessage() = _state.update { it.copy(message = null) }
+
+    /** 首次进入：连接账号 → 取容量 → 列根目录。 */
+    fun start() {
+        if (scoped != null) return
+        viewModelScope.launch {
+            // 账号显示名从 accounts 流里取：它是唯一权威来源，
+            // 页面不应该自己再拼一份可能过期的名字。
+            val summary = session.accounts.first().firstOrNull { it.id == accountId }
+
+            when (val result = session.connect(accountId)) {
+                is PanResult.Failure -> _state.update {
+                    it.copy(loading = false, error = result.error)
+                }
+                is PanResult.Success -> {
+                    scoped = result.value
+                    val descriptor = result.value.descriptor
+                    _state.update {
+                        it.copy(
+                            accountName = summary?.displayName ?: descriptor.displayName,
+                            canShare = descriptor.capabilities.share,
+                            canCreateFolder = descriptor.capabilities.createFolder,
+                        )
+                    }
+                    loadQuota(result.value)
+                    load()
+                }
+            }
+        }
+    }
+
+    /** 重新连接（错误重试）。 */
+    fun retry() {
+        scoped = null
+        _state.update { it.copy(loading = true, error = null) }
+        start()
+    }
+
+    private fun loadQuota(provider: ScopedPanProvider) {
+        viewModelScope.launch {
+            val result = provider.quota()
+            if (result is PanResult.Success) {
+                _state.update { it.copy(quota = result.value) }
+            }
+        }
+    }
+
+    private fun load(refresh: Boolean = false) {
+        val provider = scoped ?: return
+        loadJob?.cancel()
+        _state.update {
+            if (it.nodes.isEmpty()) it.copy(loading = true, error = null)
+            else it.copy(refreshing = true, error = null)
+        }
+        loadJob = viewModelScope.launch {
+            when (val result = provider.list(_state.value.parentId)) {
+                is PanResult.Success -> _state.update {
+                    it.copy(
+                        loading = false,
+                        refreshing = false,
+                        nodes = result.value.items,
+                        error = null,
+                    )
+                }
+                is PanResult.Failure -> _state.update {
+                    // 刷新失败时保留旧内容，只有首次加载失败才显示整页错误
+                    it.copy(
+                        loading = false,
+                        refreshing = false,
+                        error = if (it.nodes.isEmpty()) result.error else null,
+                        message = if (it.nodes.isEmpty()) null else it.errorText(result.error),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun BrowserUiState.errorText(error: PanError): String = error.message
+}

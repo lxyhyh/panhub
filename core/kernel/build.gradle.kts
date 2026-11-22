@@ -4,7 +4,8 @@ plugins {
 
 android {
     namespace = "com.panhub.core.kernel"
-    compileSdk = 36
+    compileSdk = 37
+    compileSdkMinor = 2
 
     defaultConfig {
         minSdk = 26

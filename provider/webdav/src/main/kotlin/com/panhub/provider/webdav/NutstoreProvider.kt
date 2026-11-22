@@ -4,6 +4,7 @@ import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.common.map
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.AuthMethod
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodePage
 import com.panhub.core.model.PageRequest
@@ -35,6 +36,8 @@ class NutstoreProvider(
     override val descriptor = ProviderDescriptor(
         id = ProviderId(ID),
         displayName = "坚果云",
+        authMethod = AuthMethod.PASSWORD,
+        authHint = "邮箱 + 第三方应用密码（网页版 → 安全选项 → 添加应用密码）",
         capabilities = ProviderCapabilities(
             list = true,
             quota = true,

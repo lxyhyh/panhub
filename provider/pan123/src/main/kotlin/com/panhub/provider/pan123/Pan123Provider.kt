@@ -4,6 +4,7 @@ import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.common.map
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.AuthMethod
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.NodePage
@@ -41,6 +42,8 @@ class Pan123Provider(
     override val descriptor = ProviderDescriptor(
         id = ProviderId(ID),
         displayName = "123 云盘",
+        authMethod = AuthMethod.BOTH,
+        authHint = "账号密码登录，或粘贴浏览器里的 access token",
         capabilities = ProviderCapabilities(
             list = true,
             quota = true,
