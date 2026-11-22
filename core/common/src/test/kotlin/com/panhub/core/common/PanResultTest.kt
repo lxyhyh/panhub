@@ -17,7 +17,8 @@ class PanResultTest {
 
     @Test
     fun `getOrNull only returns on success`() {
-        assertEquals(null, PanResult.Failure<Int>(PanError.auth()).getOrNull())
+        val failed: PanResult<Int> = PanResult.Failure(PanError.auth())
+        assertEquals(null, failed.getOrNull())
         assertEquals(1, PanResult.Success(1).getOrNull())
     }
 

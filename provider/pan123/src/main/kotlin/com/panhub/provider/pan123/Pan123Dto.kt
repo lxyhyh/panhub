@@ -32,11 +32,11 @@ data class LoginData(
 
 @Serializable
 data class UserInfoData(
-    val Nickname: String? = null,
-    val Passport: String? = null,
-    val SpaceUsed: Long? = null,
+    @SerialName("Nickname") val nickname: String? = null,
+    @SerialName("Passport") val passport: String? = null,
+    @SerialName("SpaceUsed") val spaceUsed: Long? = null,
     @SerialName("SpacePermanent") val spacePermanent: Long? = null,
-    val SpaceTemp: Long? = null,
+    @SerialName("SpaceTemp") val spaceTemp: Long? = null,
 )
 
 @Serializable

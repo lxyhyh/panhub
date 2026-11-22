@@ -4,7 +4,6 @@ import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.network.HttpEngine
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -67,7 +66,7 @@ class Pan123Api(
         }
 
         return when (val result = engine.executeRaw(builder.build())) {
-            is PanResult.Failure -> result
+            is PanResult.Failure -> PanResult.Failure(result.error)
             is PanResult.Success -> result.value.use { response -> decodeResponse(response, decode) }
         }
     }

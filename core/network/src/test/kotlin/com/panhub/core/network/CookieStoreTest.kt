@@ -1,7 +1,7 @@
 package com.panhub.core.network
 
 import okhttp3.Cookie
-import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,7 +11,7 @@ class CookieStoreTest {
     @Test
     fun `save then load for same host`() {
         val store = CookieStore()
-        val url = HttpUrl.get("https://api.example.com/a")
+        val url = "https://api.example.com/a".toHttpUrl()
         val cookie = Cookie.Builder().name("k").value("v").domain("api.example.com").path("/").build()
         store.saveFromResponse(url, listOf(cookie))
 
@@ -25,8 +25,8 @@ class CookieStoreTest {
     @Test
     fun `different host does not leak`() {
         val store = CookieStore()
-        val a = HttpUrl.get("https://a.example.com/")
-        val b = HttpUrl.get("https://b.example.com/")
+        val a = "https://a.example.com/".toHttpUrl()
+        val b = "https://b.example.com/".toHttpUrl()
         store.saveFromResponse(a, listOf(
             Cookie.Builder().name("x").value("1").domain("a.example.com").path("/").build()
         ))

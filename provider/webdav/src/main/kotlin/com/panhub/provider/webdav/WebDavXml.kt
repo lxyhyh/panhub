@@ -27,7 +27,7 @@ object WebDavXml {
     )
 
     private val collectionRegex = Regex(
-        "<(?:[A-Za-z0-9]+:)?collection\s*/>|<(?:[A-Za-z0-9]+:)?collection\s*>",
+        "<(?:[A-Za-z0-9]+:)?collection\\s*/>|<(?:[A-Za-z0-9]+:)?collection\\s*>",
     )
 
     fun tagValues(xml: String, tag: String): String? {

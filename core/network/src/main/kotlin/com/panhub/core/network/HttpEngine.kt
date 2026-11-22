@@ -7,6 +7,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
@@ -99,4 +100,4 @@ fun formBody(pairs: List<Pair<String, String>>): RequestBody =
     }.build()
 
 fun urlBuilder(base: String, block: HttpUrl.Builder.() -> Unit): HttpUrl =
-    HttpUrl.get(base).newBuilder().apply(block).build()
+    base.toHttpUrl().newBuilder().apply(block).build()

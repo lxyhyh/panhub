@@ -54,7 +54,7 @@ class NutstoreProvider(
 
         val client = WebDavClient(engine, baseUrl, password.username, password.password)
         return when (val probe = client.propfind("", depth = "0")) {
-            is PanResult.Failure -> probe
+            is PanResult.Failure -> PanResult.Failure(probe.error)
             is PanResult.Success -> PanResult.Success(
                 ProviderSession(
                     accountId = AccountId("${ID}:${password.username}"),
