@@ -46,6 +46,7 @@ jobs:
             :provider:quark:test \
             :provider:baidu:test \
             :core:storage:test \
+            :core:transfer:test \
             :core:session:test
 
   # Rust 内核单独一个 job：它只在改了 core/kernel 时才需要重编，
