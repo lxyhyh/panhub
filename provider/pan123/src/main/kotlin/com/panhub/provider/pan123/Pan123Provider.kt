@@ -119,7 +119,8 @@ class Pan123Provider(
             append(Pan123Api.PATH_FILE_LIST)
             append("?driveId=0")
             append("&limit=").append(page.limit)
-            append("&next=").append(cursor ?: "")
+            // 首次请求用 "0"：服务端把空串当非法游标，会退化成第一页重放。
+            append("&next=").append(cursor ?: "0")
             append("&orderBy=file_name")
             append("&orderDirection=asc")
             append("&parentFileId=").append(parent)
@@ -137,7 +138,9 @@ class Pan123Provider(
         ).map { data ->
             NodePage(
                 items = data.infoList.orEmpty().map { it.toRemoteNode(parentId) },
-                nextCursor = data.next?.takeIf { it.isNotBlank() },
+                // Next 的终止值是字符串 "-1"（不是空串）。原样透传会让界面
+                // 以为还有下一页，点「加载更多」只会拿到同一批数据。
+                nextCursor = data.next?.takeIf { it.isNotBlank() && it != "-1" },
             )
         }
     }
