@@ -55,7 +55,6 @@ class Cloud189Provider(
             download = true,
             rename = true,
             move = true,
-            copy = true,
             delete = true,
             createFolder = true,
             directLink = true,

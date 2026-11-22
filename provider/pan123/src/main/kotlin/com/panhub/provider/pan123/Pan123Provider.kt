@@ -53,15 +53,12 @@ class Pan123Provider(
             download = true,
             rename = true,
             move = true,
-            copy = true,
-            trash = true,
             delete = true,
             createFolder = true,
             share = true,
             sharePassword = true,
             shareExpiry = true,
             directLink = true,
-            offlineDownload = true,
         ),
     )
 

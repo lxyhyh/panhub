@@ -57,7 +57,6 @@ class BaiduProvider(
             download = true,
             rename = true,
             move = true,
-            copy = true,
             delete = true,
             createFolder = true,
             share = true,
