@@ -126,10 +126,10 @@ jobs:
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
             "platforms;android-37.2" "build-tools;37.0.0"
 
-      # app 的单元测试要 Android 平台才能编译（它依赖 Android 模块），
+      # 这些模块的单测要 Android 平台才能编译（它们依赖 Android 模块），
       # 所以放在这个 job 而不是纯 JVM 的 test job 里。
       - name: App unit tests
-        run: ./gradlew --stacktrace :app:testDebugUnitTest
+        run: ./gradlew --stacktrace :app:testDebugUnitTest :feature:shares:testDebugUnitTest
 
       - name: Download native libs
         uses: actions/download-artifact@v4
