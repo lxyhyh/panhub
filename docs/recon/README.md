@@ -14,7 +14,7 @@
 | 坚果云 | — | 官方 WebDAV | 已实现 |
 | 123 云盘 | [pan123.md](pan123.md) | App 内 REST | 已实现（待真机验证） |
 | 蓝奏云 / 蓝云 | [lanzou.md](lanzou.md) | App 内 REST + 网页 Cookie | 已实现（待真机验证） |
-| 百度网盘 | 待补 | 官方 xpan OAuth | 规划中 |
+| 百度网盘 | [baidu.md](baidu.md) | 网页 Cookie + 网页接口 | 已实现（待真机验证） |
 | 阿里云盘 | 待补 | App 内 REST | 规划中 |
 | 夸克网盘 | [quark.md](quark.md) | 网页 Cookie + App 内 REST | 已实现（待真机验证） |
 | 天翼云盘 | [cloud189.md](cloud189.md) | 网页 Cookie + open 接口 | 已实现（待真机验证） |

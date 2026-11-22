@@ -55,6 +55,7 @@ dependencies {
     implementation(project(":provider:lanzou"))
     implementation(project(":provider:cloud189"))
     implementation(project(":provider:quark"))
+    implementation(project(":provider:baidu"))
     implementation(project(":feature:accounts"))
     implementation(project(":feature:browser"))
 

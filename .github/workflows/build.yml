@@ -44,6 +44,7 @@ jobs:
             :provider:lanzou:test \
             :provider:cloud189:test \
             :provider:quark:test \
+            :provider:baidu:test \
             :core:storage:test \
             :core:session:test
 

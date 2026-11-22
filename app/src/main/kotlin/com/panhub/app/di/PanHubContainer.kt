@@ -9,6 +9,7 @@ import com.panhub.core.session.SessionManager
 import com.panhub.core.storage.JsonAccountStore
 import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.ProviderRegistry
+import com.panhub.provider.baidu.BaiduProvider
 import com.panhub.provider.cloud189.Cloud189Provider
 import com.panhub.provider.quark.QuarkProvider
 import com.panhub.provider.lanzou.LanzouProvider
@@ -51,6 +52,7 @@ object PanHubContainer {
             LanzouProvider(engine),
             Cloud189Provider(engine),
                         QuarkProvider(engine),
+                        BaiduProvider(engine),
         )
 
         val registry = ProviderRegistry(providers)
