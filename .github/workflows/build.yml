@@ -43,6 +43,7 @@ jobs:
             :provider:pan123:test \
             :provider:lanzou:test \
             :provider:cloud189:test \
+            :provider:quark:test \
             :core:storage:test \
             :core:session:test
 

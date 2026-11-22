@@ -10,6 +10,7 @@ import com.panhub.core.storage.JsonAccountStore
 import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.ProviderRegistry
 import com.panhub.provider.cloud189.Cloud189Provider
+import com.panhub.provider.quark.QuarkProvider
 import com.panhub.provider.lanzou.LanzouProvider
 import com.panhub.provider.pan123.Pan123Provider
 import com.panhub.provider.webdav.NutstoreProvider
@@ -49,6 +50,7 @@ object PanHubContainer {
             Pan123Provider(engine),
             LanzouProvider(engine),
             Cloud189Provider(engine),
+                        QuarkProvider(engine),
         )
 
         val registry = ProviderRegistry(providers)

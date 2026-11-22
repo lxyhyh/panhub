@@ -54,6 +54,7 @@ dependencies {
     implementation(project(":provider:pan123"))
     implementation(project(":provider:lanzou"))
     implementation(project(":provider:cloud189"))
+    implementation(project(":provider:quark"))
     implementation(project(":feature:accounts"))
     implementation(project(":feature:browser"))
 
