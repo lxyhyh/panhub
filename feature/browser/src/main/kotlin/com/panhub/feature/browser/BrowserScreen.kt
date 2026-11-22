@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.SmallFloatingActionButton
@@ -215,6 +216,14 @@ fun BrowserScreen(
                             onMore = { actionNode = node },
                         )
                     }
+                    if (state.hasMore) {
+                        item(key = "__more__") {
+                            LoadMoreRow(
+                                loading = state.loadingMore,
+                                onClick = viewModel::loadMore,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -328,6 +337,44 @@ private fun NodeRow(
                     Icons.Default.MoreVert,
                     contentDescription = "更多操作",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 「加载更多」占位行。做成整行可点的卡片而不是自动触发，
+ * 是为了让用户清楚知道还有内容没加载、并且由自己决定要不要花这份流量。
+ */
+@Composable
+private fun LoadMoreRow(loading: Boolean, onClick: () -> Unit) {
+    PanCard(
+        onClick = if (loading) null else onClick,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.size(Spacing.sm))
+                Text(
+                    text = "加载中",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    text = "加载更多",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }

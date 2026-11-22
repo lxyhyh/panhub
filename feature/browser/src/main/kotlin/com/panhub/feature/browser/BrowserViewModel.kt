@@ -6,6 +6,7 @@ import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeId
+import com.panhub.core.model.PageRequest
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.session.SessionManager
@@ -34,6 +35,8 @@ data class BrowserUiState(
     val refreshing: Boolean = false,
     val nodes: List<RemoteNode> = emptyList(),
     val stack: List<RemoteNode> = emptyList(),
+    val nextCursor: String? = null,
+    val loadingMore: Boolean = false,
     val quota: Quota? = null,
     val canShare: Boolean = false,
     val canCreateFolder: Boolean = false,
@@ -46,6 +49,9 @@ data class BrowserUiState(
     val title: String get() = currentFolder?.name ?: accountName
     val canGoUp: Boolean get() = stack.isNotEmpty()
     val parentId: NodeId? get() = currentFolder?.id
+
+    /** 服务商还有下一页时为 true，界面据此显示「加载更多」。 */
+    val hasMore: Boolean get() = nextCursor != null
 
     /** 文件夹在前、同类按名字排。服务商返回的顺序各不相同，这里统一。 */
     val sorted: List<RemoteNode>
@@ -85,7 +91,9 @@ class BrowserViewModel(
     fun enter(folder: RemoteNode) {
         if (!folder.isDir) return
         _state.update { it.copy(stack = it.stack + folder) }
-        load()
+        // 换目录必须清空旧列表：否则新目录加载期间会短暂显示上一级的文件，
+        // 加载失败时更会一直停在那里，看起来像是进了错的目录。
+        reloadFromScratch()
     }
 
     /** 返回上一级；已在根目录时返回 false，交给系统返回键处理。 */
@@ -93,7 +101,7 @@ class BrowserViewModel(
         val stack = _state.value.stack
         if (stack.isEmpty()) return false
         _state.update { it.copy(stack = stack.dropLast(1)) }
-        load()
+        reloadFromScratch()
         return true
     }
 
@@ -284,6 +292,7 @@ class BrowserViewModel(
                         loading = false,
                         refreshing = false,
                         nodes = result.value.items,
+                        nextCursor = result.value.nextCursor,
                         error = null,
                     )
                 }
@@ -298,6 +307,44 @@ class BrowserViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * 拉取下一页，追加到当前列表末尾。
+     *
+     * 为什么不做「滚到底自动加载」：网盘目录动辄上千项，而多数服务商的
+     * 分页游标不可重放；用户没打算看完整目录时，多拉的每一页都是真实流量。
+     * 明确点一下「加载更多」把主动权交给用户。
+     */
+    fun loadMore() {
+        val provider = scoped ?: return
+        val cursor = _state.value.nextCursor ?: return
+        if (_state.value.loadingMore) return
+        _state.update { it.copy(loadingMore = true) }
+        viewModelScope.launch {
+            when (val result = provider.list(_state.value.parentId, PageRequest(cursor = cursor))) {
+                is PanResult.Success -> _state.update {
+                    // 服务商在某些边界会重复返回同一项，追加时按 id 去重，
+                    // 否则 LazyColumn 的 key 会冲突。
+                    val known = it.nodes.mapTo(mutableSetOf()) { node -> node.id.value }
+                    val extra = result.value.items.filter { node -> known.add(node.id.value) }
+                    it.copy(
+                        loadingMore = false,
+                        nodes = it.nodes + extra,
+                        nextCursor = result.value.nextCursor,
+                    )
+                }
+                is PanResult.Failure -> _state.update {
+                    it.copy(loadingMore = false, message = it.errorText(result.error))
+                }
+            }
+        }
+    }
+
+    /** 清空分页并重新加载（切换目录时用，避免把上一页的数据带进来）。 */
+    private fun reloadFromScratch() {
+        _state.update { it.copy(nodes = emptyList(), nextCursor = null) }
+        load()
     }
 
     private fun BrowserUiState.errorText(error: PanError): String = error.message
