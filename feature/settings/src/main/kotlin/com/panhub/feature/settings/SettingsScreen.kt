@@ -19,6 +19,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -83,6 +84,37 @@ fun SettingsScreen(
                                 option = option,
                                 selected = option.mode == state.theme,
                                 onClick = { viewModel.setTheme(option.mode) },
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                PanCard {
+                    Column {
+                        SectionTitle("传输")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.setWifiOnly(!state.wifiOnly) }
+                                .padding(vertical = Spacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "仅 Wi-Fi 传输",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "移动数据下排队不动，连上 Wi-Fi 自己接着传",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = state.wifiOnly,
+                                onCheckedChange = { viewModel.setWifiOnly(it) },
                             )
                         }
                     }

@@ -24,6 +24,8 @@ data class TransfersUiState(
     val tasks: List<TransferTask> = emptyList(),
     /** 每个正在跑的任务的速率（字节/秒）。测不出来的任务不会出现在这里。 */
     val speeds: Map<String, Long> = emptyMap(),
+    /** 队列此刻被挡住的原因（例如开着「仅 Wi-Fi」却不在 Wi-Fi 上），null 表示没挡。 */
+    val gateMessage: String? = null,
 ) {
     /** 标题栏要显示的汇总；每帧重算一次，任务数是几十条量级，不值得缓存。 */
     val digest: TransferDigest get() = TransferDigest.of(tasks)
@@ -69,6 +71,11 @@ class TransfersViewModel(
         viewModelScope.launch {
             engine.tasks.collect { tasks ->
                 _state.update { it.copy(tasks = tasks) }
+            }
+        }
+        viewModelScope.launch {
+            engine.gateMessage.collect { reason ->
+                _state.update { it.copy(gateMessage = reason) }
             }
         }
         viewModelScope.launch {

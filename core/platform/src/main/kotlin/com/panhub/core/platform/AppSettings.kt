@@ -44,6 +44,13 @@ enum class ThemeMode {
 /** 本地设置。字段少，且都要能给出合理的默认值。 */
 data class AppSettings(
     val theme: ThemeMode = ThemeMode.SYSTEM,
+    /**
+     * 只在 Wi-Fi 下传输。
+     *
+     * 默认关：手机上下载几个 G 的东西，用户自己知道流量够不够；
+     * 反过来「明明有网却不动」是更难理解的故障。
+     */
+    val wifiOnly: Boolean = false,
 )
 
 /**
@@ -79,7 +86,10 @@ class JsonSettingsStore(
             if (!file.isFile) return@withContext AppSettings()
             runCatching {
                 val obj = json.parseToJsonElement(file.readText()).jsonObject
-                AppSettings(theme = ThemeMode.parse(obj["theme"]?.jsonPrimitive?.contentOrNull))
+                AppSettings(
+                    theme = ThemeMode.parse(obj["theme"]?.jsonPrimitive?.contentOrNull),
+                    wifiOnly = obj["wifiOnly"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false,
+                )
             }.getOrElse { AppSettings() }
         }
     }
@@ -88,6 +98,7 @@ class JsonSettingsStore(
         withContext(ioDispatcher) {
             val text = buildJsonObject {
                 put("theme", settings.theme.name)
+                put("wifiOnly", settings.wifiOnly.toString())
             }.toString()
             file.parentFile?.mkdirs()
             // 先写临时文件再改名，闪存写到一半掉电不能留下半个 JSON。
@@ -125,6 +136,13 @@ class SettingsRepository(
 
     suspend fun setTheme(mode: ThemeMode) {
         val next = state.value.copy(theme = mode)
+        if (next == state.value) return
+        state.value = next
+        store.save(next)
+    }
+
+    suspend fun setWifiOnly(enabled: Boolean) {
+        val next = state.value.copy(wifiOnly = enabled)
         if (next == state.value) return
         state.value = next
         store.save(next)

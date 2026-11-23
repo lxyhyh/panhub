@@ -24,6 +24,7 @@ data class AppInfo(
 
 data class SettingsUiState(
     val theme: ThemeMode = ThemeMode.SYSTEM,
+    val wifiOnly: Boolean = false,
     val info: AppInfo = AppInfo("-", "-", "-"),
 ) {
     val options: List<ThemeOption> get() = SettingsLogic.themeOptions()
@@ -41,7 +42,7 @@ class SettingsViewModel(
 ) : ViewModel() {
 
     val state: StateFlow<SettingsUiState> = repository.settings
-        .map { SettingsUiState(theme = it.theme, info = info) }
+        .map { SettingsUiState(theme = it.theme, wifiOnly = it.wifiOnly, info = info) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
@@ -50,5 +51,9 @@ class SettingsViewModel(
 
     fun setTheme(mode: ThemeMode) {
         viewModelScope.launch { repository.setTheme(mode) }
+    }
+
+    fun setWifiOnly(enabled: Boolean) {
+        viewModelScope.launch { repository.setWifiOnly(enabled) }
     }
 }

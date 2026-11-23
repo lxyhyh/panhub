@@ -62,11 +62,27 @@ class TransferEngine(
      * App 里注入 [JsonTransferStore]，进程被杀掉后队列还在。
      */
     private val store: TransferStore = TransferStore.None,
+    /**
+     * 什么时候不该开始新的传输。
+     *
+     * 默认永远放行，让纯逻辑测试不用关心网络；App 里注入一个看
+     * ConnectivityManager 的实现，用户在设置里开了「仅 Wi-Fi」时生效。
+     */
+    private val gate: TransferGate = TransferGate.AlwaysOpen,
 ) : DownloadLauncher, UploadLauncher, CloudCopyLauncher {
 
     private val counter = AtomicLong(0L)
     private val _tasks = MutableStateFlow<List<TransferTask>>(emptyList())
     val tasks: StateFlow<List<TransferTask>> = _tasks.asStateFlow()
+
+    /**
+     * 当前把队列挡住的理由，null 表示没挡。
+     *
+     * 单独一条流而不是塞进每个任务里：挡住的不是某一个任务，
+     * 而是整条队列此刻都不该动，写在任务上会让已经完成的任务也显得被拦。
+     */
+    private val _gateMessage = MutableStateFlow<String?>(null)
+    val gateMessage: StateFlow<String?> = _gateMessage.asStateFlow()
 
     private val jobs = HashMap<String, Job>()
     private var running = false
@@ -382,9 +398,23 @@ class TransferEngine(
         push { list -> list.filterNot { it.isFinished } }
     }
 
+    /**
+     * 重新问一次「现在能不能传」。
+     *
+     * 网络从移动数据切回 Wi-Fi 时由平台层调用：门是自己关上的，
+     * 也得有人叫它一声才会重新开。
+     */
+    fun reevaluateGate() {
+        pump()
+    }
+
     /** 串行泵：没有在跑的任务时，取队列里第一个 QUEUED 的启动。 */
     private fun pump() {
         if (running) return
+        // 门挡着就停在原地。已经在跑的那个不打断——见 TransferGate 的说明。
+        val blocked = gate.blockedReason()
+        _gateMessage.value = blocked?.message
+        if (blocked != null) return
         // 正在退避的任务也是 QUEUED，但它此刻还不该跑，先跳过。
         val next = _tasks.value.firstOrNull {
             it.state == TransferState.QUEUED && it.id !in waiting

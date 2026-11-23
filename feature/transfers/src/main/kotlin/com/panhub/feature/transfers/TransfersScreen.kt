@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -140,6 +141,9 @@ fun TransfersScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            // 队列被挡住时（例如开着「仅 Wi-Fi」却在用移动数据）要说清楚原因，
+            // 否则用户看到一堆任务一动不动会以为是坏了。
+            state.gateMessage?.let { reason -> GateBanner(reason) }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -203,6 +207,26 @@ fun TransfersScreen(
                     item { Spacer(Modifier.height(Spacing.xl)) }
                 }
             }
+        }
+    }
+}
+
+/** 队列被挡住的原因。用自己的卡片而不是 Snackbar：它会一直成立到网络改变为止。 */
+@Composable
+private fun GateBanner(reason: String) {
+    PanCard(modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.WifiOff,
+                contentDescription = null,
+                tint = PanColors.Orange,
+            )
+            Text(
+                text = reason,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = Spacing.sm),
+            )
         }
     }
 }

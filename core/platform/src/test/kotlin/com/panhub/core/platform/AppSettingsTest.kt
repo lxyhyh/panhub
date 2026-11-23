@@ -110,4 +110,57 @@ class AppSettingsTest {
         assertEquals(ThemeMode.LIGHT, repository.settings.first().theme)
         assertEquals(ThemeMode.LIGHT, JsonSettingsStore(file, dispatcher).load().theme)
     }
+
+    // ---- 仅 Wi-Fi 传输 ----
+
+    @Test
+    fun wifiOnlyIsOffByDefault() = runTest {
+        // 默认关：手机上下载几个 G 的东西，用户自己知道流量够不够；
+        // 反过来「明明有网却不动」是更难理解的故障。
+        val file = File(temp.newFolder("wifiDefault"), "settings.json")
+
+        val loaded = JsonSettingsStore(file, StandardTestDispatcher(testScheduler)).load()
+
+        assertFalse(loaded.wifiOnly)
+    }
+
+    @Test
+    fun savedWifiOnlyComesBackAfterRestart() = runTest {
+        val file = File(temp.newFolder("wifi"), "settings.json")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+
+        JsonSettingsStore(file, dispatcher).save(AppSettings(wifiOnly = true))
+
+        assertTrue(JsonSettingsStore(file, dispatcher).load().wifiOnly)
+    }
+
+    @Test
+    fun settingWifiOnlyLeavesTheThemeAlone() = runTest {
+        val dir = temp.newFolder("wifiKeep")
+        val file = File(dir, "settings.json")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = SettingsRepository(JsonSettingsStore(file, dispatcher))
+        repository.setTheme(ThemeMode.DARK)
+
+        repository.setWifiOnly(true)
+
+        val stored = JsonSettingsStore(file, dispatcher).load()
+        assertEquals(ThemeMode.DARK, stored.theme)
+        assertTrue(stored.wifiOnly)
+    }
+
+    @Test
+    fun settingTheThemeLeavesWifiOnlyAlone() = runTest {
+        val dir = temp.newFolder("themeKeep")
+        val file = File(dir, "settings.json")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = SettingsRepository(JsonSettingsStore(file, dispatcher))
+        repository.setWifiOnly(true)
+
+        repository.setTheme(ThemeMode.LIGHT)
+
+        val stored = JsonSettingsStore(file, dispatcher).load()
+        assertEquals(ThemeMode.LIGHT, stored.theme)
+        assertTrue(stored.wifiOnly)
+    }
 }

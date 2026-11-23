@@ -15,6 +15,8 @@ import com.panhub.core.storage.JsonAccountStore
 import com.panhub.core.transfer.DirectorySink
 import com.panhub.core.transfer.HttpFileDownloader
 import com.panhub.core.transfer.JsonTransferStore
+import com.panhub.app.transfer.NetworkTransferGate
+import com.panhub.app.transfer.isOnWifi
 import com.panhub.core.transfer.TransferEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -122,6 +124,12 @@ object PanHubContainer {
             scratchDir = File(app.cacheDir, "cloud-copy"),
             // 队列存档放 filesDir：清缓存不该让「昨天没下完的东西」消失。
             store = JsonTransferStore(File(app.filesDir, TRANSFERS_FILE)),
+            // 「仅 Wi-Fi 传输」：开关在设置里，当前网络每次现查，
+            // 这样切到 Wi-Fi 的那一刻（不用重开 App）就该能继续。
+            gate = NetworkTransferGate(
+                wifiOnly = { settingsRepository(app).settings.value.wifiOnly },
+                onWifi = { isOnWifi(app) },
+            ),
         )
     }
 
