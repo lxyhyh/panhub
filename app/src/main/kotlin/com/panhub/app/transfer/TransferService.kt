@@ -10,6 +10,7 @@ import android.os.IBinder
 import com.panhub.app.di.PanHubContainer
 import com.panhub.core.transfer.TransferDigest
 import com.panhub.core.transfer.TransferEngine
+import com.panhub.core.transfer.TransferRunTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,6 +33,9 @@ class TransferService : Service() {
 
     private var scope: CoroutineScope? = null
     private var watching: Job? = null
+
+    /** 上一次采样时队列里还有没有活，用来判断「这一轮刚结束」。 */
+    private val runs = TransferRunTracker()
 
     override fun onCreate() {
         super.onCreate()
@@ -67,6 +71,12 @@ class TransferService : Service() {
         watching = scope?.launch {
             engine.tasks.collect { tasks ->
                 val digest = TransferDigest.of(tasks)
+                // 队列从「有活」跳到「没活」的那一刻就是一轮结束，给用户一条成绩单。
+                // 放在停服务之前发：停了之后这个服务可能要过一会儿才被真正销毁，
+                // 但通知必须马上出现。
+                runs.sample(tasks)?.let { report ->
+                    TransferNotifications.notifyFinished(this@TransferService, report)
+                }
                 if (!digest.hasActive) {
                     // 全部结束：撤掉常驻通知，然后停服务。
                     // 先 stopSelf 再 cancel 通知，避免系统在停服务时把通知也一并清掉后

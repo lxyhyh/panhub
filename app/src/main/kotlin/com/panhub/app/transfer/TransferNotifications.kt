@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.panhub.core.transfer.TransferDigest
+import com.panhub.core.transfer.TransferReport
 import com.panhub.core.transfer.TransferDirection
 import com.panhub.core.transfer.TransferState
 import com.panhub.core.transfer.TransferTask
@@ -28,6 +29,14 @@ internal object TransferNotifications {
 
     /** 常驻通知的固定 id：同一条通知更新，不会在通知栏堆叠。 */
     const val NOTIFICATION_ID = 4201
+
+    /**
+     * 结束通知的 id。
+     *
+     * 与常驻那条分开：常驻通知在队列空了之后会被撤掉，而「这一轮传完了」
+     * 需要留在通知栏里等用户点掉，两者生命周期不同。
+     */
+    const val FINISHED_NOTIFICATION_ID = 4202
 
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -129,6 +138,64 @@ internal object TransferNotifications {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+    }
+
+    /**
+     * 一轮传输结束时的通知。
+     *
+     * 为什么要发：用户把 App 退到后台之后，唯一的反馈就是这个通知栏。
+     * 不告诉他一轮已经结束，他只能反复切回来确认——那正是前台服务想避免的事。
+     *
+     * 只有一件事是真的失败时标题就直接说失败，别让用户点进来才发现；
+     * 字节数只算成功的那些，失败的任务中途停下的部分不是成绩。
+     */
+    fun buildFinished(context: Context, report: TransferReport): Notification? {
+        if (report.isEmpty) return null
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(finishedTitle(report))
+            .setContentText(finishedText(report))
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(openApp(context))
+            .build()
+    }
+
+    /**
+     * 结束通知的标题。
+     *
+     * 全都成功时说「完成」，全都失败时说「失败」——中间那种最含糊的情况
+     * 才把失败数写进标题，因为那才是用户需要立刻知道的事。
+     */
+    fun finishedTitle(report: TransferReport): String = when {
+        report.failed == 0 -> "传输完成"
+        report.completed == 0 -> "传输失败"
+        else -> "传输结束，有 " + report.failed + " 项失败"
+    }
+
+    /**
+     * 结束通知的正文：完成几项、失败几项、一共搬了多少。
+     *
+     * 字节数只算成功的：失败的任务中途停下的部分不是成绩，
+     * 把它算进去会让「失败」那条通知显得像传完了。
+     */
+    fun finishedText(report: TransferReport): String {
+        val parts = mutableListOf<String>()
+        if (report.completed > 0) parts += report.completed.toString() + " 项完成"
+        if (report.failed > 0) parts += report.failed.toString() + " 项失败"
+        if (report.bytes > 0L) parts += formatBytes(report.bytes)
+        return parts.joinToString(" · ")
+    }
+
+    /** 发出结束通知；没有成绩时什么都不做。 */
+    fun notifyFinished(context: Context, report: TransferReport) {
+        val notification = buildFinished(context, report) ?: return
+        runCatching {
+            context.getSystemService(NotificationManager::class.java)
+                ?.notify(FINISHED_NOTIFICATION_ID, notification)
+        }
     }
 
     /** 通知栏一行的实际可用宽度大约这么多字符。 */

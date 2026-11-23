@@ -2,6 +2,7 @@ package com.panhub.app.transfer
 
 import com.panhub.core.model.AccountId
 import com.panhub.core.transfer.TransferDigest
+import com.panhub.core.transfer.TransferReport
 import com.panhub.core.transfer.TransferDirection
 import com.panhub.core.transfer.TransferState
 import com.panhub.core.transfer.TransferTask
@@ -108,5 +109,39 @@ class TransferNotificationsTest {
         assertFalse(TransferDigest().hasActive)
         assertTrue(TransferDigest.of(listOf(task())).hasActive)
         assertFalse(TransferDigest.of(listOf(task(state = TransferState.COMPLETED))).hasActive)
+    }
+
+    @Test
+    fun finishedTitleCelebratesACleanRun() {
+        assertEquals("传输完成", TransferNotifications.finishedTitle(TransferReport(completed = 3)))
+    }
+
+    @Test
+    fun finishedTitleSaysFailureWhenNothingWorked() {
+        // 三项全失败还说「完成」会让人以为文件已经下好了。
+        assertEquals("传输失败", TransferNotifications.finishedTitle(TransferReport(failed = 3)))
+    }
+
+    @Test
+    fun finishedTitleMentionsHowManyFailedInAMix() {
+        assertEquals(
+            "传输结束，有 2 项失败",
+            TransferNotifications.finishedTitle(TransferReport(completed = 5, failed = 2)),
+        )
+    }
+
+    @Test
+    fun finishedTextCountsBothSidesAndTheBytes() {
+        val text = TransferNotifications.finishedText(
+            TransferReport(completed = 2, failed = 1, bytes = 3L * 1024L * 1024L),
+        )
+        assertEquals("2 项完成 · 1 项失败 · 3.0 MB", text)
+    }
+
+    @Test
+    fun finishedTextOmitsEmptyParts() {
+        // 全是成功、字节数未知时不该出现「0 项失败 · 0 B」这种噪声。
+        assertEquals("1 项完成", TransferNotifications.finishedText(TransferReport(completed = 1)))
+        assertEquals("1 项失败", TransferNotifications.finishedText(TransferReport(failed = 1)))
     }
 }
