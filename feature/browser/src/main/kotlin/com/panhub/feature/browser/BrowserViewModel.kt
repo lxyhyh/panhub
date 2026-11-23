@@ -107,6 +107,11 @@ data class CloudCopyState(
     val nodes: List<RemoteNode> = emptyList(),
     val targets: List<AccountSummary> = emptyList(),
     val targetId: AccountId? = null,
+    /** 目标账号里的目录栈；空表示还在对方根目录。 */
+    val stack: List<RemoteNode> = emptyList(),
+    val folders: List<RemoteNode> = emptyList(),
+    val loadingFolders: Boolean = false,
+    val folderError: String? = null,
     val busy: Boolean = false,
     val error: String? = null,
 ) {
@@ -114,6 +119,13 @@ data class CloudCopyState(
 
     /** 目标账号显示名，提交后拿它写提示。 */
     val targetName: String get() = targets.firstOrNull { it.id == targetId }?.label ?: ""
+
+    /** 提交目标目录：栈顶目录，null 表示对方根目录。 */
+    val targetFolderId: NodeId? get() = stack.lastOrNull()?.id
+
+    /** 目标位置的文字：账号名 + 路径，用于对话框里的说明行。 */
+    val targetLabel: String
+        get() = if (stack.isEmpty()) targetName else targetName + " / " + stack.joinToString(" / ") { it.name }
 }
 
 /**
@@ -965,12 +977,79 @@ class BrowserViewModel(
                 targets = candidates,
                 targetId = candidates.first().id,
             )
+            loadCloudCopyFolders()
         }
     }
 
     fun closeCloudCopy() = _copy.update { CloudCopyState() }
 
-    fun setCloudCopyTarget(id: AccountId) = _copy.update { it.copy(targetId = id, error = null) }
+    fun setCloudCopyTarget(id: AccountId) {
+        _copy.update { it.copy(targetId = id, error = null) }
+        // 换账号后旧目录完全失效：直接回根目录重拉一次。
+        _copy.update { it.copy(stack = emptyList()) }
+        loadCloudCopyFolders()
+    }
+
+    /** 进目标账号的某个子目录。 */
+    fun enterCloudCopyFolder(folder: RemoteNode) {
+        _copy.update { it.copy(stack = it.stack + folder, folderError = null) }
+        loadCloudCopyFolders()
+    }
+
+    /** 回到目标账号的上一层目录；已在根目录时无事可做。 */
+    fun leaveCloudCopyFolder(): Boolean {
+        val stack = _copy.value.stack
+        if (stack.isEmpty()) return false
+        _copy.update { it.copy(stack = stack.dropLast(1)) }
+        loadCloudCopyFolders()
+        return true
+    }
+
+    /**
+     * 列出目标账号当前目录里的子文件夹。
+     *
+     * 与移动/复制用的 loadPicker 不同：那里的账号是本页的（scoped 已就绪），
+     * 这里要对另一个账号 connect 再列，所以单独一份实现。
+     */
+    private fun loadCloudCopyFolders() {
+        val snapshot = _copy.value
+        val target = snapshot.targetId ?: return
+        viewModelScope.launch {
+            _copy.update { it.copy(loadingFolders = true, folders = emptyList(), folderError = null) }
+            when (val connected = session.connect(target)) {
+                is PanResult.Failure -> _copy.update {
+                    it.copy(loadingFolders = false, folderError = connected.error.message)
+                }
+                is PanResult.Success -> {
+                    val parent = _copy.value.stack.lastOrNull()?.id
+                    var cursor: String? = null
+                    var rounds = 0
+                    val folders = mutableListOf<RemoteNode>()
+                    while (true) {
+                        when (val page = connected.value.list(
+                            parent,
+                            PageRequest(cursor = cursor, limit = PICKER_PAGE_SIZE),
+                        )) {
+                            is PanResult.Failure -> _copy.update {
+                                it.copy(loadingFolders = false, folderError = page.error.message)
+                            }
+                            is PanResult.Success -> {
+                                folders += page.value.items.filter { it.isDir }
+                                cursor = page.value.nextCursor
+                                rounds++
+                                if (folders.isNotEmpty() || cursor == null || rounds >= PICKER_MAX_ROUNDS) {
+                                    _copy.update {
+                                        it.copy(loadingFolders = false, folders = folders)
+                                    }
+                                    return@launch
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fun submitCloudCopy() {
         val snapshot = _copy.value
@@ -978,8 +1057,7 @@ class BrowserViewModel(
         val copier = copier ?: return
         if (snapshot.nodes.isEmpty()) return
         _copy.update { it.copy(busy = true, error = null) }
-        // 目标目录直接取对方根目录：让用户在这里再挑一次目录会把两个账号的导航混在一起，
-        // 传完之后在目标账号里移动一次更直接。
+        val toParentId = snapshot.targetFolderId
         val canCreateFolder = snapshot.targets
             .firstOrNull { it.id == target }
             ?.capabilities?.createFolder == true
@@ -997,7 +1075,7 @@ class BrowserViewModel(
                     nodeId = node.id,
                     name = node.name,
                     toAccountId = target,
-                    toParentId = null,
+                    toParentId = toParentId,
                 )
                 folders++
                 continue
@@ -1008,7 +1086,7 @@ class BrowserViewModel(
                 name = node.name,
                 size = node.size.takeIf { it > 0L },
                 toAccountId = target,
-                toParentId = null,
+                toParentId = toParentId,
             )
             files++
         }

@@ -53,6 +53,7 @@ import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.SmallFloatingActionButton
@@ -503,6 +504,8 @@ fun BrowserScreen(
         CloudCopyDialog(
             copy = copy,
             onPick = viewModel::setCloudCopyTarget,
+            onEnterFolder = viewModel::enterCloudCopyFolder,
+            onUpFolder = { viewModel.leaveCloudCopyFolder() },
             onSubmit = viewModel::submitCloudCopy,
             onDismiss = viewModel::closeCloudCopy,
         )
@@ -714,6 +717,8 @@ private fun SearchDialog(
 private fun CloudCopyDialog(
     copy: CloudCopyState,
     onPick: (AccountId) -> Unit,
+    onEnterFolder: (RemoteNode) -> Unit,
+    onUpFolder: () -> Unit,
     onSubmit: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -759,6 +764,67 @@ private fun CloudCopyDialog(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(Spacing.md))
+                HorizontalDivider()
+                Spacer(Modifier.height(Spacing.sm))
+                // 目标位置说明行：点「上一级」回退。根目录不可回退。
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "存到：" + copy.targetLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (copy.stack.isNotEmpty()) {
+                        TextButton(onClick = onUpFolder, enabled = !copy.loadingFolders) {
+                            Text("上一级")
+                        }
+                    }
+                }
+                when {
+                    copy.loadingFolders -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.md),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                    copy.folderError != null -> Text(
+                        text = copy.folderError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    copy.folders.isEmpty() -> Text(
+                        text = "这里没有子文件夹",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = Spacing.sm),
+                    )
+                    else -> Column {
+                        copy.folders.forEach { folder ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(Radius.card))
+                                    .clickable { onEnterFolder(folder) }
+                                    .padding(vertical = Spacing.sm),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.size(Spacing.sm))
+                                Text(folder.name, style = MaterialTheme.typography.bodyLarge)
+                            }
                         }
                     }
                 }
