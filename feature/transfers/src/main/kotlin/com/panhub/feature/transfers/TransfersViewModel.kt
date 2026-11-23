@@ -38,6 +38,9 @@ data class TransfersUiState(
     val activeCount: Int get() = tasks.count { it.state.isActive }
     val hasFinished: Boolean get() = tasks.any { it.state.isFinished }
 
+    /** 失败的任务数。网络恢复后用户想一次把它们都排回去。 */
+    val failedCount: Int get() = tasks.count { it.state == TransferState.FAILED }
+
     /** 正在跑的那个任务的速率，标题栏用。 */
     val runningSpeed: Long? get() = digest.running?.let { speeds[it.id] }
 }
@@ -94,6 +97,11 @@ class TransfersViewModel(
 
     fun retry(id: String) {
         engine.retry(id)
+    }
+
+    /** 网络恢复后一次把失败的任务都排回队列。 */
+    fun retryFailed() {
+        engine.retryAllFailed()
     }
 
     fun clearFinished() {

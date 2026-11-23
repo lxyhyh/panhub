@@ -85,6 +85,10 @@ fun TransfersScreen(
                     }
                 },
                 actions = {
+                    // 网络断了之后常常一次攒下好几个失败的任务，一个个点重试很烦。
+                    if (state.failedCount > 0) {
+                        TextButton(onClick = viewModel::retryFailed) { Text("重试失败") }
+                    }
                     if (state.hasFinished) {
                         TextButton(onClick = viewModel::clearFinished) { Text("清空已完成") }
                     }

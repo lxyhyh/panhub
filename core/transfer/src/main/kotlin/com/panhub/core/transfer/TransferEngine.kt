@@ -333,6 +333,35 @@ class TransferEngine(
         return true
     }
 
+    /**
+     * 把所有失败的任务重新排队，返回重新排队的数量。
+     *
+     * 网络恢复之后往往攒了一串失败的任务，一个个点重试很烦。
+     * 取消的任务不算在内：那是用户自己不要的，批量重试不该把它捡回来。
+     */
+    fun retryAllFailed(): Int {
+        val failed = _tasks.value.count { it.state == TransferState.FAILED }
+        if (failed == 0) return 0
+        val now = clock.nowMillis()
+        push { list ->
+            list.map { task ->
+                if (task.state != TransferState.FAILED) {
+                    task
+                } else {
+                    task.copy(
+                        state = TransferState.QUEUED,
+                        bytes = 0L,
+                        error = null,
+                        attempt = 0,
+                        updatedAt = now,
+                    )
+                }
+            }
+        }
+        pump()
+        return failed
+    }
+
     /** 从列表里移除已结束的任务（不删文件）。 */
     fun clearFinished() {
         push { list -> list.filterNot { it.isFinished } }

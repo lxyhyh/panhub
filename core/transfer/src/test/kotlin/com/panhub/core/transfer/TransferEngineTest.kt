@@ -241,6 +241,51 @@ class TransferEngineTest {
     }
 
     @Test
+    fun retryAllFailedRequeuesEveryFailedTask() = runTest {
+        val downloader = FakeDownloader().apply { failWith = PanError.auth("登录已过期") }
+        val provider = FakeProvider(PanResult.Success(DownloadTarget("https://x/y")))
+        val engine = engine(this, provider, downloader)
+
+        engine.enqueue(account, NodeId("n1"), "a.bin", 1L)
+        engine.enqueue(account, NodeId("n2"), "b.bin", 1L)
+        advanceUntilIdle()
+        assertTrue(engine.tasks.value.all { it.state == TransferState.FAILED })
+
+        downloader.failWith = null
+        assertEquals(2, engine.retryAllFailed())
+        advanceUntilIdle()
+
+        assertTrue(engine.tasks.value.all { it.state == TransferState.COMPLETED })
+        assertEquals(4, downloader.calls.size)
+    }
+
+    @Test
+    fun retryAllFailedLeavesCanceledTasksAlone() = runTest {
+        val downloader = FakeDownloader().apply { gate = CompletableDeferred() }
+        val provider = FakeProvider(PanResult.Success(DownloadTarget("https://x/y")))
+        val engine = engine(this, provider, downloader)
+
+        val canceled = engine.enqueue(account, NodeId("n1"), "a.bin", 1L)
+        engine.enqueue(account, NodeId("n2"), "b.bin", 1L)
+        advanceUntilIdle()
+        engine.cancel(canceled)
+        downloader.gate?.complete(Unit)
+        advanceUntilIdle()
+
+        // 取消是用户自己不要的，批量重试不该把它捡回来。
+        assertEquals(0, engine.retryAllFailed())
+        assertEquals(TransferState.CANCELED, engine.tasks.value.first().state)
+    }
+
+    @Test
+    fun retryAllFailedOnEmptyQueueIsZero() = runTest {
+        val provider = FakeProvider(PanResult.Success(DownloadTarget("https://x/y")))
+        val engine = engine(this, provider, FakeDownloader())
+
+        assertEquals(0, engine.retryAllFailed())
+    }
+
+    @Test
     fun progressFractionIsNullWhenTotalUnknown() {
         val task = TransferTask(
             id = "t",
