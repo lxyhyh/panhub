@@ -10,6 +10,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.panhub.core.model.AccountId
+import com.panhub.core.preview.PreviewLoader
 import com.panhub.core.session.SessionManager
 import com.panhub.core.transfer.TransferEngine
 import com.panhub.feature.transfers.TransfersScreen
@@ -33,7 +34,11 @@ import com.panhub.feature.shares.SharesViewModel
  * 也都不认识导航，加一个新页面只改这里。
  */
 @Composable
-fun PanHubRoot(session: SessionManager, transfers: TransferEngine) {
+fun PanHubRoot(
+    session: SessionManager,
+    transfers: TransferEngine,
+    previews: PreviewLoader,
+) {
     val nav = rememberNavController()
 
     NavHost(navController = nav, startDestination = Routes.ACCOUNTS) {
@@ -64,6 +69,7 @@ fun PanHubRoot(session: SessionManager, transfers: TransferEngine) {
                         launcher = transfers,
                         uploader = transfers,
                         copier = transfers,
+                        previewer = previews,
                     )
                 },
             )

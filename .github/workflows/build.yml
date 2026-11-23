@@ -47,6 +47,7 @@ jobs:
             :provider:baidu:test \
             :core:storage:test \
             :core:transfer:test \
+            :core:preview:test \
             :core:session:test
 
   # Rust 内核单独一个 job：它只在改了 core/kernel 时才需要重编，
@@ -129,7 +130,7 @@ jobs:
       # 这些模块的单测要 Android 平台才能编译（它们依赖 Android 模块），
       # 所以放在这个 job 而不是纯 JVM 的 test job 里。
       - name: App unit tests
-        run: ./gradlew --stacktrace :app:testDebugUnitTest :feature:accounts:testDebugUnitTest :feature:shares:testDebugUnitTest :feature:shareimport:testDebugUnitTest :feature:transfers:testDebugUnitTest
+        run: ./gradlew --stacktrace :app:testDebugUnitTest :feature:accounts:testDebugUnitTest :feature:browser:testDebugUnitTest :feature:shares:testDebugUnitTest :feature:shareimport:testDebugUnitTest :feature:transfers:testDebugUnitTest
 
       - name: Download native libs
         uses: actions/download-artifact@v4

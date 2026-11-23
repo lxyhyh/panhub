@@ -29,6 +29,7 @@
 | \`:core:session\` | 会话管理：登录、恢复、跨 provider 的账号表 |
 | \`:core:transfer\` | 上传/下载队列、整目录上传与下载、跨网盘转存与整目录复制（串行执行、可暂停与取消、断点续传、队列存档、网络抖动自动退避重试） |
 | \`:core:kernel\` | Rust 内核 + JNI 桥接（MD5/SHA1/SHA256/CRC32、分片 MD5、上传摘要一次扫描） |
+| \`:core:preview\` | 文件预览：类型判定、文本解码与截断、按 Range 只取开头一段 |
 | \`:core:platform\` | 只依赖系统的能力：Android Keystore 加密 |
 | \`:provider:api\` | PanProvider 接口 + ProviderRegistry + ScopedPanProvider + UploadSource |
 | \`:provider:webdav\` | WebDAV 客户端与坚果云实现（含流式上传） |
@@ -167,6 +168,16 @@ N 个空文件）」，而不是假装什么都没发生。
 容量是装饰性的：不支持容量查询的网盘不显示，查询失败也不弹错误、不挡住列表，
 每个账号只试一次——失败的多半是凭据过期或服务商不认，每次刷新都重试只是白费流量。
 
+图片和文本可以在浏览页里就地看一眼（右侧菜单里的「预览」），不用先下载。
+只支持这两类：它们是对话框里就能画出来的东西；PDF、音视频要交给系统应用打开，
+那属于「下载」而不是「预览」，放进来只会多一个含糊的入口。
+
+预览只读文件开头一段（图片 12 MB、文本 256 KB），超出的部分不读，
+并在界面上说明「内容较长，这里只显示了开头一部分」——为了一眼把 200 MB 的日志
+整个拉下来既费流量又转很久。读取时带 \`Range\`，服务端支持就只传前一段，
+不支持也只是多读了这么多。类型判断先信 MIME 再信扩展名：服务商把 \`.md\` 标成
+\`application/octet-stream\` 很常见，只信 MIME 会让一批文本文件没有入口。
+
 接口事实都记录在 \`docs/recon/\`，每份文档只写**实际观察到的东西**，
 推断的部分会明确标注。
 
@@ -174,8 +185,8 @@ N 个空文件）」，而不是假装什么都没发生。
 
 推送到 \`main\` 或开 PR 会自动触发 \`.github/workflows/build.yml\`：
 
-- \`test\`：13 个纯 JVM 模块的单测
+- \`test\`：14 个纯 JVM 模块的单测
 - \`kernel\`：Rust 单测、clippy、交叉编译出 \`jniLibs\`
-- \`android\`：等前两个 job 通过后，跑需要 Android 平台的单测（\`:app\`、\`:feature:shares\`、\`:feature:shareimport\`），再编译 debug APK
+- \`android\`：等前两个 job 通过后，跑需要 Android 平台的单测（\`:app\`、\`:feature:accounts\`、\`:feature:browser\`、\`:feature:shares\`、\`:feature:shareimport\`、\`:feature:transfers\`），再编译 debug APK
 
 产物在 Actions 的 artifact 里（\`panhub-debug-apk\`）。

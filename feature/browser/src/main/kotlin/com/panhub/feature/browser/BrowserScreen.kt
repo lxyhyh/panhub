@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
@@ -112,6 +113,7 @@ fun BrowserScreen(
     val search by viewModel.search.collectAsStateWithLifecycle()
     val copy by viewModel.copy.collectAsStateWithLifecycle()
     val details by viewModel.details.collectAsStateWithLifecycle()
+    val preview by viewModel.preview.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -352,6 +354,8 @@ fun BrowserScreen(
             canDownload = state.canDownload,
             canDirectLink = state.canDirectLink,
             canCloudCopy = state.canCloudCopy,
+            // 预览要拿直链，拿不到直链的服务商连下载都不支持，自然也没法预览。
+            canPreview = state.canDownload && viewModel.canPreview(node),
             onDismiss = { actionNode = null },
             onRename = {
                 actionNode = null
@@ -384,6 +388,10 @@ fun BrowserScreen(
             onDetails = {
                 actionNode = null
                 viewModel.openDetails(node)
+            },
+            onPreview = {
+                actionNode = null
+                viewModel.openPreview(node)
             },
         )
     }
@@ -464,6 +472,20 @@ fun BrowserScreen(
                 onDismiss = viewModel::closeDetails,
             )
         }
+    }
+
+    if (preview.visible) {
+        PreviewDialog(
+            state = preview,
+            onDismiss = viewModel::closePreview,
+            onRetry = viewModel::retryPreview,
+            onDownload = {
+                preview.node?.let { node ->
+                    viewModel.closePreview()
+                    viewModel.download(node)
+                }
+            },
+        )
     }
 
     if (showSort) {
@@ -987,6 +1009,7 @@ private fun NodeActionsSheet(
     canDownload: Boolean,
     canDirectLink: Boolean,
     canCloudCopy: Boolean,
+    canPreview: Boolean,
     onDismiss: () -> Unit,
     onRename: () -> Unit,
     onMove: () -> Unit,
@@ -996,6 +1019,7 @@ private fun NodeActionsSheet(
     onShare: () -> Unit,
     onCloudCopy: () -> Unit,
     onDetails: () -> Unit,
+    onPreview: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1004,6 +1028,11 @@ private fun NodeActionsSheet(
             Column {
                 // 每一项都由 provider 的能力声明决定是否出现：
                 // 界面不认识服务商，也就不可能在新增网盘时漏改这里。
+                // 能预览的文件把「看一眼」放在最前面：它是列表里点开文件时
+                // 最想做的事，比改名、移动高频得多。
+                if (canPreview) {
+                    ActionRow("预览", Icons.Default.Visibility, onPreview)
+                }
                 ActionRow("查看详情", Icons.Default.Info, onDetails)
                 if (canRename) {
                     ActionRow("重命名", Icons.Default.Edit, onRename)

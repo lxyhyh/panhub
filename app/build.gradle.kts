@@ -63,6 +63,7 @@ dependencies {
     implementation(project(":feature:shareimport"))
     implementation(project(":core:transfer"))
     implementation(project(":core:kernel"))
+    implementation(project(":core:preview"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

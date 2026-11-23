@@ -5,6 +5,8 @@ import com.panhub.core.common.Clock
 import com.panhub.core.kernel.KernelUpload
 import com.panhub.core.network.HttpEngine
 import com.panhub.core.platform.KeystoreCipher
+import com.panhub.core.preview.HttpPreviewLoader
+import com.panhub.core.preview.PreviewLoader
 import com.panhub.core.session.DefaultSessionManager
 import com.panhub.core.session.SessionManager
 import com.panhub.core.storage.JsonAccountStore
@@ -46,6 +48,9 @@ object PanHubContainer {
     @Volatile
     private var engine: TransferEngine? = null
 
+    @Volatile
+    private var previews: PreviewLoader? = null
+
     /** 进程级单例。第一次调用时装配。 */
     fun sessionManager(context: Context): SessionManager =
         instance ?: synchronized(this) {
@@ -61,6 +66,24 @@ object PanHubContainer {
     fun transferEngine(context: Context): TransferEngine =
         engine ?: synchronized(this) {
             engine ?: buildEngine(applicationContext(context)).also { engine = it }
+        }
+
+    /**
+     * 预览加载器。
+     *
+     * 和下载队列分开：预览是一次性的读取，不进队列、不占执行位，
+     * 也不会因为一次失败在传输页留下一条记录。
+     */
+    fun previewLoader(context: Context): PreviewLoader =
+        previews ?: synchronized(this) {
+            previews ?: run {
+                val app = applicationContext(context)
+                val session = sessionManager(app)
+                HttpPreviewLoader(
+                    engine = HttpEngine(),
+                    sessionProvider = { accountId -> session.connect(accountId) },
+                ).also { previews = it }
+            }
         }
 
     private fun applicationContext(context: Context): Context =

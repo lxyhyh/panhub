@@ -28,6 +28,7 @@ dependencies {
     api(project(":core:design"))
     api(project(":core:session"))
     api(project(":core:transfer"))
+    api(project(":core:preview"))
 
     implementation(libs.androidx.activity.compose)
     // 选整个文件夹要遍历 document tree，File 读不到 content:// 下的子项。
@@ -35,4 +36,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

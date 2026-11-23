@@ -14,6 +14,10 @@ import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SortOrder
 import com.panhub.core.model.SortSpec
 import com.panhub.core.model.sortedFor
+import com.panhub.core.preview.PreviewContent
+import com.panhub.core.preview.PreviewKind
+import com.panhub.core.preview.PreviewKinds
+import com.panhub.core.preview.PreviewLoader
 import com.panhub.core.session.AccountSummary
 import com.panhub.core.session.SessionManager
 import com.panhub.core.transfer.CloudCopyLauncher
@@ -203,6 +207,23 @@ data class NodeDetailsState(
 )
 
 /**
+ * 文件预览面板的状态。
+ *
+ * 和详情面板的区别在于它真的要读内容：所以有 loading 与 error，
+ * 而且失败后要能重试——直链是短时的，用户过一会儿再点多半就好了。
+ */
+data class PreviewState(
+    val visible: Boolean = false,
+    val node: RemoteNode? = null,
+    val kind: PreviewKind = PreviewKind.NONE,
+    val loading: Boolean = false,
+    val content: PreviewContent? = null,
+    val error: PanError? = null,
+) {
+    val canRetry: Boolean get() = error != null && node != null
+}
+
+/**
  * 文件浏览。
  *
  * 深模块化的关键点：这一层只认识 [ScopedPanProvider] 和 [RemoteNode]，
@@ -214,6 +235,7 @@ class BrowserViewModel(
     private val launcher: DownloadLauncher? = null,
     private val uploader: UploadLauncher? = null,
     private val copier: CloudCopyLauncher? = null,
+    private val previewer: PreviewLoader? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(BrowserUiState(accountId = accountId))
@@ -234,6 +256,12 @@ class BrowserViewModel(
 
     private val _details = MutableStateFlow(NodeDetailsState())
     val details: StateFlow<NodeDetailsState> = _details.asStateFlow()
+
+    private val _preview = MutableStateFlow(PreviewState())
+    val preview: StateFlow<PreviewState> = _preview.asStateFlow()
+
+    /** 当前打开的预览是否还有协程在跑，关闭时要取消掉。 */
+    private var previewJob: Job? = null
 
     private var scoped: ScopedPanProvider? = null
     private var loadJob: Job? = null
@@ -377,6 +405,62 @@ class BrowserViewModel(
     fun closeDetails() {
         _details.value = NodeDetailsState()
     }
+
+    /**
+     * 就地预览一个文件。
+     *
+     * 判断「能不能预览」放在这里而不是界面里：界面上每个入口都要写一遍
+     * 同样的判断，迟早会有一处漏改，出现一个点了没反应的按钮。
+     * 不能预览时直接返回 false，让界面把入口藏起来。
+     */
+    fun openPreview(node: RemoteNode): Boolean {
+        val loader = previewer ?: return false
+        val kind = PreviewKinds.of(node)
+        if (kind == PreviewKind.NONE) return false
+        previewJob?.cancel()
+        _preview.value = PreviewState(
+            visible = true,
+            node = node,
+            kind = kind,
+            loading = true,
+        )
+        previewJob = viewModelScope.launch {
+            val result = loader.load(accountId, node.id, kind, node.size.takeIf { it > 0 })
+            _preview.update { current ->
+                // 面板可能在加载期间被关掉或换成了别的文件，只认还在等这份内容的那次。
+                if (!current.visible || current.node?.id != node.id) return@update current
+                when (result) {
+                    is PanResult.Success -> current.copy(
+                        loading = false,
+                        content = result.value,
+                        error = null,
+                    )
+                    is PanResult.Failure -> current.copy(
+                        loading = false,
+                        content = null,
+                        error = result.error,
+                    )
+                }
+            }
+        }
+        return true
+    }
+
+    /** 重试上一次失败的预览。直链是短时的，多半再点一次就好了。 */
+    fun retryPreview() {
+        val node = _preview.value.node ?: return
+        openPreview(node)
+    }
+
+    fun closePreview() {
+        previewJob?.cancel()
+        previewJob = null
+        _preview.value = PreviewState()
+    }
+
+    /** 这个文件能不能就地预览，界面用它决定要不要显示入口。 */
+    fun canPreview(node: RemoteNode): Boolean =
+        previewer != null && !node.isDir && PreviewKinds.of(node) != PreviewKind.NONE
 
     fun enter(folder: RemoteNode) {
         if (!folder.isDir) return

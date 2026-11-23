@@ -34,6 +34,7 @@ include(":core:storage")
 include(":core:session")
 include(":core:platform")
 include(":core:transfer")
+include(":core:preview")
 
 // provider 契约层 + 各网盘实现，每个实现一个模块，新增网盘只加模块不改 UI
 include(":provider:api")

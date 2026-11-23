@@ -31,9 +31,10 @@ class MainActivity : ComponentActivity() {
         askForNotificationPermission()
         val session = PanHubContainer.sessionManager(this)
         val transfers = PanHubContainer.transferEngine(this)
+        val previews = PanHubContainer.previewLoader(this)
         setContent {
             PanHubTheme {
-                PanHubRoot(session, transfers)
+                PanHubRoot(session, transfers, previews)
             }
         }
     }
