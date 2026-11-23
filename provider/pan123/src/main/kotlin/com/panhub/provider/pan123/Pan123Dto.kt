@@ -73,8 +73,56 @@ data class FileItem(
      */
     @SerialName("TrashedAt") val trashedAt: String? = null,
     @SerialName("TrashedExpire") val trashedExpire: String? = null,
+    /**
+     * 收藏状态：255 = 已收藏，1 = 未收藏（网页端常量）。
+     *
+     * 列表响应本来就会带这个字段，所以界面不需要为「这个文件收藏了吗」
+     * 再打一次请求。
+     */
+    @SerialName("StarredStatus") val starredStatus: Int? = null,
 ) {
     val isDir: Boolean get() = type == 1
+
+    val isStarred: Boolean get() = starredStatus == STARRED_DONE
+
+    companion object {
+        /** 网页端把 255 当「已收藏」、1 当「未收藏」，是服务端的取值域，不是布尔。 */
+        const val STARRED_DONE = 255
+        const val STARRED_NONE = 1
+    }
+}
+
+/**
+ * 收藏夹列表的响应。
+ *
+ * 字段全是小写驼峰（fileId / fileName / fileSize ...），与普通列表的 PascalCase
+ * 不是一个命名体系——网页端也确实是两套独立的映射函数，所以这里单独一套 DTO，
+ * 不去复用 [FileItem]。
+ *
+ * 时间戳是**秒**，网页端乘 1000 之后才交给时间格式化。
+ */
+@Serializable
+data class StarredListData(
+    @SerialName("next") val next: String? = null,
+    @SerialName("starredFileInfos") val starredFileInfos: List<StarredFileItem>? = null,
+)
+
+@Serializable
+data class StarredFileItem(
+    @SerialName("fileId") val fileId: Long = 0,
+    @SerialName("parentFileId") val parentFileId: Long = 0,
+    @SerialName("fileName") val fileName: String = "",
+    @SerialName("fileType") val fileType: Int = 0,
+    @SerialName("fileSize") val fileSize: Long = 0,
+    @SerialName("etag") val etag: String? = null,
+    @SerialName("category") val category: Int? = null,
+    @SerialName("thumbnail") val thumbnail: String? = null,
+    @SerialName("createAt") val createAt: Long? = null,
+    @SerialName("updateAt") val updateAt: Long? = null,
+    @SerialName("directLink") val directLink: String? = null,
+    @SerialName("s3KeyFlag") val s3KeyFlag: String? = null,
+) {
+    val isDir: Boolean get() = fileType == 1
 }
 
 /**

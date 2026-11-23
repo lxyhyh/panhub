@@ -62,7 +62,7 @@ class CapabilityContractTest {
             "list", "quota", "upload", "uploadChunked", "download",
             "rename", "move", "copy", "trash", "delete", "createFolder", "search",
             "share", "shareList", "sharePassword", "shareExpiry", "directLink",
-            "offlineDownload",
+            "offlineDownload", "star",
         )
 
         /** 能力名 → 取值函数。新增能力时必须在这里补一行，否则测不到。 */
@@ -85,6 +85,7 @@ class CapabilityContractTest {
             "shareExpiry" to { c: ProviderCapabilities -> c.shareExpiry },
             "directLink" to { c: ProviderCapabilities -> c.directLink },
             "offlineDownload" to { c: ProviderCapabilities -> c.offlineDownload },
+            "star" to { c: ProviderCapabilities -> c.star },
         )
     }
 }

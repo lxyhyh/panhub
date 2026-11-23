@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -93,6 +94,7 @@ fun AccountsScreen(
     onOpenSettings: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenTrash: (AccountId) -> Unit = {},
+    onOpenStarred: (AccountId) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val form by viewModel.form.collectAsStateWithLifecycle()
@@ -171,6 +173,7 @@ fun AccountsScreen(
                             onRename = { pendingAlias = account },
                             onOpenShares = { onOpenShares(account.id) },
                             onOpenTrash = { onOpenTrash(account.id) },
+                            onOpenStarred = { onOpenStarred(account.id) },
                         )
                     }
                 }
@@ -258,6 +261,7 @@ private fun AccountCard(
     onRename: () -> Unit,
     onOpenShares: () -> Unit,
     onOpenTrash: () -> Unit,
+    onOpenStarred: () -> Unit,
 ) {
     PanCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -370,6 +374,29 @@ private fun AccountCard(
                 )
                 Text(
                     text = "回收站",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = Spacing.xs),
+                )
+            }
+        }
+        // 收藏夹同理：不支持收藏的网盘点进去只会是空的。
+        if (account.capabilities.star) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = Spacing.sm)
+                    .clickable(onClick = onOpenStarred),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.Star,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    text = "收藏夹",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = Spacing.xs),

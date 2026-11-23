@@ -21,6 +21,14 @@ data class RemoteNode(
     val thumbnailUrl: String? = null,
     val providerPath: String? = null,
     val isShared: Boolean = false,
+    /**
+     * 是否已在服务商的收藏夹里。
+     *
+     * 放成节点上的一个字段而不是让 UI 再查一次：收藏是个别服务商才有的能力，
+     * 为它多打一次「这个文件收藏了吗」的请求不划算，而列表响应本来就带着这个状态
+     * （123 云盘的 StarredStatus）。不提供收藏的服务商一律是 false。
+     */
+    val starred: Boolean = false,
 ) {
     val isDir: Boolean get() = kind == NodeKind.DIR
 }

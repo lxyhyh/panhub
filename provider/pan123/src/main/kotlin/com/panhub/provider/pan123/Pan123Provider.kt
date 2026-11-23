@@ -76,6 +76,7 @@ class Pan123Provider(
             search = true,
             trash = true,
             offlineDownload = true,
+            star = true,
         ),
     )
 
@@ -414,6 +415,81 @@ class Pan123Provider(
         decode = { raw -> json.decodeFromString(ApiEnvelope.serializer(JsonUnit), raw) },
     ).map { }
 
+    /**
+     * 收藏 / 取消收藏。
+     *
+     * 服务端的取值为 255 = 已收藏、1 = 未收藏（网页端常量），不是布尔；
+     * 传错过来文件会静默地既不在收藏夹里也不报错。
+     */
+    override suspend fun setStarred(
+        session: ProviderSession,
+        nodeIds: List<NodeId>,
+        starred: Boolean,
+    ): PanResult<Unit> {
+        if (nodeIds.isEmpty()) return PanResult.Success(Unit)
+        val status = if (starred) FileItem.STARRED_DONE else FileItem.STARRED_NONE
+        val body = buildString {
+            append("""{"fileIdList":[""")
+            append(nodeIds.joinToString(",") { it.value })
+            append("""],"starredStatus":""")
+            append(status)
+            append("}")
+        }
+        return api.post(
+            path = Pan123Api.PATH_STARRED,
+            token = tokenOf(session),
+            body = body,
+            decode = { raw -> json.decodeFromString(ApiEnvelope.serializer(JsonUnit), raw) },
+        ).map { }
+    }
+
+    override suspend fun listStarred(
+        session: ProviderSession,
+        page: PageRequest,
+    ): PanResult<NodePage> {
+        val query = buildString {
+            append(Pan123Api.PATH_STARRED_LIST)
+            append("?driveId=0")
+            append("&limit=").append(page.limit)
+            append("&next=").append(page.cursor ?: Pan123Wire.EMPTY_CURSOR)
+            append("&pageSize=").append(page.limit)
+            append("&orderBy=update_time")
+            append("&orderDirection=desc")
+            append("&parentFileId=0")
+            append("&trashed=false")
+        }
+        return api.get(
+            path = query,
+            token = tokenOf(session),
+            decode = { raw ->
+                json.decodeFromString(ApiEnvelope.serializer(StarredListData.serializer()), raw)
+            },
+        ).map { data ->
+            NodePage(
+                items = data.starredFileInfos.orEmpty().map { it.toRemoteNode() },
+                nextCursor = Pan123Wire.nextCursor(data.next),
+            )
+        }
+    }
+
+    /**
+     * 收藏夹条目转节点。
+     *
+     * 时间戳是秒，其它地方的时间戳都是毫秒，这里必须乘 1000，
+     * 否则收藏夹里的文件会显示成 1970 年。
+     */
+    private fun StarredFileItem.toRemoteNode(): RemoteNode = RemoteNode(
+        id = NodeId(fileId.toString()),
+        parentId = parentFileId.takeIf { it != 0L }?.let { NodeId(it.toString()) },
+        name = fileName,
+        kind = if (isDir) NodeKind.DIR else NodeKind.FILE,
+        size = if (isDir) 0L else fileSize,
+        modifiedAt = updateAt?.takeIf { it > 0L }?.times(1000L),
+        createdAt = createAt?.takeIf { it > 0L }?.times(1000L),
+        thumbnailUrl = thumbnail?.takeIf { it.isNotBlank() },
+        starred = true,
+    )
+
     private fun buildTrashBody(
         nodeIds: List<NodeId>,
         operation: Boolean,
@@ -632,6 +708,7 @@ class Pan123Provider(
             modifiedAt = parseTime(updateAt),
             createdAt = parseTime(createAt),
             providerPath = if (fromSearch) parentName?.takeIf { it.isNotBlank() } else null,
+            starred = isStarred,
         )
 
     private fun parseTime(raw: String?): Long? {

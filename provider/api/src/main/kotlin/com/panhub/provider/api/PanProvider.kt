@@ -236,6 +236,29 @@ interface PanProvider {
         fileIds: List<String>,
         parentId: NodeId? = null,
     ): PanResult<Unit> = PanResult.Failure(PanError.notSupported("该网盘不支持离线下载"))
+
+    /**
+     * 把文件加进收藏夹，或者从收藏夹里移除。
+     *
+     * 批量而不是单个：网页端也是多选之后一次提交，逐个发请求在慢网下
+     * 会让用户看着一串转圈。
+     */
+    suspend fun setStarred(
+        session: ProviderSession,
+        nodeIds: List<NodeId>,
+        starred: Boolean,
+    ): PanResult<Unit> = PanResult.Failure(PanError.notSupported("该网盘不支持收藏"))
+
+    /**
+     * 列出收藏夹里的文件。
+     *
+     * 收藏夹是平铺的：不同目录的文件混在一起，条目自己知道原来在哪个目录，
+     * 所以返回的节点仍然带 parentId。
+     */
+    suspend fun listStarred(
+        session: ProviderSession,
+        page: PageRequest = PageRequest(),
+    ): PanResult<NodePage> = PanResult.Failure(PanError.notSupported("该网盘不支持查看收藏夹"))
 }
 
 /** 一次下载所需的一切：URL + 必需的头（很多网盘校验 UA/Referer）。 */

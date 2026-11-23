@@ -142,6 +142,12 @@ class Pan123Api(
         const val PATH_TRASH = "/api/file/trash"
         const val PATH_TRASH_EMPTY = "/api/file/trash_delete_all"
         const val PATH_TRASH_RECOVER_PATH = "/api/file/recover/by_path"
+
+    /** 收藏／取消收藏。 */
+    const val PATH_STARRED = "/api/restful/goapi/v1/file/starred"
+
+    /** 收藏夹列表（GET，字段是小写驼峰）。 */
+    const val PATH_STARRED_LIST = "/api/restful/goapi/v1/file/starred/list"
         const val PATH_SHARE_CREATE = "/api/share/create"
         const val PATH_SHARE_LIST = "/api/share/list"
         const val PATH_SHARE_DELETE = "/api/share/delete"

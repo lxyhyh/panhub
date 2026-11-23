@@ -37,6 +37,8 @@ import com.panhub.feature.trash.TrashScreen
 import com.panhub.feature.trash.TrashViewModel
 import com.panhub.feature.offline.OfflineScreen
 import com.panhub.feature.offline.OfflineViewModel
+import com.panhub.feature.starred.StarredScreen
+import com.panhub.feature.starred.StarredViewModel
 import com.panhub.core.model.NodeFocus
 import com.panhub.core.model.RemoteNode
 
@@ -87,6 +89,7 @@ fun PanHubRoot(
                 onOpenTransfers = { nav.navigate(Routes.TRANSFERS) },
                 onOpenShares = { account -> nav.navigate(Routes.shares(account.value)) },
                 onOpenTrash = { account -> nav.navigate(Routes.trash(account.value)) },
+                onOpenStarred = { account -> nav.navigate(Routes.starred(account.value)) },
                 onOpenShareImport = { nav.navigate(Routes.SHARE_IMPORT) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenSearch = { nav.navigate(Routes.SEARCH) },
@@ -141,6 +144,30 @@ fun PanHubRoot(
                 factory = factoryOf { TrashViewModel(session, AccountId(raw)) },
             )
             TrashScreen(viewModel = vm, onBack = { nav.popBackStack() })
+        }
+        composable(
+            route = Routes.STARRED,
+            arguments = listOf(navArgument(Routes.ARG_ACCOUNT) { type = NavType.StringType }),
+        ) { entry ->
+            val raw = entry.arguments?.getString(Routes.ARG_ACCOUNT).orEmpty()
+            val vm: StarredViewModel = viewModel(
+                factory = factoryOf { StarredViewModel(session, AccountId(raw)) },
+            )
+            StarredScreen(
+                viewModel = vm,
+                onBack = { nav.popBackStack() },
+                onOpen = { node ->
+                    // 收藏夹是跨目录的，点开某一项要回到它所在的目录去看，
+                    // 所以借浏览页的「定位」通道，而不是另开一个只读详情页。
+                    pendingFocus.value = NodeFocus(
+                        id = node.id,
+                        name = node.name,
+                        dir = node.isDir,
+                        parentId = node.parentId,
+                    )
+                    nav.navigate(Routes.browser(AccountId(raw).value))
+                },
+            )
         }
         composable(
             route = Routes.OFFLINE,
@@ -210,6 +237,7 @@ private object Routes {
     const val BROWSER = "browser/{$ARG_ACCOUNT}"
     const val SHARES = "shares/{$ARG_ACCOUNT}"
     const val TRASH = "trash/{$ARG_ACCOUNT}"
+    const val STARRED = "starred/{$ARG_ACCOUNT}"
     const val OFFLINE = "offline/{$ARG_ACCOUNT}"
 
     /** 账号 id 里可能含 ':' 和 '/'，必须编码，否则会拆坏路由。 */
@@ -224,6 +252,9 @@ private object Routes {
 
     fun offline(accountId: String): String =
         "offline/" + java.net.URLEncoder.encode(accountId, "UTF-8")
+
+    fun starred(accountId: String): String =
+        "starred/" + java.net.URLEncoder.encode(accountId, "UTF-8")
 }
 
 /**

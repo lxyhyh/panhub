@@ -44,11 +44,13 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -86,6 +88,7 @@ import com.panhub.core.design.EmptyState
 import com.panhub.core.design.LabeledRow
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
+import com.panhub.core.design.PanColors
 import com.panhub.core.design.QuotaBar
 import com.panhub.core.design.Radius
 import com.panhub.core.design.Spacing
@@ -386,6 +389,7 @@ fun BrowserScreen(
             canCloudCopy = state.canCloudCopy,
             // 预览要拿直链，拿不到直链的服务商连下载都不支持，自然也没法预览。
             canPreview = state.canDownload && viewModel.canPreview(node),
+            canStar = state.canStar,
             onDismiss = { actionNode = null },
             onRename = {
                 actionNode = null
@@ -426,6 +430,10 @@ fun BrowserScreen(
             onPreview = {
                 actionNode = null
                 viewModel.openPreview(node)
+            },
+            onStar = {
+                actionNode = null
+                viewModel.toggleStar(node)
             },
         )
     }
@@ -1057,6 +1065,16 @@ private fun NodeRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            // 收藏标记只是个小星：它不占操作位置，
+            // 但要能一眼看出哪些文件已经在收藏夹里，否则用户没法判断该加还是该减。
+            if (node.starred) {
+                Icon(
+                    imageVector = Icons.Filled.Star,
+                    contentDescription = "已收藏",
+                    tint = PanColors.Orange,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
             IconButton(onClick = onMore) {
                 Icon(
                     Icons.Default.MoreVert,
@@ -1118,6 +1136,7 @@ private fun NodeActionsSheet(
     canDirectLink: Boolean,
     canCloudCopy: Boolean,
     canPreview: Boolean,
+    canStar: Boolean,
     onDismiss: () -> Unit,
     onRename: () -> Unit,
     onMove: () -> Unit,
@@ -1129,6 +1148,7 @@ private fun NodeActionsSheet(
     onCloudCopy: () -> Unit,
     onDetails: () -> Unit,
     onPreview: () -> Unit,
+    onStar: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1167,6 +1187,13 @@ private fun NodeActionsSheet(
                 }
                 if (!node.isDir && canCloudCopy) {
                     ActionRow("复制到其他网盘", Icons.Default.SyncAlt, onCloudCopy)
+                }
+                if (canStar) {
+                    ActionRow(
+                        if (node.starred) "取消收藏" else "收藏",
+                        if (node.starred) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                        onStar,
+                    )
                 }
                 if (canShare) {
                     ActionRow("创建分享", Icons.Default.Share, onShare)

@@ -130,7 +130,7 @@ jobs:
       # 这些模块的单测要 Android 平台才能编译（它们依赖 Android 模块），
       # 所以放在这个 job 而不是纯 JVM 的 test job 里。
       - name: App unit tests
-        run: ./gradlew --stacktrace :app:testDebugUnitTest :core:platform:testDebugUnitTest :feature:accounts:testDebugUnitTest :feature:browser:testDebugUnitTest :feature:settings:testDebugUnitTest :feature:shares:testDebugUnitTest :feature:shareimport:testDebugUnitTest :feature:transfers:testDebugUnitTest :feature:search:testDebugUnitTest :feature:offline:testDebugUnitTest :feature:trash:testDebugUnitTest
+        run: ./gradlew --stacktrace :app:testDebugUnitTest :core:platform:testDebugUnitTest :feature:accounts:testDebugUnitTest :feature:browser:testDebugUnitTest :feature:settings:testDebugUnitTest :feature:shares:testDebugUnitTest :feature:shareimport:testDebugUnitTest :feature:transfers:testDebugUnitTest :feature:search:testDebugUnitTest :feature:offline:testDebugUnitTest :feature:trash:testDebugUnitTest :feature:starred:testDebugUnitTest
 
       - name: Download native libs
         uses: actions/download-artifact@v4

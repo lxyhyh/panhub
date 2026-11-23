@@ -66,6 +66,8 @@ data class BrowserUiState(
     /** 至少还有一个别的账号能接收文件时才有「复制到其他网盘」。 */
     val canCloudCopy: Boolean = false,
     val canOfflineDownload: Boolean = false,
+    /** 能否把这个文件加进收藏夹。 */
+    val canStar: Boolean = false,
     val error: PanError? = null,
     val message: String? = null,
     val busy: Boolean = false,
@@ -576,6 +578,37 @@ class BrowserViewModel(
         }
     }
 
+    /**
+     * 收藏 / 取消收藏。
+     *
+     * 成功后只改本地列表里那一条的 starred 标记，不整页重拉：
+     * 收藏夹之外的地方翻页会打断用户正在看的位置，而本地标记已经和服务端一致了。
+     */
+    fun toggleStar(node: RemoteNode) {
+        val provider = scoped ?: return
+        if (_state.value.busy) return
+        val target = !node.starred
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            when (val result = provider.setStarred(listOf(node.id), target)) {
+                is PanResult.Success -> {
+                    _state.update { current ->
+                        current.copy(
+                            busy = false,
+                            nodes = current.nodes.map {
+                                if (it.id == node.id) it.copy(starred = target) else it
+                            },
+                            message = if (target) "已收藏 " + node.name else "已取消收藏 " + node.name,
+                        )
+                    }
+                }
+                is PanResult.Failure -> _state.update {
+                    it.copy(busy = false, message = result.error.message)
+                }
+            }
+        }
+    }
+
     fun delete(node: RemoteNode) {
         val provider = scoped ?: return
         _state.update { it.copy(busy = true) }
@@ -997,6 +1030,7 @@ class BrowserViewModel(
                             canDirectLink = descriptor.capabilities.directLink,
                             canSearch = descriptor.capabilities.search,
                             canOfflineDownload = descriptor.capabilities.offlineDownload,
+                            canStar = descriptor.capabilities.star,
                             canCloudCopy = copier != null &&
                                 session.accounts.first().any { other ->
                                     other.id != accountId && other.capabilities.upload

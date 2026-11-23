@@ -26,6 +26,13 @@ data class ProviderCapabilities(
     val offlineDownload: Boolean = false,
     /** 能否打开别人发来的分享链接，并把里面的东西转存到自己的网盘。 */
     val shareImport: Boolean = false,
+    /**
+     * 能否把文件标记成收藏，以及列出收藏夹。
+     *
+     * 两个动作必须绑在同一个开关上：只列表不能改，用户点进去就出不来了；
+     * 只改不能列，收藏过的文件找不到。
+     */
+    val star: Boolean = false,
 )
 
 /**

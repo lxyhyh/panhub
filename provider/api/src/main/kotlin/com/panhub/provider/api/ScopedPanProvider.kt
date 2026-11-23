@@ -106,4 +106,10 @@ class ScopedPanProvider(
         entries: List<ShareEntry>,
         targetParentId: NodeId?,
     ): PanResult<Int> = provider.saveShare(session, source, entries, targetParentId)
+
+    suspend fun setStarred(nodeIds: List<NodeId>, starred: Boolean): PanResult<Unit> =
+        provider.setStarred(session, nodeIds, starred)
+
+    suspend fun listStarred(page: PageRequest = PageRequest()): PanResult<NodePage> =
+        provider.listStarred(session, page)
 }
