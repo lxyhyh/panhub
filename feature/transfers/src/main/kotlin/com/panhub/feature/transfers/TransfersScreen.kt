@@ -67,8 +67,15 @@ fun TransfersScreen(
         topBar = {
             TopAppBar(
                 title = {
+                    // 有任务在跑时标题直接带上百分比：用户从别的页面切回来，
+                    // 一眼就能看出是刚起步还是快好了，不用再找那一行小字。
+                    val percent = state.digest.percent
                     Text(
-                        if (state.activeCount > 0) "传输（" + state.activeCount + "）" else "传输",
+                        when {
+                            state.activeCount == 0 -> "传输"
+                            percent != null -> "传输 " + percent + "%（" + state.activeCount + "）"
+                            else -> "传输（" + state.activeCount + "）"
+                        },
                     )
                 },
                 navigationIcon = {

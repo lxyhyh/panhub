@@ -2,6 +2,7 @@ package com.panhub.feature.transfers
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.panhub.core.transfer.TransferDigest
 import com.panhub.core.transfer.TransferEngine
 import com.panhub.core.transfer.TransferState
 import com.panhub.core.transfer.TransferTask
@@ -18,6 +19,9 @@ data class TransfersUiState(
     val filter: TransferFilter = TransferFilter.ALL,
     val tasks: List<TransferTask> = emptyList(),
 ) {
+    /** 标题栏要显示的汇总；每帧重算一次，任务数是几十条量级，不值得缓存。 */
+    val digest: TransferDigest get() = TransferDigest.of(tasks)
+
     val visible: List<TransferTask>
         get() = when (filter) {
             TransferFilter.ALL -> tasks
