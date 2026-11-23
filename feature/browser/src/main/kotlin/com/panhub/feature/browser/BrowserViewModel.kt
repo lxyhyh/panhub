@@ -111,7 +111,7 @@ data class CloudCopyState(
     val canSubmit: Boolean get() = nodes.isNotEmpty() && targetId != null && !busy
 
     /** 目标账号显示名，提交后拿它写提示。 */
-    val targetName: String get() = targets.firstOrNull { it.id == targetId }?.displayName ?: ""
+    val targetName: String get() = targets.firstOrNull { it.id == targetId }?.label ?: ""
 }
 
 /**

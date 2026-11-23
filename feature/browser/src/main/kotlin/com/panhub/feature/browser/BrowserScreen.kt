@@ -717,7 +717,7 @@ private fun CloudCopyDialog(
                         }
                         Spacer(Modifier.size(Spacing.sm))
                         Column {
-                            Text(target.displayName, style = MaterialTheme.typography.bodyLarge)
+                            Text(target.label, style = MaterialTheme.typography.bodyLarge)
                             Text(
                                 text = target.providerName,
                                 style = MaterialTheme.typography.labelSmall,

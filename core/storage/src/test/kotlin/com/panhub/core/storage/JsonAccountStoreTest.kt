@@ -118,6 +118,68 @@ class JsonAccountStoreTest {
         assertEquals("app-pass", (back.credentials as ProviderCredentials.Password).password)
         assertEquals("坚果云", back.displayName)
     }
+
+    @Test
+    fun `alias is stored separately from the provider display name`() = runTest {
+        val store = store()
+        store.save(AccountMapper.toRecord(tokenSession("nutstore:a@b.c", "tok"), now = 1L))
+
+        store.setAlias("nutstore:a@b.c", "公司备份盘")
+
+        val record = store.get("nutstore:a@b.c")!!
+        assertEquals("公司备份盘", record.alias)
+        // 服务商报上来的名字不能被备注盖掉：下次登录还要用它做兜底。
+        assertEquals("测试账号", record.displayName)
+    }
+
+    @Test
+    fun `clearing the alias keeps the account`() = runTest {
+        val store = store()
+        store.save(AccountMapper.toRecord(tokenSession("nutstore:a@b.c", "tok"), now = 1L))
+        store.setAlias("nutstore:a@b.c", "公司备份盘")
+
+        store.setAlias("nutstore:a@b.c", null)
+
+        assertNull(store.get("nutstore:a@b.c")!!.alias)
+        assertEquals(1, store.list().size)
+    }
+
+    @Test
+    fun `renaming an unknown account changes nothing`() = runTest {
+        val store = store()
+        store.save(AccountMapper.toRecord(tokenSession("nutstore:a@b.c", "tok"), now = 1L))
+
+        store.setAlias("nutstore:someone-else", "别人的账号")
+
+        assertNull(store.get("nutstore:a@b.c")!!.alias)
+        assertEquals(1, store.list().size)
+    }
+
+    @Test
+    fun `alias survives reopening the file`() = runTest {
+        val file = File(tmp.root, "accounts.json")
+        JsonAccountStore(file, cipher).apply {
+            save(AccountMapper.toRecord(tokenSession("nutstore:a@b.c", "tok"), now = 1L))
+            setAlias("nutstore:a@b.c", "公司备份盘")
+        }
+
+        // 换一个实例读同一个文件，模拟重启。
+        val reopened = JsonAccountStore(file, cipher).list()
+
+        assertEquals("公司备份盘", reopened.single().alias)
+    }
+
+    @Test
+    fun `renaming does not touch the secret or the last used time`() = runTest {
+        val store = store()
+        store.save(AccountMapper.toRecord(tokenSession("nutstore:a@b.c", "tok-1"), now = 7L))
+
+        store.setAlias("nutstore:a@b.c", "公司备份盘")
+
+        val record = store.get("nutstore:a@b.c")!!
+        assertEquals("tok-1", record.secret)
+        assertEquals(7L, record.lastUsedAt)
+    }
 }
 
 class AesGcmCipherTest {

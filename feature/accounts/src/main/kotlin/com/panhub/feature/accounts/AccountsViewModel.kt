@@ -149,7 +149,7 @@ class AccountsViewModel(
             when (val result = session.login(providerId, credentials)) {
                 is PanResult.Success -> {
                     _form.value = LoginFormState()
-                    _state.update { it.copy(busy = false, message = "已添加 ${result.value.displayName}") }
+                    _state.update { it.copy(busy = false, message = "已添加 ${result.value.label}") }
                 }
                 is PanResult.Failure -> {
                     _state.update { it.copy(busy = false, message = result.error.message) }
@@ -162,6 +162,18 @@ class AccountsViewModel(
         viewModelScope.launch {
             session.logout(accountId)
             _state.update { it.copy(message = "已移除账号") }
+        }
+    }
+
+    /**
+     * 改备注名。传空串表示清掉备注。
+     *
+     * 不做失败提示：备注名只存在本地，写失败只可能是磁盘问题，
+     * 那种时候弹一句话也帮不上忙，账号列表刷新出来自然就知道没改成。
+     */
+    fun rename(accountId: AccountId, alias: String) {
+        viewModelScope.launch {
+            session.rename(accountId, alias)
         }
     }
 

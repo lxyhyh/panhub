@@ -77,7 +77,7 @@ class OfflineViewModel(
                 _state.update { it.copy(error = PanError.notFound("账号不存在或已被移除")) }
                 return@launch
             }
-            _state.update { it.copy(accountName = account.displayName) }
+            _state.update { it.copy(accountName = account.label) }
             when (val result = session.connect(accountId)) {
                 is PanResult.Failure -> _state.update { it.copy(error = result.error) }
                 is PanResult.Success -> scoped = result.value

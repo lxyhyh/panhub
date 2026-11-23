@@ -40,4 +40,11 @@ interface SessionManager {
     suspend fun connect(accountId: AccountId): PanResult<ScopedPanProvider>
 
     suspend fun logout(accountId: AccountId)
+
+    /**
+     * 给账号起个别名（备注名）。传空串或 null 表示清掉备注。
+     *
+     * 别名纯本地，不会发给服务商，换设备也不会同步。
+     */
+    suspend fun rename(accountId: AccountId, alias: String?)
 }

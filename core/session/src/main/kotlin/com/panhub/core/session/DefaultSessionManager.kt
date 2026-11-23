@@ -52,7 +52,10 @@ class DefaultSessionManager(
             is PanResult.Success -> {
                 val session = result.value
                 val now = clock.nowMillis()
-                val record = AccountMapper.toRecord(session, now)
+                // 同一个账号重新登录时保留用户起过的备注名：
+                // 记录是被整条覆盖的，不带过来的话备注会在下次登录时消失。
+                val existing = store.get(session.accountId.value)
+                val record = AccountMapper.toRecord(session, now).copy(alias = existing?.alias)
                 store.save(record)
                 PanResult.Success(
                     AccountSummary(
@@ -64,6 +67,7 @@ class DefaultSessionManager(
                             ?: provider.descriptor.displayName,
                         lastUsedAt = now,
                         capabilities = provider.descriptor.capabilities,
+                        alias = record.alias,
                     ),
                 )
             }
@@ -102,6 +106,11 @@ class DefaultSessionManager(
         store.delete(accountId.value)
     }
 
+    override suspend fun rename(accountId: AccountId, alias: String?) {
+        // 归一化在这一层做：界面提交的是什么都有可能，存储里只留干净的形式。
+        store.setAlias(accountId.value, com.panhub.core.model.AccountNames.normalize(alias))
+    }
+
     private fun toSummary(
         record: com.panhub.core.storage.AccountRecord,
     ): AccountSummary? {
@@ -115,6 +124,7 @@ class DefaultSessionManager(
                 ?: provider.descriptor.displayName,
             lastUsedAt = record.lastUsedAt,
             capabilities = provider.descriptor.capabilities,
+            alias = record.alias,
         )
     }
 }

@@ -78,7 +78,7 @@ class SharesViewModel(
             }
             _state.update {
                 it.copy(
-                    accountName = summary.displayName,
+                    accountName = summary.label,
                     canCancel = summary.capabilities.share,
                 )
             }

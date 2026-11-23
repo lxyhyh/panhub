@@ -60,6 +60,13 @@ class JsonAccountStore(
         if (next != cache.value) persist(next)
     }
 
+    override suspend fun setAlias(accountId: String, alias: String?) = mutex.withLock {
+        ensureLoaded()
+        if (cache.value.none { it.id == accountId }) return@withLock
+        val next = cache.value.map { if (it.id == accountId) it.copy(alias = alias) else it }
+        if (next != cache.value) persist(next)
+    }
+
     /** 只有第一次访问才读盘，之后都走内存缓存。 */
     private fun ensureLoaded() {
         if (loaded) return

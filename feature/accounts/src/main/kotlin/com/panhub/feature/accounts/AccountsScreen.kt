@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
@@ -66,6 +67,7 @@ import com.panhub.core.design.QuotaBar
 import com.panhub.core.design.Radius
 import com.panhub.core.design.Spacing
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.AccountNames
 import com.panhub.core.model.AuthMethod
 import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.Quota
@@ -97,6 +99,7 @@ fun AccountsScreen(
     val snackbar = remember { SnackbarHostState() }
     var pendingProvider by remember { mutableStateOf<ProviderDescriptor?>(null) }
     var pendingDelete by remember { mutableStateOf<AccountSummary?>(null) }
+    var pendingAlias by remember { mutableStateOf<AccountSummary?>(null) }
 
     state.message?.let { message ->
         LaunchedEffect(message) {
@@ -165,6 +168,7 @@ fun AccountsScreen(
                             onClick = { onOpenAccount(account.id) },
                             onVerify = { viewModel.verify(account.id) },
                             onDelete = { pendingDelete = account },
+                            onRename = { pendingAlias = account },
                             onOpenShares = { onOpenShares(account.id) },
                             onOpenTrash = { onOpenTrash(account.id) },
                         )
@@ -206,7 +210,7 @@ fun AccountsScreen(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("移除账号") },
-            text = { Text("确定移除 ${account.displayName} 吗？本地保存的凭据会被删除。") },
+            text = { Text("确定移除 ${account.label} 吗？本地保存的凭据会被删除。") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.logout(account.id)
@@ -215,6 +219,17 @@ fun AccountsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+            },
+        )
+    }
+
+    pendingAlias?.let { account ->
+        AliasDialog(
+            account = account,
+            onDismiss = { pendingAlias = null },
+            onConfirm = { value ->
+                viewModel.rename(account.id, value)
+                pendingAlias = null
             },
         )
     }
@@ -240,6 +255,7 @@ private fun AccountCard(
     onClick: () -> Unit,
     onVerify: () -> Unit,
     onDelete: () -> Unit,
+    onRename: () -> Unit,
     onOpenShares: () -> Unit,
     onOpenTrash: () -> Unit,
 ) {
@@ -262,12 +278,18 @@ private fun AccountCard(
                 modifier = Modifier.weight(1f).padding(start = Spacing.md),
             ) {
                 Text(
-                    text = account.displayName,
+                    text = account.label,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = buildString {
+                        // 起了备注名时，真名要跟一行跟上：备注是给人认的，
+                        // 但同一家网盘有两个账号时，只有备注分不清谁是谁。
+                        if (account.alias != null) {
+                            append(account.displayName)
+                            append(" · ")
+                        }
                         append(account.providerName)
                         append(" · ")
                         append(lastUsedText(account.lastUsedAt))
@@ -280,6 +302,13 @@ private fun AccountCard(
                 Icon(
                     Icons.Default.Refresh,
                     contentDescription = "检查登录状态",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onRename) {
+                Icon(
+                    Icons.Default.Edit,
+                    contentDescription = "改备注名",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -486,6 +515,60 @@ private fun LoginDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") }
+        },
+    )
+}
+
+/**
+ * 改备注名的对话框。
+ *
+ * 输入边改边归一化显示的是「提交后会存成什么」——用户敲一串空格时
+ * 会立刻看到结果为空，而不是点确定之后才发现备注没生效。
+ */
+@Composable
+private fun AliasDialog(
+    account: AccountSummary,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(account.alias ?: "") }
+    val preview = AccountNames.normalize(text)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("改备注名") },
+        text = {
+            Column {
+                Text(
+                    text = "当前账号：\${account.displayName}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = Spacing.md),
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("备注名") },
+                    placeholder = { Text(account.displayName) },
+                    singleLine = true,
+                    supportingText = {
+                        Text(
+                            if (preview == null) {
+                                "留空就是不使用备注名"
+                            } else {
+                                "最长 \${AccountNames.MAX_LENGTH} 个字"
+                            },
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(text) }) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
         },
     )
 }

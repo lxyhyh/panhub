@@ -23,6 +23,14 @@ data class AccountRecord(
     @SerialName("extra") val extra: Map<String, String> = emptyMap(),
     @SerialName("created") val createdAt: Long = 0L,
     @SerialName("lastUsed") val lastUsedAt: Long = 0L,
+    /**
+     * 用户自己起的备注名，没起过就是 null。
+     *
+     * 与 [displayName] 分开存：displayName 是服务商报上来的昵称/邮箱，
+     * 每次登录都可能变，改它等于篡改凭据信息；备注名是纯本地的东西，
+     * 服务商那边没有对应字段，也不该被下一次登录覆盖掉。
+     */
+    @SerialName("alias") val alias: String? = null,
 ) {
     /** 令牌型凭据（多数网盘）与账号密码型（WebDAV）用同一个字段存主密钥。 */
     val isTokenBased: Boolean get() = refreshToken != null || username == null

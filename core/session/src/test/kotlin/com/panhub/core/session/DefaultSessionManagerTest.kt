@@ -64,6 +64,48 @@ class DefaultSessionManagerTest {
     }
 
     @Test
+    fun `rename stores a trimmed alias and exposes it in the summary`() = runTest {
+        val m = manager()
+        m.login(ProviderId("fake"), ProviderCredentials.Token("tok"))
+        val id = m.accounts.first().single().id
+
+        m.rename(id, "  公司备份盘  ")
+
+        val account = m.accounts.first().single()
+        assertEquals("公司备份盘", account.alias)
+        assertEquals("公司备份盘", account.label)
+        assertEquals("测试用户", account.displayName)
+    }
+
+    @Test
+    fun `blank alias means no alias at all`() = runTest {
+        val m = manager()
+        m.login(ProviderId("fake"), ProviderCredentials.Token("tok"))
+        val id = m.accounts.first().single().id
+        m.rename(id, "公司备份盘")
+
+        m.rename(id, "   ")
+
+        val account = m.accounts.first().single()
+        assertNull(account.alias)
+        // 没有备注名时 label 要退回服务商给的名字，界面不能显示空白。
+        assertEquals("测试用户", account.label)
+    }
+
+    @Test
+    fun `logging in again keeps the alias the user set`() = runTest {
+        val m = manager()
+        m.login(ProviderId("fake"), ProviderCredentials.Token("tok"))
+        val id = m.accounts.first().single().id
+        m.rename(id, "公司备份盘")
+
+        // 凭据过期后重新登录：记录会被整条覆盖，备注名不该跟着消失。
+        m.login(ProviderId("fake"), ProviderCredentials.Token("tok"))
+
+        assertEquals("公司备份盘", m.accounts.first().single().alias)
+    }
+
+    @Test
     fun `login to an unregistered provider fails without writing`() = runTest {
         val s = store()
         val m = manager(store = s)

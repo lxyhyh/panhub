@@ -24,4 +24,13 @@ interface AccountStore {
 
     /** 记录一次使用，用于把最近用过的账号排到前面。 */
     suspend fun touch(accountId: String, at: Long)
+
+    /**
+     * 改账号的备注名。传 null 表示清空。
+     *
+     * 单独一个方法而不是「读出来改完再 save」：整条 save 会把
+     * 凭据、创建时间一并覆写，调用方只想改名字却必须先把秘密读进内存，
+     * 这里能不做就不做。
+     */
+    suspend fun setAlias(accountId: String, alias: String?)
 }

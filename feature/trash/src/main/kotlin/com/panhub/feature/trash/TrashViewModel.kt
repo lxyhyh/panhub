@@ -71,7 +71,7 @@ class TrashViewModel(
                 return@launch
             }
             val supported = summary.capabilities.trash
-            _state.update { it.copy(accountName = summary.displayName, supported = supported) }
+            _state.update { it.copy(accountName = summary.label, supported = supported) }
             if (!supported) {
                 _state.update { it.copy(loading = false) }
                 return@launch

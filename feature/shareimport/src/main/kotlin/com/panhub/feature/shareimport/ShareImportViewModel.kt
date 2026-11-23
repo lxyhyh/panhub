@@ -153,7 +153,7 @@ class ShareImportViewModel(
             // 预置的账号优先（从某个账号的分享页进来时），否则用最近使用的那一个。
             val chosen = eligible.firstOrNull { it.id == presetAccountId } ?: eligible.first()
             _state.update {
-                it.copy(loading = false, accounts = eligible, accountId = chosen.id, accountName = chosen.displayName)
+                it.copy(loading = false, accounts = eligible, accountId = chosen.id, accountName = chosen.label)
             }
             connect(chosen.id) {
                 // 从系统分享菜单进来的链接已经填好了，连上账号就直接打开，
@@ -169,7 +169,7 @@ class ShareImportViewModel(
         _state.update {
             it.copy(
                 accountId = accountId,
-                accountName = summary.displayName,
+                accountName = summary.label,
                 source = null,
                 entries = emptyList(),
                 stack = emptyList(),

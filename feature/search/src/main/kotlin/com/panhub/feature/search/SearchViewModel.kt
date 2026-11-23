@@ -66,7 +66,7 @@ class SearchViewModel(
         started = true
         viewModelScope.launch {
             val accounts = session.accounts.first()
-            _state.update { it.copy(skipped = SearchLogic.skipped(accounts).map { a -> a.displayName }) }
+            _state.update { it.copy(skipped = SearchLogic.skipped(accounts).map { a -> a.label }) }
         }
     }
 
@@ -89,7 +89,7 @@ class SearchViewModel(
         job = viewModelScope.launch {
             val accounts = session.accounts.first()
             val targets = SearchLogic.targets(accounts)
-            val skipped = SearchLogic.skipped(accounts).map { a -> a.displayName }
+            val skipped = SearchLogic.skipped(accounts).map { a -> a.label }
             if (targets.isEmpty()) {
                 _state.update {
                     it.copy(busy = false, skipped = skipped, hits = emptyList())
@@ -101,11 +101,11 @@ class SearchViewModel(
             }
             val hits = outcomes.flatMap { it.hits.orEmpty() }
             val failures = outcomes.mapNotNull { outcome ->
-                outcome.error?.let { SearchFailure(outcome.account.displayName, it) }
+                outcome.error?.let { SearchFailure(outcome.account.label, it) }
             }
             val truncated = outcomes
                 .filter { it.hits != null && it.hits.size >= SearchLogic.PER_ACCOUNT_LIMIT }
-                .map { it.account.displayName }
+                .map { it.account.label }
             _state.update {
                 it.copy(
                     busy = false,
@@ -136,7 +136,7 @@ class SearchViewModel(
             is PanResult.Success -> Outcome(
                 account = account,
                 hits = result.value.items.map { node ->
-                    SearchHit(accountId = account.id, accountName = account.displayName, node = node)
+                    SearchHit(accountId = account.id, accountName = account.label, node = node)
                 },
                 error = null,
             )
