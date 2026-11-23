@@ -1,6 +1,7 @@
 package com.panhub.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -10,9 +11,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.app.di.PanHubContainer
+import com.panhub.app.share.SharedIntent
 import com.panhub.app.ui.PanHubRoot
 import com.panhub.core.design.PanHubTheme
 import com.panhub.core.kernel.KernelInfo
@@ -33,6 +36,15 @@ class MainActivity : ComponentActivity() {
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    /**
+     * 别的应用分享过来的链接。
+     *
+     * 用 mutableStateOf 而不是 liveData：Compose 直接读这个状态就能重组。
+     * 放在 Activity 里而不是 ViewModel：分享意图跟着 Activity 实例走，
+     * 进程被回收后重建时 getIntent() 依然拿得到同一条，不需要额外持久化。
+     */
+    private val sharedLink = mutableStateOf<com.panhub.feature.shareimport.SharedLink?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -44,6 +56,7 @@ class MainActivity : ComponentActivity() {
         // 设置文件只有一行 JSON，同步读一次：第一帧就要用正确的主题，
         // 异步读会先画一帧浅色再跳成深色，那是能看见的闪。
         runBlocking { settings.load() }
+        sharedLink.value = SharedIntent.read(intent)
         val info = AppInfo(
             versionName = BuildConfig.VERSION_NAME,
             kernel = KernelInfo.summary(),
@@ -60,9 +73,23 @@ class MainActivity : ComponentActivity() {
                     previews = previews,
                     settings = settings,
                     info = info,
+                    share = sharedLink.value,
+                    onShareConsumed = { sharedLink.value = null },
                 )
             }
         }
+    }
+
+    /**
+     * 已经在运行时又被分享一次（singleTop + onNewIntent）。
+     *
+     * 不写这段的话第二次分享会安静地什么都不发生，
+     * 因为 Activity 不会重建，onCreate 不会再跑一遍。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        SharedIntent.read(intent)?.let { sharedLink.value = it }
     }
 
     private fun askForNotificationPermission() {

@@ -120,9 +120,13 @@ data class ShareImportUiState(
 class ShareImportViewModel(
     private val session: SessionManager,
     private val presetAccountId: AccountId? = null,
+    initialUrl: String = "",
+    initialPasscode: String? = null,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(ShareImportUiState())
+    private val _state = MutableStateFlow(
+        ShareImportUiState(url = initialUrl, passcode = initialPasscode.orEmpty()),
+    )
     val state: StateFlow<ShareImportUiState> = _state.asStateFlow()
 
     private var scoped: ScopedPanProvider? = null
@@ -151,7 +155,11 @@ class ShareImportViewModel(
             _state.update {
                 it.copy(loading = false, accounts = eligible, accountId = chosen.id, accountName = chosen.displayName)
             }
-            connect(chosen.id)
+            connect(chosen.id) {
+                // 从系统分享菜单进来的链接已经填好了，连上账号就直接打开，
+                // 不让用户对着一个填好的输入框再点一次「打开」。
+                if (_state.value.url.isNotBlank()) open()
+            }
         }
     }
 
@@ -175,11 +183,14 @@ class ShareImportViewModel(
         connect(accountId)
     }
 
-    private fun connect(accountId: AccountId) {
+    private fun connect(accountId: AccountId, onReady: (() -> Unit)? = null) {
         viewModelScope.launch {
             when (val result = session.connect(accountId)) {
                 is PanResult.Failure -> _state.update { it.copy(error = result.error) }
-                is PanResult.Success -> scoped = result.value
+                is PanResult.Success -> {
+                    scoped = result.value
+                    onReady?.invoke()
+                }
             }
         }
     }

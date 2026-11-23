@@ -1,6 +1,9 @@
 package com.panhub.app.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -20,6 +23,7 @@ import com.panhub.feature.accounts.AccountsViewModel
 import com.panhub.feature.browser.BrowserScreen
 import com.panhub.feature.browser.BrowserViewModel
 import com.panhub.feature.shareimport.ShareImportScreen
+import com.panhub.feature.shareimport.SharedLink
 import com.panhub.feature.shareimport.ShareImportViewModel
 import com.panhub.core.platform.SettingsRepository
 import com.panhub.feature.settings.AppInfo
@@ -44,8 +48,20 @@ fun PanHubRoot(
     previews: PreviewLoader,
     settings: SettingsRepository,
     info: AppInfo,
+    share: SharedLink? = null,
+    onShareConsumed: () -> Unit = {},
 ) {
     val nav = rememberNavController()
+    // 从系统分享菜单进来的链接先停在这里，等转存页把 ViewModel 建出来再清掉：
+    // 直接塞进路由参数要先编码再解码，链接里带 ? 与 & 时很容易被拆坏。
+    val pendingShare = remember { mutableStateOf<SharedLink?>(share) }
+
+    LaunchedEffect(share) {
+        val incoming = share ?: return@LaunchedEffect
+        pendingShare.value = incoming
+        nav.navigate(Routes.SHARE_IMPORT)
+        onShareConsumed()
+    }
 
     NavHost(navController = nav, startDestination = Routes.ACCOUNTS) {
         composable(Routes.ACCOUNTS) {
@@ -94,8 +110,16 @@ fun PanHubRoot(
         }
         composable(Routes.SHARE_IMPORT) {
             val vm: ShareImportViewModel = viewModel(
-                factory = factoryOf { ShareImportViewModel(session) },
+                factory = factoryOf {
+                    val shared = pendingShare.value
+                    ShareImportViewModel(
+                        session = session,
+                        initialUrl = shared?.url.orEmpty(),
+                        initialPasscode = shared?.passcode,
+                    )
+                },
             )
+            LaunchedEffect(Unit) { pendingShare.value = null }
             ShareImportScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
         composable(Routes.SETTINGS) {
