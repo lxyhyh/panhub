@@ -180,3 +180,84 @@ OpenList 是开源实现，路径和参数都可核实，比在字符串里猜�
 这两条形状不同，所以上传通道里「403 + InvalidSessionKey」**可以**证明端点存在
 ——和 open 接口那条「任意路径都返回 InvalidSessionKey」的教训正好相反。
 
+## App 通道（预留）
+
+上面那些 open 接口走的是网页会话 Cookie。官方客户端走的是另一套：
+基址 `https://api.cloud.189.cn`，**每个请求都要 HMAC-SHA1 签名**，
+不需要 Cookie。
+
+这一套在项目里已经实现成可插拔的一层（`Cloud189AppChannel`），
+但**默认不启用**：换会话与刷新 token 都需要真实 accessToken 才能验证，
+没有可用账号时贸然切过去只会把已经能用的 open 通道弄坏。
+
+### 与 open 通道的差异
+
+| | open 通道（现在用） | App 通道（已预留） |
+| --- | --- | --- |
+| 基址 | `https://cloud.189.cn` | `https://api.cloud.189.cn` |
+| 鉴权 | 网页 Cookie | sessionKey + sessionSecret 签名 |
+| 路径前缀 | `/api/open/...` | 直接 `/file/listFiles.action` |
+| 上传 | `upload.cloud.189.cn`（随机 secret + RSA） | 同左 |
+
+### 换会话与刷新 token
+
+    GET  https://api.cloud.189.cn/getSessionForPC.action
+         ?clientType=TELEPC&version=7.2.4.0&channelId=web_cloud.189.cn
+         &rand=<int>_<int>&returnType=JSON&appId=9317140619&accessToken=<token>
+     头：X-Request-ID（换会话本身不签名）
+     → {"res_code":0,"sessionKey":"...","sessionSecret":"...","loginName":"..."}
+
+    POST https://open.e.189.cn/api/oauth2/refreshToken.do
+         form: clientId=9317140619&refreshToken=<rt>&grantType=refresh_token&format=json
+     → {"accessToken":"...","refreshToken":"...","result":0,"msg":"..."}
+
+刷新 token 失败时**也回 HTTP 200**，只在 body 里给 `result` 与 `msg`，
+所以判据必须是 `result != 0 || accessToken 为空`，不能看状态码。
+
+保活是 `GET /keepUserSession.action`，失败时官方客户端会重新换会话。
+
+### 签名（与上传通道的三处差异，别混）
+
+    data = "SessionKey=<k>&Operate=<GET|POST>&RequestURI=<path>&Date=<GMT>"
+    if params: data += "&params=<AES-ECB(params, secret[0..16])>"
+    Signature = UPPER(HEX(HMAC-SHA1(data, sessionSecret)))
+    头：Date / SessionKey / X-Request-ID / Signature
+
+| | 上传通道 | App 通道 |
+| --- | --- | --- |
+| secret | 每次请求随机，RSA 加密后放头 | 会话固定，来自换会话 |
+| params 编码 | 小写十六进制 | **大写**十六进制 |
+| Date | 毫秒时间戳 | **GMT 字符串** |
+| Operate | 恒 GET | **真实方法** |
+
+业务请求（列目录、建目录、改名、批量任务、容量、取下载地址）
+在参考实现里一律传 `params = nil`，所以签名串**只有四段**，没有 params 段。
+
+### 端点与证据分级
+
+端点名在官方 APK 的 `lib/arm64-v8a/libapp.so` 里能逐条对上（149 个
+`.action` 路径）；签名算法与三个 token 端点在 APK 里**没有明文**，
+只有 OpenList `drivers/189pc` 单证据：
+
+| 端点 | APK 证据 | 开源实现 |
+| --- | --- | --- |
+| `/file/listFiles.action` | 有 | 有 |
+| `/createFolder.action` | 有 | 有 |
+| `/renameFile.action` `/renameFolder.action` | 有 | 有 |
+| `/batch/createBatchTask.action` | 只有参数名 `taskInfos` `taskType` `taskId` | 有 |
+| `/getFileDownloadUrl.action` | 无 | 有 |
+| `/portal/getUserSizeInfo.action` | 无 | 有 |
+| `/getSessionForPC.action` `/keepUserSession.action` | 无 | 有 |
+
+APK 里另外还有 `/api/smartCloud/space/zySpace.action`、`/space/getRecycleSpace.action`、
+`/file/queryTaskResult.action`、`/file/createFolderExtInfoTask.action` 等，
+这些开源实现里没有，等有账号时再探。
+
+### 为什么现在不切
+
+1. 没有可用账号，签名与换会话都无法端到端验证。
+2. open 通道（Cookie）当前能列目录、能下载、能上传，切过去没有任何用户可见收益。
+3. 预留层的四件事（换会话、刷新 token、签名请求、失效自动重试一次）
+   已经用脚本化响应测住，将来只要把 `Cloud189Provider` 的调用点换过来，
+   登录流程把 accessToken / refreshToken 写进 `ProviderCredentials.Token.extra`
+   的两个键（`appAccessToken`、`appRefreshToken`）即可。

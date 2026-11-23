@@ -1,6 +1,5 @@
 package com.panhub.provider.cloud189
 
-import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.network.HttpEngine
@@ -28,12 +27,8 @@ internal class Cloud189Api(
     private val engine: HttpEngine,
     private val baseUrl: String = BASE_URL,
 ) {
-    val json: Json = Json {
-        ignoreUnknownKeys = true
-        explicitNulls = false
-        isLenient = true
-        coerceInputValues = true
-    }
+    /** 解析器与三条通道共用，避免判定规则各写一份。 */
+    val json: Json = Cloud189Decoding.json
 
     suspend fun get(
         path: String,
@@ -111,41 +106,13 @@ internal class Cloud189Api(
             )
         }
         if (!response.isSuccessful) {
-            return PanResult.Failure(httpError(response.code))
+            return PanResult.Failure(Cloud189Decoding.httpError(response.code))
         }
         return PanResult.Success(raw)
     }
 
-    /**
-     * 解出信封并统一处理 res_code：0 或缺失视为成功，
-     * 其余（数字或字符串）都当失败，InvalidSessionKey 归类成登录过期。
-     */
-    fun decode(raw: String): PanResult<C189Envelope> {
-        val envelope = runCatching { json.decodeFromString(C189Envelope.serializer(), raw) }
-            .getOrElse { e ->
-                return PanResult.Failure(PanError.unknown("响应解析失败", raw.take(300), e))
-            }
-
-        val resCode = textOf(envelope.resCode)
-        if (!resCode.isNullOrBlank() && resCode != "0") {
-            return PanResult.Failure(
-                if (resCode == "InvalidSessionKey") {
-                    PanError.auth()
-                } else {
-                    PanError.unknown(envelope.resMessage ?: "天翼云盘返回错误（$resCode）", resCode)
-                },
-            )
-        }
-        return PanResult.Success(envelope)
-    }
-
-    private fun httpError(code: Int): PanError = when (code) {
-        401, 403 -> PanError.auth()
-        404 -> PanError.notFound()
-        429 -> PanError.rateLimited()
-        in 500..599 -> PanError(ErrorKind.SERVER, "服务器错误（$code）", retryable = true)
-        else -> PanError.unknown("请求失败（$code）")
-    }
+    /** 解出信封并统一处理 res_code，规则见 [Cloud189Decoding.decode]。 */
+    fun decode(raw: String): PanResult<C189Envelope> = Cloud189Decoding.decode(raw)
 
     companion object {
         const val BASE_URL = "https://cloud.189.cn"
@@ -172,10 +139,7 @@ internal class Cloud189Api(
         private val HEX = "0123456789ABCDEF".toCharArray()
 
         /** 从 JsonElement 里安全地取字符串，数字也转成字符串。 */
-        fun textOf(element: JsonElement?): String? {
-            val primitive = element as? JsonPrimitive ?: return null
-            return primitive.content
-        }
+        fun textOf(element: JsonElement?): String? = Cloud189Decoding.textOf(element)
 
         /** 极简 URL 编码，只作用于参数值，避免依赖 FormBody 造成空 body。 */
         fun encode(value: String): String = buildString {
