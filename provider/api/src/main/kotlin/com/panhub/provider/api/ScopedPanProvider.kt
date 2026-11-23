@@ -43,6 +43,9 @@ class ScopedPanProvider(
 
     suspend fun delete(nodeId: NodeId): PanResult<Unit> = provider.delete(session, nodeId)
 
+    suspend fun copy(node: RemoteNode, newParentId: NodeId?): PanResult<Unit> =
+        provider.copy(session, node, newParentId)
+
     suspend fun downloadUrl(nodeId: NodeId): PanResult<DownloadTarget> =
         provider.downloadUrl(session, nodeId)
 

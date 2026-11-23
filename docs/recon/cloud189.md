@@ -109,6 +109,29 @@ OpenList 是开源实现，路径和参数都可核实，比在字符串里猜�
 
 注意：`LocalDateTime.parse` 解析不了纯日期，必须用 `LocalDate`。
 
+## 复制
+
+与移动、删除共用 `/api/open/batch/createBatchTask.action`，只换 `type`：
+
+```
+type=COPY
+targetFolderId=<目标目录的裸 id>
+taskInfos=[{"fileId":"<裸 id>","fileName":"<真实文件名>","isFolder":0|1}]
+```
+
+两个必须注意的点：
+
+- `fileName` 必须是**真实文件名**。服务端拿它给副本命名，传节点 id
+  会得到一个名字像 `folder:123456` 的副本。本实现里 `batchTask` 的
+  `name` 参数默认取 `nodeId.value`（移动/删除用不上这个名字），复制时显式传
+  `node.name`。
+- `targetFolderId` 与 `fileId` 都必须是**裸 id**（去掉 `folder:` / `file:` 前缀），
+  根目录是 `-11`。
+
+**证据分级**：`createBatchTask` 在 App 的 `libapp.so` 里搜不到（与文件移动一样，
+只有 OpenList `drivers/189/driver.go:139 Copy` 单证据）。COPY 与已经在线上用过的
+MOVE 走同一个端点、同一组参数，只有 type 常量不同，这是它可信的原因。
+
 ## 上传（走另一套加密通道）
 
 上传不在 `cloud.189.cn`，而在 `https://upload.cloud.189.cn`，每个请求都要现算签名，

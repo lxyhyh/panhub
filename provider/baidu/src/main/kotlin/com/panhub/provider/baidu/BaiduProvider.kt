@@ -66,6 +66,7 @@ class BaiduProvider(
             download = true,
             rename = true,
             move = true,
+            copy = true,
             delete = true,
             createFolder = true,
             share = true,
@@ -280,6 +281,31 @@ class BaiduProvider(
         },
     )
 
+    /**
+     * 复制。与移动同一个端点，只是 opera 不同。
+     *
+     * ondup 用 newcopy 而不是 fail：移动时同名要报错（否则等于偷改名），
+     * 但复制出一个「同名的新副本」正是用户要的结果，让服务端自动加后缀。
+     */
+    override suspend fun copy(
+        session: ProviderSession,
+        node: RemoteNode,
+        newParentId: NodeId?,
+    ): PanResult<Unit> = manage(
+        session,
+        "copy",
+        buildJsonArray {
+            add(
+                buildJsonObject {
+                    put("path", JsonPrimitive(node.id.value))
+                    put("dest", JsonPrimitive(newParentId?.value ?: BaiduApi.ROOT_PATH))
+                    put("newname", JsonPrimitive(node.name))
+                },
+            )
+        },
+        ondup = "newcopy",
+    )
+
     override suspend fun delete(session: ProviderSession, nodeId: NodeId): PanResult<Unit> = manage(
         session,
         "delete",
@@ -291,6 +317,7 @@ class BaiduProvider(
         session: ProviderSession,
         opera: String,
         fileList: JsonArray,
+        ondup: String = "fail",
     ): PanResult<Unit> {
         val cookie = cookieOf(session)
             ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
@@ -300,7 +327,7 @@ class BaiduProvider(
             listOf(
                 "async" to "0",
                 "filelist" to fileList.toString(),
-                "ondup" to "fail",
+                "ondup" to ondup,
             ),
             listOf("method" to "filemanager", "opera" to opera),
         )

@@ -73,6 +73,20 @@ interface PanProvider {
         newParentId: NodeId?,
     ): PanResult<Unit>
 
+    /**
+     * 在同一个网盘里复制一份到 [newParentId]。
+     *
+     * 传 [node] 而不是只传 id：天翼云盘的批量任务要用文件名给副本命名，
+     * 光有 id 拼不出这个名字。其它实现只用 node.id 和 node.name。
+     *
+     * 默认 UNSUPPORTED——多数服务商没有复制接口，没实现的不该因此编译失败。
+     */
+    suspend fun copy(
+        session: ProviderSession,
+        node: RemoteNode,
+        newParentId: NodeId?,
+    ): PanResult<Unit> = PanResult.Failure(PanError.notSupported("该网盘不支持复制"))
+
     /** 删除（进回收站或直接删除，由实现决定，见 capabilities.trash）。 */
     suspend fun delete(session: ProviderSession, nodeId: NodeId): PanResult<Unit>
 

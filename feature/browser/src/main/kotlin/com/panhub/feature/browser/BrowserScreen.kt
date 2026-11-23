@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Delete
@@ -280,16 +281,22 @@ fun BrowserScreen(
             }
         },
         bottomBar = {
-            if (state.selectionMode && (state.canShare || state.canMove ||
+            if (state.selectionMode && (state.canShare || state.canMove || state.canCopy ||
                 state.canDownload || state.canCloudCopy)
             ) {
                 SelectionActionBar(
                     canShare = state.canShare,
                     canMove = state.canMove,
+                    canCopy = state.canCopy,
                     canDownload = state.canDownload,
                     canCloudCopy = state.canCloudCopy,
                     onShare = { viewModel.withSelection { viewModel.openShareSheet(it) } },
                     onMove = { viewModel.withSelection { viewModel.openFolderPicker(it) } },
+                    onCopy = {
+                        viewModel.withSelection {
+                            viewModel.openFolderPicker(it, PickerAction.COPY)
+                        }
+                    },
                     onDownload = viewModel::downloadSelected,
                     onCloudCopy = { viewModel.withSelection { viewModel.openCloudCopy(it) } },
                 )
@@ -351,6 +358,7 @@ fun BrowserScreen(
             canRename = state.canRename,
             canDelete = state.canDelete,
             canMove = state.canMove,
+            canCopy = state.canCopy,
             canDownload = state.canDownload,
             canDirectLink = state.canDirectLink,
             canCloudCopy = state.canCloudCopy,
@@ -364,6 +372,10 @@ fun BrowserScreen(
             onMove = {
                 actionNode = null
                 viewModel.openFolderPicker(listOf(node))
+            },
+            onCopy = {
+                actionNode = null
+                viewModel.openFolderPicker(listOf(node), PickerAction.COPY)
             },
             onDelete = {
                 actionNode = null
@@ -426,7 +438,7 @@ fun BrowserScreen(
             onDismiss = viewModel::closeFolderPicker,
             onEnter = viewModel::enterPickerFolder,
             onUp = viewModel::leavePickerFolder,
-            onConfirm = viewModel::confirmMove,
+            onConfirm = viewModel::confirmPicker,
         )
     }
 
@@ -508,10 +520,12 @@ fun BrowserScreen(
 private fun SelectionActionBar(
     canShare: Boolean,
     canMove: Boolean,
+    canCopy: Boolean,
     canDownload: Boolean,
     canCloudCopy: Boolean,
     onShare: () -> Unit,
     onMove: () -> Unit,
+    onCopy: () -> Unit,
     onDownload: () -> Unit,
     onCloudCopy: () -> Unit,
 ) {
@@ -532,6 +546,9 @@ private fun SelectionActionBar(
             }
             if (canMove) {
                 SelectionAction("移动", Icons.AutoMirrored.Filled.DriveFileMove, onMove)
+            }
+            if (canCopy) {
+                SelectionAction("复制", Icons.Default.ContentCopy, onCopy)
             }
             if (canDownload) {
                 SelectionAction("下载", Icons.Default.Download, onDownload)
@@ -791,7 +808,7 @@ private fun FolderPickerDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "移动到",
+                text = picker.titleText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -875,7 +892,7 @@ private fun FolderPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = onConfirm, enabled = picker.canConfirm) {
-                Text("移动到这里")
+                Text(picker.confirmText + "到这里")
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
@@ -1006,6 +1023,7 @@ private fun NodeActionsSheet(
     canRename: Boolean,
     canDelete: Boolean,
     canMove: Boolean,
+    canCopy: Boolean,
     canDownload: Boolean,
     canDirectLink: Boolean,
     canCloudCopy: Boolean,
@@ -1013,6 +1031,7 @@ private fun NodeActionsSheet(
     onDismiss: () -> Unit,
     onRename: () -> Unit,
     onMove: () -> Unit,
+    onCopy: () -> Unit,
     onDelete: () -> Unit,
     onDownload: () -> Unit,
     onLink: () -> Unit,
@@ -1039,6 +1058,11 @@ private fun NodeActionsSheet(
                 }
                 if (canMove) {
                     ActionRow("移动到", Icons.AutoMirrored.Filled.DriveFileMove, onMove)
+                }
+                // 复制排在移动之后：两者位置相近，但移动会带走原件，
+                // 放在下面一点可以减少"本想复制却点了移动"的手滑。
+                if (canCopy) {
+                    ActionRow("复制到", Icons.Default.ContentCopy, onCopy)
                 }
                 // 文件夹也能下载：队列会先把里面的文件列出来再逐个传。
                 if (canDownload) {

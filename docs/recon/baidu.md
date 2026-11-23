@@ -70,6 +70,24 @@
 `/api/filemetas` 拿到的 `dlink` 必须带 `User-Agent: pan.baidu.com` 才能下载，
 否则 403。官方流程是先 `HEAD` 一次拿 `Location` 再下载。
 
+## 复制
+
+与移动同一个端点，只有两处不同：
+
+- `opera=copy`
+- `ondup=newcopy`（移动是 `fail`）
+
+`ondup` 的差别是有意的：移动撞名必须报错，否则等于悄悄改名；复制撞名时
+出一个同名副本正是用户要的，让服务端自己加后缀。
+
+`filelist` 的形状与移动完全一致：`[{"path": 源路径, "dest": 目标目录, "newname": 文件或目录名}]`。
+目录也能复制，服务端会连子项一起复制。
+
+**证据分级**：`opera=copy` 在 APKS 的 `base.apk` 里 `classes15.dex` 有明文一处，
+`classes12/13.dex` 另有 `filemanager_ondup_newcopy` / `filemanager_ondup_overwrite` /
+`filemanager_ondup_check_all` 三组埋点，说明客户端确实按 ondup 分支处理。
+端点与移动共用，移动已在真实账号下用过，复制沿用同一形状。
+
 ## 分享的限制
 
 `/share/set` 端点存在，但**未绑定手机号的账号会被拦截**，返回
@@ -78,7 +96,7 @@
 
 ## 已实现
 
-`provider/baidu` — 列表、容量、建目录、改名、移动、删除、取下载地址、创建/取消分享、
+`provider/baidu` — 列表、容量、建目录、改名、移动、复制、删除、取下载地址、创建/取消分享、
 分片上传（含秒传）。
 单测覆盖路径拼接、父目录提取、URL 编码、errno 映射（含 -6 登录失效、errno 2 提示透传、
 非 JSON 响应必须判失败）。

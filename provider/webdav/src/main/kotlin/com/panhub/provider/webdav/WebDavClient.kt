@@ -1,5 +1,7 @@
 package com.panhub.provider.webdav
 
+import com.panhub.core.common.ErrorKind
+import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.network.HttpEngine
 import com.panhub.core.network.StreamRequestBody
@@ -14,7 +16,7 @@ import java.net.URLEncoder
 /**
  * 一个最小但完整的 WebDAV 客户端。
  *
- * 只实现 App 真正需要的 6 个方法（PROPFIND/GET/PUT/MKCOL/MOVE/DELETE），
+ * 只实现 App 真正需要的 7 个方法（PROPFIND/GET/PUT/MKCOL/MOVE/COPY/DELETE），
  * 不做 LOCK/UNLOCK（坚果云不需要协作锁）。
  */
 class WebDavClient(
@@ -40,7 +42,7 @@ class WebDavClient(
             "GET" -> builder.get()
             "DELETE" -> builder.delete()
             "MKCOL" -> builder.method(method, EMPTY_BODY)
-            "MOVE" -> builder.method(
+            "MOVE", "COPY" -> builder.method(
                 method,
                 EMPTY_BODY,
             ).apply { if (body != null) header("Destination", resolve(body)) }
@@ -71,6 +73,17 @@ class WebDavClient(
 
     suspend fun move(from: String, to: String): PanResult<Unit> {
         val req = request("MOVE", from, to).build()
+        return engine.executeRaw(req).mapResponse { }
+    }
+
+    /**
+     * COPY。与 MOVE 的区别只在动词：同样是 Destination 头指向新路径。
+     *
+     * Depth 必须是 infinity——省略时按 RFC 4918 默认就是 infinity，
+     * 但坚果云对目录 COPY 会看这个头，显式写出来省得依赖默认值。
+     */
+    suspend fun copy(from: String, to: String): PanResult<Unit> {
+        val req = request("COPY", from, to).header("Depth", "infinity").build()
         return engine.executeRaw(req).mapResponse { }
     }
 
@@ -149,10 +162,30 @@ class WebDavClient(
     }
 }
 
+/**
+ * 把 HTTP 响应转成结果，并且**检查状态码**。
+ *
+ * 之前这里不判状态码，于是 COPY/DELETE/MKCOL 失败时也会返回成功——
+ * WebDAV 的错误只有状态码这一个信号，不看它就等于假装操作成功了。
+ */
 private inline fun <T> PanResult<Response>.mapResponse(transform: (Response) -> T): PanResult<T> =
     when (this) {
         is PanResult.Failure -> this
-        is PanResult.Success -> {
-            value.use { PanResult.Success(transform(it)) }
+        is PanResult.Success -> value.use { response ->
+            if (response.isSuccessful) {
+                PanResult.Success(transform(response))
+            } else {
+                PanResult.Failure(webdavError(response.code, response.message))
+            }
         }
     }
+
+private fun webdavError(code: Int, message: String): PanError = when (code) {
+    401, 403 -> PanError.auth("坚果云拒绝了这次操作（$code），请检查应用密码")
+    404 -> PanError.notFound()
+    409 -> PanError.unknown("目标目录不存在（409）")
+    423 -> PanError.unknown("文件被锁定（423）")
+    429 -> PanError.rateLimited()
+    in 500..599 -> PanError(kind = ErrorKind.SERVER, message = "服务器错误（" + code + "）", retryable = true)
+    else -> PanError.unknown("请求失败（" + code + " " + message + "）")
+}

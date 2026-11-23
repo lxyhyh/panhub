@@ -57,6 +57,7 @@ data class BrowserUiState(
     val canRename: Boolean = false,
     val canDelete: Boolean = false,
     val canMove: Boolean = false,
+    val canCopy: Boolean = false,
     val canDownload: Boolean = false,
     val canDirectLink: Boolean = false,
     val canSearch: Boolean = false,
@@ -132,14 +133,24 @@ data class SearchState(
 }
 
 /**
- * 「移动到」对话框的状态。
+ * 目录选择器要做什么。
+ *
+ * 移动和复制用的是同一个选择器：两者都只是「挑一个目标目录」，
+ * 差别只在最后调哪个接口。做成两个对话框会让用户面对两套几乎一样的导航。
+ */
+enum class PickerAction { MOVE, COPY }
+
+/**
+ * 「移动到」/「复制到」对话框的状态。
  *
  * 目录导航单独放一份栈，而不是复用 [BrowserUiState.stack]：用户在选择目标目录时
  * 不应该把浏览页也一起带跑（取消后要回到原来的位置）。
  */
 data class FolderPickerState(
     val visible: Boolean = false,
-    /** 被移动的节点；多选时会有多个。 */
+    /** 这次选目录是为了移动还是复制。 */
+    val action: PickerAction = PickerAction.MOVE,
+    /** 被移动/复制的节点；多选时会有多个。 */
     val nodes: List<RemoteNode> = emptyList(),
     /** 被移动节点原来所在的目录；null 表示根目录。 */
     val originParentId: NodeId? = null,
@@ -163,6 +174,11 @@ data class FolderPickerState(
      * 与其让用户看到莫名其妙的失败，不如在这里直接挡住。
      */
     val canConfirm: Boolean get() = nodes.isNotEmpty() && !loading && targetId != originParentId
+
+    /** 标题：移动与复制是两个动作，不能共用一句「移动到」。 */
+    val titleText: String get() = if (action == PickerAction.MOVE) "移动到" else "复制到"
+
+    val confirmText: String get() = if (action == PickerAction.MOVE) "移动" else "复制"
 }
 
 /**
@@ -272,11 +288,12 @@ class BrowserViewModel(
      * 起始目录固定在根目录而不是上次的位置：移动是做一次性的目录选择，
      * 记住上次位置反而容易让用户在手快时把文件丢进一个不相干的目录。
      */
-    fun openFolderPicker(nodes: List<RemoteNode>) {
+    fun openFolderPicker(nodes: List<RemoteNode>, action: PickerAction = PickerAction.MOVE) {
         val provider = scoped ?: return
         if (nodes.isEmpty()) return
         _picker.value = FolderPickerState(
             visible = true,
+            action = action,
             nodes = nodes,
             // 多选时这些节点可能来自不同目录，无法判定"原目录"，
             // 于是传一个不可能等于任何目标目录的哨兵，一律允许确认。
@@ -308,30 +325,36 @@ class BrowserViewModel(
         loadPicker(provider, next.lastOrNull()?.id)
     }
 
-    /** 确认移动到当前目录。 */
-    fun confirmMove() {
+    /** 确认在当前目录里移动或复制。 */
+    fun confirmPicker() {
         val provider = scoped ?: return
         val snapshot = _picker.value
         val nodes = snapshot.nodes
         if (!snapshot.canConfirm) return
         val target = snapshot.targetId
+        val action = snapshot.action
         closeFolderPicker()
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
-            // 逐个移动而不是找批量接口：只有少数服务商有批量移动，
-            // 而逐个移动的失败语义是明确的——成功几个就是几个，报错也只针对那一个。
-            var moved = 0
+            // 逐个移动/复制而不是找批量接口：只有少数服务商有批量版本，
+            // 而逐个的失败语义是明确的——成功几个就是几个，报错也只针对那一个。
+            var done = 0
             var firstError: String? = null
             for (node in nodes) {
-                when (val result = provider.move(node.id, target)) {
-                    is PanResult.Success -> moved++
+                val result = when (action) {
+                    PickerAction.MOVE -> provider.move(node.id, target)
+                    // 复制要整个节点：天翼的批量任务拿文件名给副本命名，光有 id 拼不出来。
+                    PickerAction.COPY -> provider.copy(node, target)
+                }
+                when (result) {
+                    is PanResult.Success -> done++
                     is PanResult.Failure -> if (firstError == null) firstError = result.error.message
                 }
             }
             _state.update {
                 it.copy(
                     busy = false,
-                    message = moveMessage(moved, nodes.size, firstError),
+                    message = actionMessage(action, done, nodes.size, firstError),
                     selected = emptySet(),
                 )
             }
@@ -339,11 +362,19 @@ class BrowserViewModel(
         }
     }
 
-    /** 移动结果的一句话。部分成功要说清楚，否则用户会以为全成了。 */
-    private fun moveMessage(moved: Int, total: Int, error: String?): String = when {
-        moved == total -> "已移动 " + total + " 项"
-        moved == 0 -> error ?: "移动失败"
-        else -> "已移动 " + moved + "/" + total + " 项：" + (error ?: "部分失败")
+    /** 移动/复制结果的一句话。部分成功要说清楚，否则用户会以为全成了。 */
+    private fun actionMessage(
+        action: PickerAction,
+        done: Int,
+        total: Int,
+        error: String?,
+    ): String {
+        val verb = if (action == PickerAction.MOVE) "移动" else "复制"
+        return when {
+            done == total -> "已" + verb + " " + total + " 项"
+            done == 0 -> error ?: (verb + "失败")
+            else -> "已" + verb + " " + done + "/" + total + " 项：" + (error ?: "部分失败")
+        }
     }
 
     /**
@@ -933,6 +964,7 @@ class BrowserViewModel(
                             canRename = descriptor.capabilities.rename,
                             canDelete = descriptor.capabilities.delete,
                             canMove = descriptor.capabilities.move,
+                            canCopy = descriptor.capabilities.copy,
                             canDownload = descriptor.capabilities.download,
                             canDirectLink = descriptor.capabilities.directLink,
                             canSearch = descriptor.capabilities.search,

@@ -60,6 +60,7 @@ class Cloud189Provider(
             download = true,
             rename = true,
             move = true,
+            copy = true,
             delete = true,
             createFolder = true,
             directLink = true,
@@ -303,6 +304,21 @@ class Cloud189Provider(
         return batchTask(cookie, "MOVE", target, nodeId)
     }
 
+    override suspend fun copy(
+        session: ProviderSession,
+        node: RemoteNode,
+        newParentId: NodeId?,
+    ): PanResult<Unit> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        val target = newParentId?.let { Cloud189Parsing.rawId(it.value) }
+            ?: Cloud189Api.ROOT_FOLDER_ID
+        // COPY 走与 MOVE/DELETE 同一个批量任务端点，只换 type。
+        // 这里必须传真实文件名：服务端要据此给副本命名，传 id 会得到一个
+        // 名字像 "file:123456" 的副本。
+        return batchTask(cookie, "COPY", target, node.id, node.name)
+    }
+
     override suspend fun delete(session: ProviderSession, nodeId: NodeId): PanResult<Unit> {
         val cookie = cookieOf(session)
             ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
@@ -315,6 +331,7 @@ class Cloud189Provider(
         type: String,
         targetFolderId: String,
         nodeId: NodeId,
+        name: String = nodeId.value,
     ): PanResult<Unit> {
         val rawId = Cloud189Parsing.rawId(nodeId.value)
         val isFolder = Cloud189Parsing.isFolder(nodeId.value)
@@ -322,7 +339,7 @@ class Cloud189Provider(
             add(
                 buildJsonObject {
                     put("fileId", JsonPrimitive(rawId))
-                    put("fileName", JsonPrimitive(nodeId.value))
+                    put("fileName", JsonPrimitive(name))
                     put("isFolder", JsonPrimitive(if (isFolder) 1 else 0))
                 },
             )

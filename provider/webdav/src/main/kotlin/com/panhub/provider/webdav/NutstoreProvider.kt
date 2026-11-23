@@ -49,6 +49,7 @@ class NutstoreProvider(
             download = true,
             rename = true,
             move = true,
+            copy = true,
             delete = true,
             createFolder = true,
             share = false,
@@ -160,6 +161,17 @@ class NutstoreProvider(
         val client = clientFor(session) ?: return PanResult.Failure(PanError.auth())
         val name = nodeId.value.substringAfterLast('/')
         return client.move(nodeId.value, join(newParentId?.value, name))
+    }
+
+    override suspend fun copy(
+        session: ProviderSession,
+        node: RemoteNode,
+        newParentId: NodeId?,
+    ): PanResult<Unit> {
+        val client = clientFor(session) ?: return PanResult.Failure(PanError.auth())
+        // COPY 的语义与 MOVE 完全一样：给一个新路径，服务端自己复制。
+        // 目录也会连子项一起复制（请求里显式带了 Depth: infinity）。
+        return client.copy(node.id.value, join(newParentId?.value, node.name))
     }
 
     override suspend fun delete(session: ProviderSession, nodeId: NodeId): PanResult<Unit> {
