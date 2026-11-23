@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,11 +59,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
+import com.panhub.core.design.QuotaBar
 import com.panhub.core.design.Radius
 import com.panhub.core.design.Spacing
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.AuthMethod
 import com.panhub.core.model.ProviderDescriptor
+import com.panhub.core.model.Quota
 import com.panhub.core.session.AccountSummary
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -147,6 +148,7 @@ fun AccountsScreen(
                     items(state.accounts, key = { it.id.value }) { account ->
                         AccountCard(
                             account = account,
+                            quota = state.quotas[account.id.value],
                             provider = state.providerOf(account.providerId),
                             onClick = { onOpenAccount(account.id) },
                             onVerify = { viewModel.verify(account.id) },
@@ -220,6 +222,7 @@ private val PENDING_ADD = ProviderDescriptor(
 @Composable
 private fun AccountCard(
     account: AccountSummary,
+    quota: Quota?,
     provider: ProviderDescriptor?,
     onClick: () -> Unit,
     onVerify: () -> Unit,
@@ -274,24 +277,14 @@ private fun AccountCard(
                 )
             }
         }
-        if (account.capabilities.quota) {
-            Row(
+        // 查到容量就画一条，查不到（不支持、凭据过期、还在路上）就不画。
+        // 原来这里写的是「支持容量查询」，那句话对用户没有任何用处。
+        if (quota != null) {
+            QuotaBar(
+                used = quota.used,
+                total = quota.total,
                 modifier = Modifier.padding(top = Spacing.md),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Default.Storage,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp),
-                )
-                Text(
-                    text = "支持容量查询",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = Spacing.xs),
-                )
-            }
+            )
         }
         // 只有声明了分享列表的服务商才给入口：点了必然失败的入口比没有入口更糟。
         if (account.capabilities.shareList) {

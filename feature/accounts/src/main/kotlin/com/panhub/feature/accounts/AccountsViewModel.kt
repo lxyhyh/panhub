@@ -8,6 +8,7 @@ import com.panhub.core.model.AccountId
 import com.panhub.core.model.AuthMethod
 import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.ProviderId
+import com.panhub.core.model.Quota
 import com.panhub.core.session.AccountSummary
 import com.panhub.core.session.SessionManager
 import com.panhub.provider.api.ProviderCredentials
@@ -29,6 +30,8 @@ data class AccountsUiState(
     val loading: Boolean = true,
     val message: String? = null,
     val busy: Boolean = false,
+    /** 各账号的容量，按账号 id 索引。查不到（或不支持）的账号不会出现在这里。 */
+    val quotas: Map<String, Quota> = emptyMap(),
 ) {
     fun providerOf(providerId: ProviderId): ProviderDescriptor? =
         providers.firstOrNull { it.id == providerId }
@@ -62,6 +65,9 @@ class AccountsViewModel(
     private val _state = MutableStateFlow(AccountsUiState())
     val state: StateFlow<AccountsUiState> = _state.asStateFlow()
 
+    /** 已经查过容量的账号 id。查失败也算查过，理由见 [loadQuotas]。 */
+    private val attemptedQuotas = mutableSetOf<String>()
+
     private val _form = MutableStateFlow(LoginFormState())
     val form: StateFlow<LoginFormState> = _form.asStateFlow()
 
@@ -70,6 +76,28 @@ class AccountsViewModel(
         viewModelScope.launch {
             session.accounts.collect { accounts ->
                 _state.update { it.copy(accounts = accounts, loading = false) }
+                loadQuotas(accounts)
+            }
+        }
+    }
+
+    /**
+     * 顺手把各账号的容量查出来。
+     *
+     * 容量是装饰性的：查不到就什么都不显示，不弹错误也不挡住账号列表。
+     * 每个账号只试一次——失败的多半是不支持或凭据过期，
+     * 每次刷新都重试只会在弱网下攒一串无用请求。
+     */
+    private fun loadQuotas(accounts: List<AccountSummary>) {
+        val targets = AccountsLogic.quotaTargets(accounts, attemptedQuotas)
+        for (account in targets) {
+            attemptedQuotas += account.id.value
+            viewModelScope.launch {
+                val result = session.connect(account.id)
+                if (result !is PanResult.Success) return@launch
+                val quota = result.value.quota()
+                if (quota !is PanResult.Success) return@launch
+                _state.update { it.copy(quotas = it.quotas + (account.id.value to quota.value)) }
             }
         }
     }
