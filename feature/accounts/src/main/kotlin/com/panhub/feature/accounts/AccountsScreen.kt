@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -98,6 +99,7 @@ fun AccountsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val form by viewModel.form.collectAsStateWithLifecycle()
+    val reauth by viewModel.reauth.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var pendingProvider by remember { mutableStateOf<ProviderDescriptor?>(null) }
     var pendingDelete by remember { mutableStateOf<AccountSummary?>(null) }
@@ -169,6 +171,7 @@ fun AccountsScreen(
                             provider = state.providerOf(account.providerId),
                             onClick = { onOpenAccount(account.id) },
                             onVerify = { viewModel.verify(account.id) },
+                            onReauth = { viewModel.startReauth(account) },
                             onDelete = { pendingDelete = account },
                             onRename = { pendingAlias = account },
                             onOpenShares = { onOpenShares(account.id) },
@@ -236,6 +239,21 @@ fun AccountsScreen(
             },
         )
     }
+
+    // 「更新登录」对话框：与登录表单共用一套输入，但只换凭据不动账号。
+    reauth?.let { target ->
+        ReauthDialog(
+            target = target,
+            descriptor = state.providerOf(target.account.providerId),
+            busy = state.busy,
+            onMethodChange = viewModel::setReauthMethod,
+            onUsernameChange = viewModel::setReauthUsername,
+            onPasswordChange = viewModel::setReauthPassword,
+            onTokenChange = viewModel::setReauthToken,
+            onSubmit = viewModel::submitReauth,
+            onDismiss = viewModel::cancelReauth,
+        )
+    }
 }
 
 /**
@@ -257,6 +275,7 @@ private fun AccountCard(
     provider: ProviderDescriptor?,
     onClick: () -> Unit,
     onVerify: () -> Unit,
+    onReauth: () -> Unit,
     onDelete: () -> Unit,
     onRename: () -> Unit,
     onOpenShares: () -> Unit,
@@ -306,6 +325,13 @@ private fun AccountCard(
                 Icon(
                     Icons.Default.Refresh,
                     contentDescription = "检查登录状态",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onReauth) {
+                Icon(
+                    Icons.Default.Login,
+                    contentDescription = "更新登录",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -452,6 +478,107 @@ private fun ProviderPickerDialog(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReauthDialog(
+    target: AccountsViewModel.ReauthTarget,
+    descriptor: ProviderDescriptor?,
+    busy: Boolean,
+    onMethodChange: (AuthMethod) -> Unit,
+    onUsernameChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onTokenChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val form = target.form
+    val allowBoth = descriptor?.authMethod == AuthMethod.BOTH
+    val useToken = form.method == AuthMethod.TOKEN
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("更新 ${target.account.label} 的登录") },
+        text = {
+            Column {
+                Text(
+                    text = "凭据过期就换一份新的，账号本身不会变。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = Spacing.md),
+                )
+                descriptor?.authHint?.let { hint ->
+                    Text(
+                        text = hint,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = Spacing.md),
+                    )
+                }
+                if (allowBoth) {
+                    SingleChoiceSegmentedButtonRow(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.md),
+                    ) {
+                        SegmentedButton(
+                            selected = !useToken,
+                            onClick = { onMethodChange(AuthMethod.PASSWORD) },
+                            shape = SegmentedButtonDefaults.itemShape(0, 2),
+                        ) { Text("账号密码") }
+                        SegmentedButton(
+                            selected = useToken,
+                            onClick = { onMethodChange(AuthMethod.TOKEN) },
+                            shape = SegmentedButtonDefaults.itemShape(1, 2),
+                        ) { Text("令牌") }
+                    }
+                }
+                if (useToken) {
+                    OutlinedTextField(
+                        value = form.token,
+                        onValueChange = onTokenChange,
+                        label = { Text("Access Token") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = form.username,
+                        onValueChange = onUsernameChange,
+                        label = { Text(if (descriptor?.id?.value == "nutstore") "邮箱" else "账号") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(Spacing.md))
+                    OutlinedTextField(
+                        value = form.password,
+                        onValueChange = onPasswordChange,
+                        label = { Text("密码") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onSubmit,
+                enabled = form.canSubmit && !busy,
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    Text("更新")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") }
+        },
+    )
+}
+
 @Composable
 private fun LoginDialog(
     descriptor: ProviderDescriptor?,

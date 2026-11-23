@@ -71,6 +71,10 @@ class AccountsViewModel(
     private val _form = MutableStateFlow(LoginFormState())
     val form: StateFlow<LoginFormState> = _form.asStateFlow()
 
+    /** 「更新登录」对话框的目标账号与输入；null 表示对话框关着。 */
+    private val _reauth = MutableStateFlow<ReauthTarget?>(null)
+    val reauth: StateFlow<ReauthTarget?> = _reauth.asStateFlow()
+
     init {
         _state.update { it.copy(providers = session.descriptors()) }
         viewModelScope.launch {
@@ -113,6 +117,72 @@ class AccountsViewModel(
                 AuthMethod.BOTH -> AuthMethod.PASSWORD
             },
         )
+    }
+
+
+    /** 当前正在给哪个账号换凭据；null 表示没有在进行。 */
+    data class ReauthTarget(
+        val account: AccountSummary,
+        /** 复用登录表单的输入与校验，只是提交去向不同。 */
+        val form: LoginFormState,
+    )
+
+    /** 打开「更新登录」：表单与添加账号共用一套状态。 */
+    fun startReauth(account: AccountSummary) {
+        if (_state.value.busy) return
+        // Cookie 型账号换 Cookie 走令牌输入；密码型只有一个办法。
+        val descriptor = _state.value.providerOf(account.providerId)
+        val method = when (descriptor?.authMethod) {
+            AuthMethod.TOKEN -> AuthMethod.TOKEN
+            else -> AuthMethod.PASSWORD
+        }
+        _reauth.value = ReauthTarget(account, LoginFormState(method = method))
+    }
+
+    fun cancelReauth() {
+        _reauth.value = null
+    }
+
+    fun setReauthMethod(method: AuthMethod) =
+        _reauth.update { it?.copy(form = it.form.copy(method = method)) }
+
+    fun setReauthUsername(value: String) =
+        _reauth.update { it?.copy(form = it.form.copy(username = value)) }
+
+    fun setReauthPassword(value: String) =
+        _reauth.update { it?.copy(form = it.form.copy(password = value)) }
+
+    fun setReauthToken(value: String) =
+        _reauth.update { it?.copy(form = it.form.copy(token = value)) }
+
+    /**
+     * 提交新凭据。成功后表单关闭并提示；失败留在表单里，
+     * 用户改一改还能再提交——和登录失败的处理一致。
+     */
+    fun submitReauth() {
+        val target = _reauth.value ?: return
+        val form = target.form
+        if (!form.canSubmit || _state.value.busy) return
+        val credentials = if (form.method == AuthMethod.TOKEN) {
+            ProviderCredentials.Token(accessToken = form.token.trim())
+        } else {
+            ProviderCredentials.Password(
+                username = form.username.trim(),
+                password = form.password,
+            )
+        }
+        _state.update { it.copy(busy = true, message = null) }
+        viewModelScope.launch {
+            when (val result = session.reauthenticate(target.account.id, credentials)) {
+                is PanResult.Success -> {
+                    _reauth.value = null
+                    _state.update { it.copy(busy = false, message = "已更新 ${target.account.label} 的登录凭据") }
+                }
+                is PanResult.Failure -> {
+                    _state.update { it.copy(busy = false, message = result.error.message) }
+                }
+            }
+        }
     }
 
     fun cancelLogin() {

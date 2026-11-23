@@ -33,4 +33,12 @@ interface AccountStore {
      * 这里能不做就不做。
      */
     suspend fun setAlias(accountId: String, alias: String?)
+
+    /**
+     * 只更新凭据字段（密钥、刷新令牌、扩展字段），其余原样保留。
+     *
+     * 与 [save] 的区别：save 是「整条记录以调用方给的为准」，
+     * 这里是「账号还是那个账号，只是钥匙换了」。找不到账号时不做任何事。
+     */
+    suspend fun updateCredentials(record: AccountRecord)
 }

@@ -47,4 +47,16 @@ interface SessionManager {
      * 别名纯本地，不会发给服务商，换设备也不会同步。
      */
     suspend fun rename(accountId: AccountId, alias: String?)
+
+    /**
+     * 用一份新凭据替换已保存账号的旧凭据（Cookie 过期后换 Cookie）。
+     *
+     * 新凭据先经服务商验证，失败不会动现有账号；成功后只更新凭据部分，
+     * 账号身份（id）、备注名、创建时间都保留——传输记录与各功能入口
+     * 不会因为换了一次 Cookie 就「失联」。
+     */
+    suspend fun reauthenticate(
+        accountId: AccountId,
+        credentials: ProviderCredentials,
+    ): PanResult<Unit>
 }

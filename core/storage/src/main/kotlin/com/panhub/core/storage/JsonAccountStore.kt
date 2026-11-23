@@ -67,6 +67,13 @@ class JsonAccountStore(
         if (next != cache.value) persist(next)
     }
 
+    override suspend fun updateCredentials(record: AccountRecord) = mutex.withLock {
+        ensureLoaded()
+        if (cache.value.none { it.id == record.id }) return@withLock
+        val next = cache.value.map { if (it.id == record.id) record else it }
+        if (next != cache.value) persist(next)
+    }
+
     /** 只有第一次访问才读盘，之后都走内存缓存。 */
     private fun ensureLoaded() {
         if (loaded) return

@@ -307,5 +307,9 @@ class SearchViewModelTest {
         override suspend fun logout(accountId: AccountId) = error("不该调用")
 
         override suspend fun rename(accountId: AccountId, alias: String?) = error("不该调用")
+        override suspend fun reauthenticate(
+            accountId: AccountId,
+            credentials: ProviderCredentials,
+        ): PanResult<Unit> = error("不该调用")
     }
 }

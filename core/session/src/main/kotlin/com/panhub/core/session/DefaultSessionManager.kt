@@ -111,6 +111,53 @@ class DefaultSessionManager(
         store.setAlias(accountId.value, com.panhub.core.model.AccountNames.normalize(alias))
     }
 
+    /**
+     * 换凭据：新凭据先走一遍 provider.login 验证（坏 Cookie 进不来），
+     * 成功后只把凭据字段写回原账号，身份与备注原样保留。
+     *
+     * Cookie 型账号的 accountId 由凭据哈希决定，重新登录会算出一个
+     * 新 id——直接 save 会把同一份凭据存成第二个账号，所以这里刻意
+     * 不用 login 的落盘，而是拿验证过的凭据 in-place 更新。
+     * 密码型账号（坚果云）的 id 由用户名决定：新凭据验出的账号若不是
+     * 原账号，说明用户要换的是另一份账号，请删号重加。
+     */
+    override suspend fun reauthenticate(
+        accountId: AccountId,
+        credentials: ProviderCredentials,
+    ): PanResult<Unit> {
+        val record = store.get(accountId.value)
+            ?: return PanResult.Failure(PanError.notFound("账号不存在：${accountId.value}"))
+        val provider = registry.get(ProviderId(record.providerId))
+            ?: return PanResult.Failure(
+                PanError(ErrorKind.UNSUPPORTED, "不支持的网盘：${record.providerId}"),
+            )
+        val session = when (val result = provider.login(credentials)) {
+            is PanResult.Failure -> return PanResult.Failure(result.error)
+            is PanResult.Success -> result.value
+        }
+        if (session.accountId != accountId) {
+            return PanResult.Failure(
+                PanError.auth("新凭据属于另一个账号，请移除旧账号后重新添加"),
+            )
+        }
+        // 验证过的凭据写回原记录；展示名跟着服务商更新，其余不动。
+        store.updateCredentials(
+            record.copy(
+                secret = when (val c = session.credentials) {
+                    is ProviderCredentials.Password -> c.password
+                    is ProviderCredentials.Token -> c.accessToken
+                },
+                refreshToken = (session.credentials as? ProviderCredentials.Token)?.refreshToken,
+                extra = when (val c = session.credentials) {
+                    is ProviderCredentials.Password -> emptyMap()
+                    is ProviderCredentials.Token -> c.extra
+                },
+                displayName = session.displayName ?: record.displayName,
+            ),
+        )
+        return PanResult.Success(Unit)
+    }
+
     private fun toSummary(
         record: com.panhub.core.storage.AccountRecord,
     ): AccountSummary? {

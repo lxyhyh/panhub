@@ -15,6 +15,7 @@ import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.core.storage.AccountStore
+import com.panhub.core.storage.AccountMapper
 import com.panhub.core.storage.JsonAccountStore
 import com.panhub.core.storage.InsecurePlainCipher
 import com.panhub.provider.api.DownloadTarget
@@ -103,6 +104,69 @@ class DefaultSessionManagerTest {
         m.login(ProviderId("fake"), ProviderCredentials.Token("tok"))
 
         assertEquals("公司备份盘", m.accounts.first().single().alias)
+    }
+
+    @Test
+    fun `reauthenticate swaps the secret and keeps the identity`() = runTest {
+        val s = store()
+        val m = manager(store = s)
+        m.login(ProviderId("fake"), ProviderCredentials.Token("old-cookie"))
+        m.rename(AccountId("fake:me"), "公司备份盘")
+
+        val result = m.reauthenticate(AccountId("fake:me"), ProviderCredentials.Token("new-cookie"))
+
+        assertTrue(result is PanResult.Success)
+        val account = m.accounts.first().single()
+        // 身份不变：传输记录、收藏入口等挂在旧 id 上的东西不会失联。
+        assertEquals("fake:me", account.id.value)
+        assertEquals("公司备份盘", account.alias)
+        val record = s.get("fake:me")!!
+        assertEquals("new-cookie", record.secret)
+    }
+
+    @Test
+    fun `reauthenticate with bad credentials leaves the account untouched`() = runTest {
+        val s = store()
+        // failLogin 的服务商连 login 都进不来，所以先直接往店里存一份旧凭据，
+        // 模拟「账号本来就在，只是这次换新凭据没换成」。
+        s.save(AccountMapper.toRecord(ProviderSession(AccountId("fake:me"), ProviderCredentials.Token("old-cookie")), now = 1L))
+        val m = manager(store = s, provider = FakeProvider(failLogin = true))
+
+        val result = m.reauthenticate(AccountId("fake:me"), ProviderCredentials.Token("new-cookie"))
+
+        assertTrue(result is PanResult.Failure)
+        // 验证失败的凭据不能落盘，不然下次启动连旧账号都登不上。
+        assertEquals("old-cookie", s.get("fake:me")!!.secret)
+    }
+
+    @Test
+    fun `reauthenticate rejects credentials of a different account`() = runTest {
+        val s = store()
+        val m = manager(store = s)
+        m.login(ProviderId("fake"), ProviderCredentials.Token("old-cookie"))
+        // 服务商验出的账号不是原账号：说明新凭据属于另一个人，
+        // 直接覆盖会把两个账号搅在一起。
+        val provider = object : PanProvider by FakeProvider() {
+            override suspend fun login(credentials: ProviderCredentials) = PanResult.Success(
+                ProviderSession(AccountId("fake:other"), credentials, "别人"),
+            )
+        }
+        val m2 = DefaultSessionManager(
+            registry = ProviderRegistry(listOf(provider)),
+            store = s,
+            clock = Clock { 1000L },
+        )
+
+        val result = m2.reauthenticate(AccountId("fake:me"), ProviderCredentials.Token("other-cookie"))
+
+        assertTrue(result is PanResult.Failure)
+        assertEquals("old-cookie", s.get("fake:me")!!.secret)
+    }
+
+    @Test
+    fun `reauthenticate on a missing account is NOT_FOUND`() = runTest {
+        val result = manager().reauthenticate(AccountId("fake:ghost"), ProviderCredentials.Token("t"))
+        assertEquals(ErrorKind.NOT_FOUND, (result as PanResult.Failure).error.kind)
     }
 
     @Test

@@ -180,6 +180,57 @@ class JsonAccountStoreTest {
         assertEquals("tok-1", record.secret)
         assertEquals(7L, record.lastUsedAt)
     }
+
+    @Test
+    fun `updateCredentials swaps only the key material`() = runTest {
+        val store = store()
+        store.save(AccountMapper.toRecord(tokenSession("pan123:u1", "old"), now = 5L))
+        store.setAlias("pan123:u1", "公司备份盘")
+
+        store.updateCredentials(
+            store.get("pan123:u1")!!.copy(
+                secret = "new",
+                refreshToken = "refresh-2",
+                extra = mapOf("appAccessToken" to "at"),
+            ),
+        )
+
+        val record = store.get("pan123:u1")!!
+        assertEquals("new", record.secret)
+        assertEquals("refresh-2", record.refreshToken)
+        assertEquals(mapOf("appAccessToken" to "at"), record.extra)
+        // 换钥匙不动身份：别名、创建时间、最近使用都保持原样。
+        assertEquals("公司备份盘", record.alias)
+        assertEquals(5L, record.createdAt)
+        assertEquals(5L, record.lastUsedAt)
+    }
+
+    @Test
+    fun `updateCredentials on an unknown account changes nothing`() = runTest {
+        val store = store()
+        store.save(AccountMapper.toRecord(tokenSession("pan123:u1", "tok"), now = 1L))
+
+        store.updateCredentials(
+            AccountMapper.toRecord(tokenSession("pan123:ghost", "x"), now = 9L),
+        )
+
+        assertEquals(1, store.list().size)
+        assertEquals("tok", store.get("pan123:u1")!!.secret)
+    }
+
+    @Test
+    fun `updated credentials survive reopening the file`() = runTest {
+        val file = File(tmp.root, "accounts.json")
+        JsonAccountStore(file, cipher).apply {
+            save(AccountMapper.toRecord(tokenSession("pan123:u1", "old"), now = 1L))
+            updateCredentials(
+                AccountMapper.toRecord(tokenSession("pan123:u1", "fresh"), now = 1L),
+            )
+        }
+
+        val reopened = JsonAccountStore(file, cipher)
+        assertEquals("fresh", reopened.get("pan123:u1")?.secret)
+    }
 }
 
 class AesGcmCipherTest {
