@@ -41,8 +41,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.panhub.core.design.EmptyState
-import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Radius
@@ -114,12 +112,12 @@ fun SearchScreen(
                 )
             }
 
-            if (state.hasBackground && !state.busy) {
-                HintBlock(state)
-            }
+            // 失败与截断的说明必须一直挂着：有结果时也要看得到「还有家没搜成」，
+            // 否则用户会把不完整的结果当成全部。
+            HintBlock(state)
 
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(
                     start = Spacing.lg,
                     end = Spacing.lg,
