@@ -7,6 +7,7 @@ import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.PageRequest
+import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareEntry
 import com.panhub.core.model.ShareSource
 import com.panhub.core.session.AccountSummary
@@ -19,6 +20,29 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/**
+ * 「转存到哪个目录」对话框的状态。
+ *
+ * 单独一份栈而不是复用 [ShareImportUiState.stack]：前者在别人的分享里，
+ * 后者在自己的网盘里，两边混在一起会让「返回」键的含义随上下文漂移。
+ */
+data class TargetPickerState(
+    val visible: Boolean = false,
+    val stack: List<RemoteNode> = emptyList(),
+    val folders: List<RemoteNode> = emptyList(),
+    val loading: Boolean = false,
+    val error: String? = null,
+) {
+    val current: RemoteNode? get() = stack.lastOrNull()
+
+    /** 当前选中的目标目录；null 表示根目录。 */
+    val targetId: NodeId? get() = current?.id
+
+    val canGoUp: Boolean get() = stack.isNotEmpty()
+
+    val title: String get() = stack.joinToString(" / ") { it.name }.ifBlank { "我的网盘" }
+}
 
 /**
  * 打开分享页的状态。
@@ -42,6 +66,9 @@ data class ShareImportUiState(
     val nextCursor: String? = null,
     val loadingMore: Boolean = false,
     val selected: Set<NodeId> = emptySet(),
+    /** 转存目标目录栈；空表示直接存到自己网盘根目录。 */
+    val target: List<RemoteNode> = emptyList(),
+    val picker: TargetPickerState = TargetPickerState(),
     val busy: Boolean = false,
     val error: PanError? = null,
     val message: String? = null,
@@ -63,6 +90,12 @@ data class ShareImportUiState(
     val canOpen: Boolean get() = accountId != null && url.isNotBlank() && !busy
 
     val canSave: Boolean get() = opened && selected.isNotEmpty() && !busy
+
+    /** 转存目标目录 id；null 表示自己网盘的根目录。 */
+    val targetId: NodeId? get() = target.lastOrNull()?.id
+
+    /** 转存目标在界面上的一句话名字。 */
+    val targetLabel: String get() = ShareImportLogic.targetLabel(target)
 
     /** 标题：浏览态显示分享标题，否则显示页面名。 */
     val title: String
@@ -95,6 +128,7 @@ class ShareImportViewModel(
     private var scoped: ScopedPanProvider? = null
     private var started = false
     private var loadJob: Job? = null
+    private var pickerJob: Job? = null
 
     fun start() {
         if (started) return
@@ -133,6 +167,8 @@ class ShareImportViewModel(
                 stack = emptyList(),
                 selected = emptySet(),
                 nextCursor = null,
+                target = emptyList(),
+                picker = TargetPickerState(),
                 error = null,
             )
         }
@@ -256,17 +292,88 @@ class ShareImportViewModel(
         _state.update { it.copy(selected = ShareImportLogic.toggleAll(it.entries, it.selected)) }
     }
 
-    /** 把选中的条目转存到自己的网盘根目录。 */
+    // ---- 转存目标目录 ----
+
+    /**
+     * 打开「转存到」选择器。
+     *
+     * 每次都从根目录开始，而不是上次停留的位置：转存是低频的一次性选择，
+     * 记住上次目录反而容易让人在手快时把文件丢进一个不相干的文件夹。
+     */
+    fun openTargetPicker() {
+        val provider = scoped ?: return
+        _state.update {
+            it.copy(picker = TargetPickerState(visible = true, loading = true))
+        }
+        loadPicker(provider, null)
+    }
+
+    fun closeTargetPicker() {
+        pickerJob?.cancel()
+        _state.update { it.copy(picker = TargetPickerState()) }
+    }
+
+    /** 在选择器里进入下一级文件夹。 */
+    fun enterTargetFolder(folder: RemoteNode) {
+        val provider = scoped ?: return
+        if (!folder.isDir) return
+        _state.update {
+            it.copy(picker = it.picker.copy(stack = it.picker.stack + folder, loading = true, error = null))
+        }
+        loadPicker(provider, folder.id)
+    }
+
+    /** 在选择器里返回上一级。 */
+    fun leaveTargetFolder() {
+        val provider = scoped ?: return
+        val stack = _state.value.picker.stack
+        if (stack.isEmpty()) return
+        val next = ShareImportLogic.targetStack(stack)
+        _state.update {
+            it.copy(picker = it.picker.copy(stack = next, loading = true, error = null))
+        }
+        loadPicker(provider, next.lastOrNull()?.id)
+    }
+
+    /** 确认目标目录：把选择器的栈搬到主状态里，之后转存都落在这里。 */
+    fun confirmTarget() {
+        val stack = _state.value.picker.stack
+        pickerJob?.cancel()
+        _state.update { it.copy(target = stack, picker = TargetPickerState()) }
+    }
+
+    private fun loadPicker(provider: ScopedPanProvider, parentId: NodeId?) {
+        pickerJob?.cancel()
+        pickerJob = viewModelScope.launch {
+            when (val result = provider.list(parentId, PageRequest(limit = PICKER_PAGE_SIZE))) {
+                is PanResult.Failure -> _state.update {
+                    it.copy(picker = it.picker.copy(loading = false, folders = emptyList(), error = result.error.message))
+                }
+                is PanResult.Success -> _state.update {
+                    it.copy(
+                        picker = it.picker.copy(
+                            loading = false,
+                            folders = ShareImportLogic.folderOnly(result.value.items),
+                            error = null,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /** 把选中的条目转存到当前目标目录（默认是自己的网盘根目录）。 */
     fun save() {
         val provider = scoped ?: return
         val snapshot = _state.value
         val source = snapshot.source ?: return
         val entries = ShareImportLogic.selectedEntries(snapshot.entries, snapshot.selected)
         if (entries.isEmpty()) return
-        val folderName = snapshot.accountName.ifBlank { "我的网盘" }
+        val folderName = snapshot.targetLabel
+        val target = snapshot.targetId
         _state.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            when (val result = provider.saveShare(source, entries, null)) {
+            when (val result = provider.saveShare(source, entries, target)) {
                 is PanResult.Failure -> _state.update { it.copy(busy = false, error = result.error) }
                 is PanResult.Success -> _state.update {
                     it.copy(
@@ -281,5 +388,6 @@ class ShareImportViewModel(
 
     private companion object {
         const val PAGE_SIZE = 100
+        const val PICKER_PAGE_SIZE = 200
     }
 }

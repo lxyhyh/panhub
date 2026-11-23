@@ -1,6 +1,7 @@
 package com.panhub.feature.shareimport
 
 import com.panhub.core.model.NodeId
+import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareEntry
 import com.panhub.core.session.AccountSummary
 
@@ -66,4 +67,25 @@ object ShareImportLogic {
     /** 点「全选」时下一次的选择集。 */
     fun toggleAll(entries: List<ShareEntry>, selected: Set<NodeId>): Set<NodeId> =
         if (allSelected(entries, selected)) emptySet() else entries.map { it.id }.toSet()
+
+    /**
+     * 「转存到」选择器里只列文件夹。
+     *
+     * 服务商的文件列表是文件与文件夹混排的，而目标位置只能是文件夹；
+     * 把文件也列出来再灰掉，比直接不显示更容易让人以为列表缺东西。
+     */
+    fun folderOnly(nodes: List<RemoteNode>): List<RemoteNode> = nodes.filter { it.isDir }
+
+    /** 目标目录选择器返回上一级。空栈保持为空，不会越界。 */
+    fun targetStack(stack: List<RemoteNode>): List<RemoteNode> =
+        if (stack.isEmpty()) stack else stack.dropLast(1)
+
+    /**
+     * 转存目标的一句话名字。
+     *
+     * 根目录没有名字，写「我的网盘」比写「/」更符合用户对自己网盘的称呼；
+     * 进到子目录后只报最后一级，因为转存提示里出现整条路径会很长。
+     */
+    fun targetLabel(stack: List<RemoteNode>): String =
+        stack.lastOrNull()?.name?.takeIf { it.isNotBlank() } ?: "我的网盘"
 }

@@ -5,6 +5,7 @@ import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.ProviderCapabilities
 import com.panhub.core.model.ProviderId
+import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareEntry
 import com.panhub.core.session.AccountSummary
 import org.junit.Assert.assertEquals
@@ -120,5 +121,52 @@ class ShareImportLogicTest {
     @Test
     fun allSelectedIsFalseForEmptyList() {
         assertFalse(ShareImportLogic.allSelected(emptyList(), emptySet()))
+    }
+
+    // ---- 转存目标目录 ----
+
+    private fun node(id: String, name: String = id, dir: Boolean = true) = RemoteNode(
+        id = NodeId(id),
+        parentId = null,
+        name = name,
+        kind = if (dir) NodeKind.DIR else NodeKind.FILE,
+    )
+
+    @Test
+    fun folderOnlyDropsFiles() {
+        val nodes = listOf(node("a"), node("b.txt", dir = false), node("c"))
+        assertEquals(listOf(NodeId("a"), NodeId("c")), ShareImportLogic.folderOnly(nodes).map { it.id })
+    }
+
+    @Test
+    fun folderOnlyOnEmptyListStaysEmpty() {
+        assertTrue(ShareImportLogic.folderOnly(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun targetStackAtRootStaysEmpty() {
+        assertTrue(ShareImportLogic.targetStack(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun targetStackDropsLastFolder() {
+        val stack = listOf(node("a"), node("b"))
+        assertEquals(listOf(NodeId("a")), ShareImportLogic.targetStack(stack).map { it.id })
+    }
+
+    @Test
+    fun targetLabelFallsBackToMyDriveAtRoot() {
+        assertEquals("我的网盘", ShareImportLogic.targetLabel(emptyList()))
+    }
+
+    @Test
+    fun targetLabelShowsLastFolderName() {
+        val stack = listOf(node("a", "文档"), node("b", "报告"))
+        assertEquals("报告", ShareImportLogic.targetLabel(stack))
+    }
+
+    @Test
+    fun targetLabelIgnoresBlankName() {
+        assertEquals("我的网盘", ShareImportLogic.targetLabel(listOf(node("a", "  "))))
     }
 }
