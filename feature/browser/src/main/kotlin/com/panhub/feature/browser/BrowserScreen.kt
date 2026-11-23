@@ -1186,6 +1186,14 @@ private fun ShareDialog(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
+                    result.expiresAt?.let { millis ->
+                        Spacer(Modifier.size(Spacing.sm))
+                        Text(
+                            text = expiryLineOf(millis),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             } else {
                 Column {
@@ -1281,6 +1289,17 @@ private fun shareTextOf(link: ShareLink): String =
     } else {
         link.url + " 提取码：" + link.password
     }
+
+/**
+ * 结果视图里的到期说明。
+ *
+ * 为什么显示服务商回传的时刻而不是用户选的天数：有的服务商只有几档固定有效期
+ * （夸克就是永久/一天/一周/一月），选 3 天实际会落到一周档，照着输入显示会说谎。
+ */
+private fun expiryLineOf(expiresAt: Long): String {
+    val text = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(expiresAt))
+    return text + " 到期"
+}
 
 /** 有效期候选。null = 永久，与服务商的「0 表示永久」约定对应。 */
 private val EXPIRY_CHOICES: List<Int?> = listOf(null, 1, 7, 30)

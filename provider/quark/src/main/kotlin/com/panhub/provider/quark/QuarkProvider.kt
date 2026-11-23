@@ -15,6 +15,7 @@ import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
+import com.panhub.core.model.SharePage
 import com.panhub.core.network.HttpEngine
 import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
@@ -38,7 +39,8 @@ import java.util.concurrent.ConcurrentHashMap
  * 所以登录方式是粘贴 Cookie。服务端会在响应里轮换 __puus，轮换后的值缓存在
  * 进程内的 [renewedCookies] 里，否则会话会很快失效。
  *
- * 不声明分享能力：OpenList 里没有任何 share 相关实现，没有可信事实来源的路径不猜。
+ * 分享是异步的：POST /share 只给 task_id，要轮询 /task 才拿到 share_id，
+ * 再换 /share/password 才有链接，三步在 QuarkShareManager 里串好。
  */
 class QuarkProvider(
     private val engine: HttpEngine = HttpEngine(),
@@ -46,6 +48,7 @@ class QuarkProvider(
 
     private val api = QuarkApi(engine)
     private val uploader = QuarkUploader(api)
+    private val shares = QuarkShareManager(api)
 
     /**
      * accountId -> 服务端轮换过的 Cookie 字段。
@@ -72,6 +75,10 @@ class QuarkProvider(
             directLink = true,
             upload = true,
             uploadChunked = true,
+            share = true,
+            shareList = true,
+            sharePassword = true,
+            shareExpiry = true,
         ),
     )
 
@@ -401,11 +408,32 @@ class QuarkProvider(
         session: ProviderSession,
         nodeIds: List<NodeId>,
         options: ShareOptions,
-    ): PanResult<ShareLink> =
-        PanResult.Failure(PanError.notSupported("夸克网盘暂不支持创建分享"))
+    ): PanResult<ShareLink> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        return shares.create(cookie, nodeIds, options) { renewed ->
+            rememberRenewed(session.accountId.value, renewed)
+        }
+    }
 
-    override suspend fun cancelShare(session: ProviderSession, shareId: String): PanResult<Unit> =
-        PanResult.Failure(PanError.notSupported("夸克网盘暂不支持取消分享"))
+    override suspend fun cancelShare(session: ProviderSession, shareId: String): PanResult<Unit> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        return shares.cancel(cookie, shareId) { renewed ->
+            rememberRenewed(session.accountId.value, renewed)
+        }
+    }
+
+    override suspend fun listShares(
+        session: ProviderSession,
+        page: PageRequest,
+    ): PanResult<SharePage> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        return shares.list(cookie, page) { renewed ->
+            rememberRenewed(session.accountId.value, renewed)
+        }
+    }
 
     /** 优先用服务端轮换过的最新 Cookie，没有就用会话里的。 */
     private fun cookieOf(session: ProviderSession): String? {

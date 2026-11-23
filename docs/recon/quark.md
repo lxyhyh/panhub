@@ -79,8 +79,55 @@ POST\n<Content-MD5>\napplication/xml\n<Date>\nx-oss-callback:<b64>\nx-oss-date:<
 
 ## 分享
 
-OpenList 里没有任何 share 相关实现，APK 的 dex 里也没找到可读的分享路径。
-本 provider 声明 `share = false`，不猜。
+夸克的分享是**异步三步**，少一步都拿不到能发出去的链接：
+
+1. **创建**：`POST /share`，body `{fid_list:[fid], url_type, expired_type, title?, passcode?}`，
+   响应只有 `data.task_id`（`task_sync=true` 时 `data.task_resp.data` 里已带 `share_id`，可省掉第 2 步）。
+2. **等任务**：`GET /task?task_id=&retry_index=N`，`data.status` 2 完成、3 失败（失败原因在
+   `data.error_message`），其余继续轮询。完成时 `data.share_id` 才是真正的分享 id。
+3. **换链接**：`POST /share/password`，body `{share_id}`，响应 `data` 里才有
+   `share_url`、`pwd_id`、`passcode`、`expired_at`、`title`。
+
+其它两个：
+
+| 用途 | 方法 | 路径 | 关键参数 |
+| --- | --- | --- | --- |
+| 取消分享 | POST | `/share/delete` | `{share_ids:[share_id]}` |
+| 我的分享 | GET | `/share/mypage/detail` | `_page` `_size` `_sort=created_at:desc` `_fetch_total=1` |
+
+### 参数语义
+
+| 字段 | 取值 |
+| --- | --- |
+| `url_type` | 1 = 公开（无提取码），2 = 带提取码。传了 `passcode` 就必须是 2 |
+| `expired_type` | 1 = 永久，2 = 一天，3 = 一周，4 = 一月。**只有这四档**，没有任意天数 |
+| `expired_at` | 毫秒时间戳；`>= 4102416000000`（2100 年）是服务端的「永久」哨兵，本地当成没有到期时间 |
+
+档位只有四档，所以用户选 3 天只能落到「一周」档。界面要把实际到期的时刻显示出来，
+不能照着用户填的天数写，否则会出现「显示 3 天、实际 7 天」的偏差
+（`QuarkShareParsing.expiredTypeOf` 与 `daysOfExpiredType` 成对使用）。
+
+### 端点存在性探测（2026-11-23，无凭证）
+
+本机无夸克账号，用真实 HTTP 只能证明端点存在与否，不能证明参数校验：
+
+    POST /share                        → 401 {"status":401,"code":31001,"message":"require login [guest]"}
+    POST /share/password               → 401 同上
+    POST /share/delete                 → 401 同上
+    POST /share/update                 → 401 同上
+    GET  /share/mypage/detail          → 401 同上
+    GET  /task                         → 401 同上
+    GET  /share                        → 405 Method Not Allowed（只接受 POST）
+    GET  /share/update_list            → 405（只接受 POST）
+    POST /share/create                 → 404（**这个路径不存在**，创建是 POST /share）
+    GET  /definitelyNotRealXYZ         → 404（对照组，形状与上面 404 一致）
+    GET  /share/sharepage/detail       → 400 {"code":14001,"message":"Bad Parameter: [guest missing pwd_id or stoken]"}
+
+对照很关键：404 与 401/405 形状完全不同，所以 401/405 能证明端点存在。
+`drive-pc.quark.cn` 与 `drive.quark.cn` 两个主机在分享端点上行为一致。
+
+请求参数来自 qrypt 的 `pkg/drivers/quark/share.go` 与 QuarkPanTool 的 `quark.py`
+（两者都用真实账号跑通，字段一致）。
 
 ## 下载
 
@@ -89,6 +136,6 @@ OpenList 里没有任何 share 相关实现，APK 的 dex 里也没找到可读�
 
 ## 已实现
 
-`provider/quark` — 列表、容量、建目录、重命名、移动、删除、取下载地址、分片上传（含秒传）。
+`provider/quark` — 列表、容量、建目录、重命名、移动、删除、取下载地址、分片上传（含秒传）、创建/取消/列出分享。
 单测覆盖信封判定、错误映射、HTML 实体反转义、根目录常量，以及 OSS 待签串与
 合并 XML 的逐字格式（`QuarkOssTest`）。

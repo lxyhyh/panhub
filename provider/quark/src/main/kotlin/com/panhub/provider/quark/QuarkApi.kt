@@ -221,6 +221,12 @@ internal class QuarkApi(
         const val PATH_UPLOAD_AUTH = "/file/upload/auth"
         const val PATH_UPLOAD_FINISH = "/file/upload/finish"
 
+        const val PATH_SHARE = "/share"
+        const val PATH_SHARE_PASSWORD = "/share/password"
+        const val PATH_SHARE_DELETE = "/share/delete"
+        const val PATH_SHARE_MYPAGE = "/share/mypage/detail"
+        const val PATH_TASK = "/task"
+
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
         internal fun JsonElement?.asText(): String? = when (this) {
