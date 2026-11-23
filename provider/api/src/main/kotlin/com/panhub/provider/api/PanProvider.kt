@@ -14,6 +14,7 @@ import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SharePage
 import com.panhub.core.model.ShareSource
+import com.panhub.core.model.TrashPage
 
 /**
  * 一个网盘服务商的全部能力。
@@ -167,6 +168,34 @@ interface PanProvider {
         page: PageRequest = PageRequest(),
     ): PanResult<ShareEntryPage> =
         PanResult.Failure(PanError.notSupported("该网盘不支持浏览分享内容"))
+
+    /** 列出回收站里的条目；[parentId] 为 null 表示只看顶层。 */
+    suspend fun listTrash(
+        session: ProviderSession,
+        page: PageRequest = PageRequest(),
+    ): PanResult<TrashPage> = PanResult.Failure(PanError.notSupported("该网盘不支持回收站"))
+
+    /**
+     * 从回收站还原。
+     *
+     * [parentId] 是还原到的目录，null 表示回到原来的位置——服务端记着原路径，
+     * 但原目录已经被删掉时它会还原失败，这时才需要用户自己指定一个目录。
+     */
+    suspend fun restoreTrash(
+        session: ProviderSession,
+        nodeIds: List<NodeId>,
+        parentId: NodeId? = null,
+    ): PanResult<Unit> = PanResult.Failure(PanError.notSupported("该网盘不支持从回收站还原"))
+
+    /** 彻底删除，不进回收站。 */
+    suspend fun purgeTrash(
+        session: ProviderSession,
+        nodeIds: List<NodeId>,
+    ): PanResult<Unit> = PanResult.Failure(PanError.notSupported("该网盘不支持彻底删除"))
+
+    /** 清空回收站。 */
+    suspend fun emptyTrash(session: ProviderSession): PanResult<Unit> =
+        PanResult.Failure(PanError.notSupported("该网盘不支持清空回收站"))
 
     /**
      * 把分享里的条目转存到自己的 [targetParentId] 目录。

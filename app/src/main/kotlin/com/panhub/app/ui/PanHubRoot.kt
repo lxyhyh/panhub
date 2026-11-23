@@ -33,6 +33,8 @@ import com.panhub.feature.search.SearchScreen
 import com.panhub.feature.search.SearchViewModel
 import com.panhub.feature.shares.SharesScreen
 import com.panhub.feature.shares.SharesViewModel
+import com.panhub.feature.trash.TrashScreen
+import com.panhub.feature.trash.TrashViewModel
 import com.panhub.core.model.NodeFocus
 
 /**
@@ -79,6 +81,7 @@ fun PanHubRoot(
                 },
                 onOpenTransfers = { nav.navigate(Routes.TRANSFERS) },
                 onOpenShares = { account -> nav.navigate(Routes.shares(account.value)) },
+                onOpenTrash = { account -> nav.navigate(Routes.trash(account.value)) },
                 onOpenShareImport = { nav.navigate(Routes.SHARE_IMPORT) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenSearch = { nav.navigate(Routes.SEARCH) },
@@ -116,6 +119,16 @@ fun PanHubRoot(
                 factory = factoryOf { SharesViewModel(session, AccountId(raw)) },
             )
             SharesScreen(viewModel = vm, onBack = { nav.popBackStack() })
+        }
+        composable(
+            route = Routes.TRASH,
+            arguments = listOf(navArgument(Routes.ARG_ACCOUNT) { type = NavType.StringType }),
+        ) { entry ->
+            val raw = entry.arguments?.getString(Routes.ARG_ACCOUNT).orEmpty()
+            val vm: TrashViewModel = viewModel(
+                factory = factoryOf { TrashViewModel(session, AccountId(raw)) },
+            )
+            TrashScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
         composable(Routes.SHARE_IMPORT) {
             val vm: ShareImportViewModel = viewModel(
@@ -166,6 +179,7 @@ private object Routes {
     const val ARG_ACCOUNT = "accountId"
     const val BROWSER = "browser/{$ARG_ACCOUNT}"
     const val SHARES = "shares/{$ARG_ACCOUNT}"
+    const val TRASH = "trash/{$ARG_ACCOUNT}"
 
     /** 账号 id 里可能含 ':' 和 '/'，必须编码，否则会拆坏路由。 */
     fun browser(accountId: String): String =
@@ -173,6 +187,9 @@ private object Routes {
 
     fun shares(accountId: String): String =
         "shares/" + java.net.URLEncoder.encode(accountId, "UTF-8")
+
+    fun trash(accountId: String): String =
+        "trash/" + java.net.URLEncoder.encode(accountId, "UTF-8")
 }
 
 /**

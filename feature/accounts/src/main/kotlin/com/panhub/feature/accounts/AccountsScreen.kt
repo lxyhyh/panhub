@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
@@ -89,6 +90,7 @@ fun AccountsScreen(
     onOpenShareImport: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
+    onOpenTrash: (AccountId) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val form by viewModel.form.collectAsStateWithLifecycle()
@@ -164,6 +166,7 @@ fun AccountsScreen(
                             onVerify = { viewModel.verify(account.id) },
                             onDelete = { pendingDelete = account },
                             onOpenShares = { onOpenShares(account.id) },
+                            onOpenTrash = { onOpenTrash(account.id) },
                         )
                     }
                 }
@@ -238,6 +241,7 @@ private fun AccountCard(
     onVerify: () -> Unit,
     onDelete: () -> Unit,
     onOpenShares: () -> Unit,
+    onOpenTrash: () -> Unit,
 ) {
     PanCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -313,6 +317,30 @@ private fun AccountCard(
                 )
                 Text(
                     text = "我的分享",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = Spacing.xs),
+                )
+            }
+        }
+        // 同上：只有声明了回收站的服务商才给入口。
+        // 这个网盘删掉的东西本来就没地方找，给个点进去必然空的入口只会让人困惑。
+        if (account.capabilities.trash) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = Spacing.sm)
+                    .clickable(onClick = onOpenTrash),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.DeleteOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    text = "回收站",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = Spacing.xs),

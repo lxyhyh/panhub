@@ -140,6 +140,8 @@ class Pan123Api(
         const val PATH_MOD_PID = "/api/file/mod_pid"
         const val PATH_DELETE = "/api/file/delete"
         const val PATH_TRASH = "/api/file/trash"
+        const val PATH_TRASH_EMPTY = "/api/file/trash_delete_all"
+        const val PATH_TRASH_RECOVER_PATH = "/api/file/recover/by_path"
         const val PATH_SHARE_CREATE = "/api/share/create"
         const val PATH_SHARE_LIST = "/api/share/list"
         const val PATH_SHARE_DELETE = "/api/share/delete"

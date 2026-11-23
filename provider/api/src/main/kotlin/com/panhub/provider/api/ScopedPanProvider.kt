@@ -12,6 +12,7 @@ import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SharePage
 import com.panhub.core.model.ShareSource
+import com.panhub.core.model.TrashPage
 
 /**
  * 把「服务商 + 会话」绑定在一起的便捷视图。
@@ -77,6 +78,17 @@ class ScopedPanProvider(
         parentId: NodeId?,
         page: PageRequest = PageRequest(),
     ): PanResult<ShareEntryPage> = provider.listShare(session, source, parentId, page)
+
+    suspend fun listTrash(page: PageRequest = PageRequest()): PanResult<TrashPage> =
+        provider.listTrash(session, page)
+
+    suspend fun restoreTrash(nodeIds: List<NodeId>, parentId: NodeId? = null): PanResult<Unit> =
+        provider.restoreTrash(session, nodeIds, parentId)
+
+    suspend fun purgeTrash(nodeIds: List<NodeId>): PanResult<Unit> =
+        provider.purgeTrash(session, nodeIds)
+
+    suspend fun emptyTrash(): PanResult<Unit> = provider.emptyTrash(session)
 
     suspend fun saveShare(
         source: ShareSource,

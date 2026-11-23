@@ -65,6 +65,7 @@ dependencies {
     implementation(project(":feature:shareimport"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:search"))
+    implementation(project(":feature:trash"))
     implementation(project(":core:transfer"))
     implementation(project(":core:kernel"))
     implementation(project(":core:preview"))

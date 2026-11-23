@@ -60,7 +60,7 @@ class CapabilityContractTest {
         /** 契约（PanProvider 的方法 + 上传/分享参数）真正支撑的开关。 */
         val CONTRACT_NAMES = setOf(
             "list", "quota", "upload", "uploadChunked", "download",
-            "rename", "move", "copy", "delete", "createFolder", "search",
+            "rename", "move", "copy", "trash", "delete", "createFolder", "search",
             "share", "shareList", "sharePassword", "shareExpiry", "directLink",
         )
 

@@ -22,6 +22,8 @@ import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SharePage
 import com.panhub.core.model.ShareSource
+import com.panhub.core.model.TrashNode
+import com.panhub.core.model.TrashPage
 import com.panhub.core.network.HttpEngine
 import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
@@ -69,6 +71,7 @@ class Pan123Provider(
             directLink = true,
             shareImport = true,
             search = true,
+            trash = true,
         ),
     )
 
@@ -267,8 +270,119 @@ class Pan123Provider(
         ).map { }
     }
 
+    /**
+     * 删除：放进回收站，不是彻底删除。
+     *
+     * 网页端走的是 file/trash + fileTrashInfoList（确认框写着「可在回收站中找到已删文件」），
+     * 而 file/delete 是回收站里的「彻底删除」。两者互换会让用户在文件列表里
+     * 点一次删除就永久丢文件，所以这里必须用 trash。
+     */
     override suspend fun delete(session: ProviderSession, nodeId: NodeId): PanResult<Unit> {
-        val body = """{"fileIds":[${nodeId.value}],"driveId":0,"operation":true}"""
+        val body = """{"driveId":0,"operation":true,"event":"intoRecycle","operatePlace":1,"RequestSource":null,"fileTrashInfoList":[{"fileId":${nodeId.value}}]}"""
+        return api.post(
+            path = Pan123Api.PATH_TRASH,
+            token = tokenOf(session),
+            body = body,
+            decode = { raw -> json.decodeFromString(ApiEnvelope.serializer(JsonUnit), raw) },
+        ).map { }
+    }
+
+    /**
+     * 回收站列表。
+     *
+     * 复用普通列表端点，靠 trashed=true 与 event=recycleListFile 切到回收站。
+     * 排序按删除时间倒序（网页端默认就是最新在前），分页仍用服务端的 Next 游标。
+     */
+    override suspend fun listTrash(
+        session: ProviderSession,
+        page: PageRequest,
+    ): PanResult<TrashPage> = fetchTrashPage(session, page)
+
+    private suspend fun fetchTrashPage(
+        session: ProviderSession,
+        page: PageRequest,
+    ): PanResult<TrashPage> {
+        val query = buildString {
+            append(Pan123Api.PATH_FILE_LIST)
+            append("?driveId=0")
+            append("&limit=").append(page.limit)
+            append("&next=").append(page.cursor ?: Pan123Wire.EMPTY_CURSOR)
+            append("&orderBy=trashed_at")
+            append("&orderDirection=desc")
+            append("&trashed=true")
+            append("&parentFileId=0")
+            append("&event=recycleListFile")
+        }
+        return api.get(
+            path = query,
+            token = tokenOf(session),
+            decode = { raw ->
+                json.decodeFromString(ApiEnvelope.serializer(FileListData.serializer()), raw)
+            },
+        ).map { data ->
+            TrashPage(
+                items = data.infoList.orEmpty().map { it.toTrashNode() },
+                nextCursor = Pan123Wire.nextCursor(data.next),
+            )
+        }
+    }
+
+    /**
+     * 从回收站还原。
+     *
+     * 服务端记着原路径，所以 parentId 为 null 时就是「还原到原位置」。
+     * 原目录已经不在时它不会报错，而是在 AbnormalFileIdList 里回一份清单，
+     * 这时才算失败——只看 code 会以为全都还原了。
+     */
+    override suspend fun restoreTrash(
+        session: ProviderSession,
+        nodeIds: List<NodeId>,
+        parentId: NodeId?,
+    ): PanResult<Unit> {
+        if (nodeIds.isEmpty()) return PanResult.Success(Unit)
+        if (parentId != null) return restoreTrashTo(session, nodeIds, parentId)
+        val body = buildTrashBody(nodeIds = nodeIds, operation = false, event = "recycleRestore")
+        return api.post(
+            path = Pan123Api.PATH_TRASH,
+            token = tokenOf(session),
+            body = body,
+            decode = { raw ->
+                json.decodeFromString(ApiEnvelope.serializer(TrashRecoverData.serializer()), raw)
+            },
+        ).recovered()
+    }
+
+    /** 按路径还原：原目录没了的条目可以指定一个新去处。 */
+    private suspend fun restoreTrashTo(
+        session: ProviderSession,
+        nodeIds: List<NodeId>,
+        parentId: NodeId,
+    ): PanResult<Unit> {
+        val body = buildString {
+            append("""{"fileIds":[""")
+            append(nodeIds.joinToString(",") { it.value })
+            append("""],"parentFileId":""")
+            append(parentId.value)
+            append("}")
+        }
+        return api.post(
+            path = Pan123Api.PATH_TRASH_RECOVER_PATH,
+            token = tokenOf(session),
+            body = body,
+            decode = { raw ->
+                json.decodeFromString(ApiEnvelope.serializer(TrashRecoverData.serializer()), raw)
+            },
+        ).recovered()
+    }
+
+    /** 彻底删除：不进回收站，删了就没了。 */
+    override suspend fun purgeTrash(
+        session: ProviderSession,
+        nodeIds: List<NodeId>,
+    ): PanResult<Unit> {
+        if (nodeIds.isEmpty()) return PanResult.Success(Unit)
+        val items = nodeIds.joinToString(",") { """{"fileId":""" + it.value + "}" }
+        val body = """{"fileIdList":[""" + items + """],"operatePlace":1,"event":"recycleDelete","RequestSource":null}"""
         return api.post(
             path = Pan123Api.PATH_DELETE,
             token = tokenOf(session),
@@ -276,6 +390,48 @@ class Pan123Provider(
             decode = { raw -> json.decodeFromString(ApiEnvelope.serializer(JsonUnit), raw) },
         ).map { }
     }
+
+    override suspend fun emptyTrash(session: ProviderSession): PanResult<Unit> = api.post(
+        path = Pan123Api.PATH_TRASH_EMPTY,
+        token = tokenOf(session),
+        body = "{}",
+        decode = { raw -> json.decodeFromString(ApiEnvelope.serializer(JsonUnit), raw) },
+    ).map { }
+
+    private fun buildTrashBody(
+        nodeIds: List<NodeId>,
+        operation: Boolean,
+        event: String,
+    ): String {
+        val items = nodeIds.joinToString(",") { """{"fileId":""" + it.value + "}" }
+        return """{"driveId":0,"operation":""" + operation + """","event":"""" + event +
+            """","operatePlace":1,"RequestSource":null,"fileTrashInfoList":[""" + items + "]}"
+    }
+
+    /**
+     * 还原结果的判读：服务端把「原目录没了」放在 AbnormalFileIdList 里，
+     * 而不是当错误返回。不检查它就会对用户说「已还原」，实际什么都没动。
+     */
+    private fun PanResult<TrashRecoverData>.recovered(): PanResult<Unit> = when (this) {
+        is PanResult.Failure -> this
+        is PanResult.Success -> {
+            val abnormal = value.abnormalFileIdList.orEmpty()
+            if (abnormal.isEmpty()) {
+                PanResult.Success(Unit)
+            } else {
+                PanResult.Failure(
+                    PanError.unknown("有 " + abnormal.size + " 项没能还原，原目录可能已经不在了"),
+                )
+            }
+        }
+    }
+
+    private fun FileItem.toTrashNode(): TrashNode = TrashNode(
+        node = toRemoteNode(null),
+        // 网页端用 TrashedAt||UpdateAt 兜底：早期条目没有 TrashedAt。
+        deletedAt = parseTime(trashedAt ?: updateAt),
+        expiresAt = parseTime(trashedExpire),
+    )
 
     override suspend fun downloadUrl(
         session: ProviderSession,

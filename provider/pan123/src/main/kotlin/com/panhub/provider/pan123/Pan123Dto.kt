@@ -65,9 +65,28 @@ data class FileItem(
      * 普通列表不带这个字段，值为 null。
      */
     @SerialName("ParentName") val parentName: String? = null,
+    /**
+     * 回收站条目才有：什么时候被删的、什么时候会被自动清理。
+     *
+     * 网页端用 TrashedAt||UpdateAt 兜底显示时间、用 TrashedExpire 算「还有几天删除」，
+     * 这里照抄同样的语义。
+     */
+    @SerialName("TrashedAt") val trashedAt: String? = null,
+    @SerialName("TrashedExpire") val trashedExpire: String? = null,
 ) {
     val isDir: Boolean get() = type == 1
 }
+
+/**
+ * 还原回收站的响应。
+ *
+ * AbnormalFileIdList 是「原目录已经不在了、所以没能还原」的那批 id。
+ * 服务端不会把这种情况当失败，只看 code 会以为全都还原了。
+ */
+@Serializable
+data class TrashRecoverData(
+    @SerialName("AbnormalFileIdList") val abnormalFileIdList: List<Long>? = null,
+)
 
 @Serializable
 data class DownloadInfoData(
