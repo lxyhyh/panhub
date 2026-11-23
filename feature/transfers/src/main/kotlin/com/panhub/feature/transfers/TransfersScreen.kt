@@ -187,6 +187,7 @@ fun TransfersScreen(
                         TaskCard(
                             task = task,
                             speed = state.speeds[task.id],
+                            accountNote = TransferAccountNote.note(task, state.accountLabels),
                             onCancel = { viewModel.cancel(task.id) },
                             onPause = { viewModel.pause(task.id) },
                             onResume = { viewModel.resume(task.id) },
@@ -235,6 +236,7 @@ private fun GateBanner(reason: String) {
 private fun TaskCard(
     task: TransferTask,
     speed: Long?,
+    accountNote: String,
     onCancel: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -278,9 +280,11 @@ private fun TaskCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = statusLine(task, speed),
+                        text = statusLine(task, speed) + accountNote,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 // 已完成任务的操作针对本地文件：打开 / 分享出去。

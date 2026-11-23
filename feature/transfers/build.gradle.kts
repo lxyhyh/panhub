@@ -26,6 +26,7 @@ dependencies {
     api(project(":core:model"))
     api(project(":core:common"))
     api(project(":core:design"))
+    api(project(":core:session"))
     api(project(":core:transfer"))
 
     implementation(libs.androidx.activity.compose)

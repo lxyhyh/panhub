@@ -3,6 +3,7 @@ package com.panhub.feature.transfers
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.panhub.core.common.Clock
+import com.panhub.core.session.SessionManager
 import com.panhub.core.transfer.TransferDigest
 import com.panhub.core.transfer.TransferEngine
 import com.panhub.core.transfer.TransferSpeedTracker
@@ -26,6 +27,13 @@ data class TransfersUiState(
     val speeds: Map<String, Long> = emptyMap(),
     /** 队列此刻被挡住的原因（例如开着「仅 Wi-Fi」却不在 Wi-Fi 上），null 表示没挡。 */
     val gateMessage: String? = null,
+    /**
+     * 账号 id → 账号名（优先备注名）。
+     *
+     * 传输页是唯一一个把不同账号的任务混在一起的地方，
+     * 而任务本身只记账号 id——不把名字查过来，用户看到的就是一串随机串。
+     */
+    val accountLabels: Map<String, String> = emptyMap(),
 ) {
     /** 标题栏要显示的汇总；每帧重算一次，任务数是几十条量级，不值得缓存。 */
     val digest: TransferDigest get() = TransferDigest.of(tasks)
@@ -60,6 +68,11 @@ data class TransfersUiState(
 class TransfersViewModel(
     private val engine: TransferEngine,
     private val clock: Clock = Clock.Default,
+    /**
+     * 账号表。可以为空——纯逻辑单测不需要它，
+     * 此时界面就不显示账号归属，而不是显示一串 id。
+     */
+    private val session: SessionManager? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TransfersUiState(tasks = engine.tasks.value))
@@ -76,6 +89,14 @@ class TransfersViewModel(
         viewModelScope.launch {
             engine.gateMessage.collect { reason ->
                 _state.update { it.copy(gateMessage = reason) }
+            }
+        }
+        if (session != null) {
+            viewModelScope.launch {
+                session.accounts.collect { accounts ->
+                    val labels = accounts.associate { it.id.value to it.label }
+                    _state.update { it.copy(accountLabels = labels) }
+                }
             }
         }
         viewModelScope.launch {

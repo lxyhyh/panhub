@@ -220,7 +220,7 @@ fun PanHubRoot(
         }
         composable(Routes.TRANSFERS) {
             val vm: TransfersViewModel = viewModel(
-                factory = factoryOf { TransfersViewModel(transfers) },
+                factory = factoryOf { TransfersViewModel(transfers, session = session) },
             )
             TransfersScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
