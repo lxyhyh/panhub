@@ -143,5 +143,8 @@ class Pan123Api(
         const val PATH_SHARE_CREATE = "/api/share/create"
         const val PATH_SHARE_LIST = "/api/share/list"
         const val PATH_SHARE_DELETE = "/api/share/delete"
+        const val PATH_SHARE_GET = "/api/share/get"
+        const val PATH_COPY_SAVE = "/api/restful/goapi/v1/file/copy/save"
+        const val PATH_COPY_SAVE_GET = "/api/restful/goapi/v1/file/copy/save/get"
     }
 }

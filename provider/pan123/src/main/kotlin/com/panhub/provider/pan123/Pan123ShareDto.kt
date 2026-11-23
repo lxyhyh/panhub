@@ -172,3 +172,105 @@ internal fun shareModalityOf(days: Int?): Int {
 }
 
 internal const val PERMANENT_EXPIRATION = "2099-12-12T08:00:00+08:00"
+
+/**
+ * 分享里的一页文件。
+ *
+ * 123 云盘的历史网关对同一份数据给出大小写两套字段名（网页端用大写、
+ * 部分新版接口用小写），所以每个字段声明两遍，取值时优先非空的那个。
+ */
+@Serializable
+internal data class ShareFilesData(
+	@SerialName("InfoList") val infoList: List<ShareFileItem> = emptyList(),
+	@SerialName("Next") val next: String? = null,
+	@SerialName("Expired") val expired: Boolean = false,
+	@SerialName("ShareName") val shareNameUpper: String? = null,
+	@SerialName("shareName") val shareNameLower: String? = null,
+) {
+	val shareName: String? get() = shareNameLower ?: shareNameUpper
+}
+
+@Serializable
+internal data class ShareFileItem(
+	@SerialName("FileId") val fileIdUpper: Long = 0,
+	@SerialName("fileId") val fileIdLower: Long = 0,
+	@SerialName("FileName") val fileNameUpper: String? = null,
+	@SerialName("fileName") val fileNameLower: String? = null,
+	@SerialName("Size") val sizeUpper: Long = 0,
+	@SerialName("size") val sizeLower: Long = 0,
+	@SerialName("Type") val type: Int = 0,
+	@SerialName("ParentFileId") val parentFileIdUpper: Long = 0,
+	@SerialName("parentFileId") val parentFileIdLower: Long = 0,
+	@SerialName("S3KeyFlag") val s3KeyFlagUpper: String? = null,
+	@SerialName("s3keyFlag") val s3KeyFlagLower: String? = null,
+	@SerialName("Etag") val etagUpper: String? = null,
+	@SerialName("etag") val etagLower: String? = null,
+	@SerialName("StorageNode") val storageNode: String? = null,
+	@SerialName("UpdateAt") val updateAtUpper: String? = null,
+	@SerialName("updateAt") val updateAtLower: String? = null,
+) {
+	val fileId: Long get() = if (fileIdUpper > 0) fileIdUpper else fileIdLower
+	val fileName: String? get() = fileNameUpper ?: fileNameLower
+	val size: Long get() = if (sizeUpper > 0) sizeUpper else sizeLower
+	val parentFileId: Long get() = if (parentFileIdUpper > 0) parentFileIdUpper else parentFileIdLower
+	val s3KeyFlag: String? get() = s3KeyFlagUpper ?: s3KeyFlagLower
+	val etag: String? get() = etagUpper ?: etagLower
+	val updateAt: String? get() = updateAtUpper ?: updateAtLower
+
+	/** Type == 1 才是文件夹；0 是普通文件。 */
+	val isDir: Boolean get() = type == 1
+}
+
+/** 转存的响应：只给一个异步任务号。 */
+@Serializable
+internal data class CopySaveData(
+	@SerialName("taskID") val taskIdUpper: String? = null,
+	@SerialName("taskId") val taskIdLower: String? = null,
+) {
+	val taskId: String? get() = taskIdUpper ?: taskIdLower
+}
+
+/**
+ * 转存任务的进度。
+ *
+ * 服务端没有统一的完成标志：有的网关给 finished，有的给 status=2/3，
+ * 还有的只在下发 fileId 时才算落盘。三种都要认，否则会一直轮询到超时。
+ */
+@Serializable
+internal data class CopySaveTaskData(
+	@SerialName("finished") val finished: Boolean = false,
+	@SerialName("status") val status: Int = 0,
+	@SerialName("state") val state: String? = null,
+	@SerialName("fileId") val fileIdLower: Long = 0,
+	@SerialName("FileId") val fileIdUpper: Long = 0,
+	@SerialName("newFileId") val newFileId: Long = 0,
+	@SerialName("message") val message: String? = null,
+) {
+	val done: Boolean
+		get() = finished || status == 2 || status == 3 ||
+			state?.lowercase() in DONE_STATES ||
+			fileIdLower > 0 || fileIdUpper > 0 || newFileId > 0
+
+	internal companion object {
+		val DONE_STATES = setOf("success", "done", "2", "3")
+	}
+}
+
+/**
+ * 把 123 云盘的时间串转成毫秒。
+ *
+ * 同一个字段在不同接口里有三种形态：带时区的 ISO、不带时区的本地时间
+ * （固定 +08:00）、以及 "2024-01-02 03:04:05" 这种空格分隔写法。
+ */
+internal fun parsePan123Time(raw: String?): Long? {
+	if (raw.isNullOrBlank()) return null
+	return runCatching {
+		java.time.OffsetDateTime.parse(raw).toInstant().toEpochMilli()
+	}.getOrElse {
+		runCatching {
+			java.time.LocalDateTime.parse(raw.replace(' ', 'T'))
+				.toInstant(java.time.ZoneOffset.ofHours(8)).toEpochMilli()
+		}.getOrNull()
+	}
+}
+

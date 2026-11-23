@@ -14,10 +14,13 @@ import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.ProviderId
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
+import com.panhub.core.model.ShareEntry
+import com.panhub.core.model.ShareEntryPage
 import com.panhub.core.model.ShareId
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SharePage
+import com.panhub.core.model.ShareSource
 import com.panhub.core.network.HttpEngine
 import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
@@ -40,6 +43,7 @@ class Pan123Provider(
     private val api = Pan123Api(engine)
     private val json = api.json
     private val uploader = Pan123Uploader(api, json)
+    private val importer = Pan123ShareImporter(api, json)
 
     override val descriptor = ProviderDescriptor(
         id = ProviderId(ID),
@@ -61,6 +65,7 @@ class Pan123Provider(
             sharePassword = true,
             shareExpiry = true,
             directLink = true,
+            shareImport = true,
         ),
     )
 
@@ -355,6 +360,26 @@ class Pan123Provider(
         // 永久分享服务端给的是 2099 年，界面上「2099 年到期」只会让人困惑。
         return millis.takeIf { it < PERMANENT_CUTOFF }
     }
+
+    override suspend fun openShare(
+        session: ProviderSession,
+        shareUrl: String,
+        passcode: String?,
+    ): PanResult<ShareSource> = importer.open(tokenOf(session), shareUrl, passcode)
+
+    override suspend fun listShare(
+        session: ProviderSession,
+        source: ShareSource,
+        parentId: NodeId?,
+        page: PageRequest,
+    ): PanResult<ShareEntryPage> = importer.list(tokenOf(session), source, parentId, page)
+
+    override suspend fun saveShare(
+        session: ProviderSession,
+        source: ShareSource,
+        entries: List<ShareEntry>,
+        targetParentId: NodeId?,
+    ): PanResult<Int> = importer.save(tokenOf(session), source, entries, targetParentId)
 
     override suspend fun upload(
         session: ProviderSession,
