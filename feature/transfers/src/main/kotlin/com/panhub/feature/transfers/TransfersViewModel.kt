@@ -2,14 +2,18 @@ package com.panhub.feature.transfers
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.panhub.core.common.Clock
 import com.panhub.core.transfer.TransferDigest
 import com.panhub.core.transfer.TransferEngine
+import com.panhub.core.transfer.TransferSpeedTracker
 import com.panhub.core.transfer.TransferState
 import com.panhub.core.transfer.TransferTask
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** 传输页的筛选标签。 */
@@ -18,6 +22,8 @@ enum class TransferFilter { ALL, ACTIVE, FINISHED }
 data class TransfersUiState(
     val filter: TransferFilter = TransferFilter.ALL,
     val tasks: List<TransferTask> = emptyList(),
+    /** 每个正在跑的任务的速率（字节/秒）。测不出来的任务不会出现在这里。 */
+    val speeds: Map<String, Long> = emptyMap(),
 ) {
     /** 标题栏要显示的汇总；每帧重算一次，任务数是几十条量级，不值得缓存。 */
     val digest: TransferDigest get() = TransferDigest.of(tasks)
@@ -31,6 +37,9 @@ data class TransfersUiState(
 
     val activeCount: Int get() = tasks.count { it.state.isActive }
     val hasFinished: Boolean get() = tasks.any { it.state.isFinished }
+
+    /** 正在跑的那个任务的速率，标题栏用。 */
+    val runningSpeed: Long? get() = digest.running?.let { speeds[it.id] }
 }
 
 /**
@@ -38,18 +47,32 @@ data class TransfersUiState(
  *
  * 这里刻意不自己保存进度：进度是 [TransferEngine] 的事，页面只做筛选与转发，
  * 否则会出现"两份进度各说各话"。唯一的真相源是引擎的 tasks 流。
+ *
+ * 速率是例外：它不能从队列里读出来，得按时间采样自己算。
+ * 采样放在这个 ViewModel 里而不是引擎里，是因为它只服务界面——
+ * 队列本身、通知、存档都不需要知道「现在每秒多少字节」。
  */
 class TransfersViewModel(
     private val engine: TransferEngine,
+    private val clock: Clock = Clock.Default,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TransfersUiState(tasks = engine.tasks.value))
     val state: StateFlow<TransfersUiState> = _state.asStateFlow()
 
+    private val tracker = TransferSpeedTracker()
+
     init {
         viewModelScope.launch {
             engine.tasks.collect { tasks ->
                 _state.update { it.copy(tasks = tasks) }
+            }
+        }
+        viewModelScope.launch {
+            while (isActive) {
+                delay(SAMPLE_INTERVAL_MILLIS)
+                val speeds = tracker.sample(_state.value.tasks, clock.nowMillis())
+                _state.update { it.copy(speeds = speeds) }
             }
         }
     }
@@ -66,6 +89,19 @@ class TransfersViewModel(
 
     fun clearFinished() {
         engine.clearFinished()
+        tracker.reset()
+        _state.update { it.copy(speeds = emptyMap()) }
+    }
+
+    private companion object {
+        /**
+         * 采样间隔。
+         *
+         * 一秒一次：比这更密只会让数字乱跳，更疏则看起来像卡住了。
+         * 与 [com.panhub.core.transfer.SpeedMeter] 的窗口配合，
+         * 窗口里有 5 个左右的采样点。
+         */
+        const val SAMPLE_INTERVAL_MILLIS = 1_000L
     }
 }
 

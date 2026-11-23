@@ -44,6 +44,7 @@ import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
 import com.panhub.core.transfer.TransferDirection
+import com.panhub.core.transfer.TransferEstimate
 import com.panhub.core.design.formatBytes
 import com.panhub.core.transfer.TransferState
 import com.panhub.core.transfer.TransferTask
@@ -141,6 +142,7 @@ fun TransfersScreen(
                     items(visible, key = { it.id }) { task ->
                         TaskCard(
                             task = task,
+                            speed = state.speeds[task.id],
                             onCancel = { viewModel.cancel(task.id) },
                             onRetry = { viewModel.retry(task.id) },
                             onOpen = { path -> context.openDownloaded(path) },
@@ -157,6 +159,7 @@ fun TransfersScreen(
 @Composable
 private fun TaskCard(
     task: TransferTask,
+    speed: Long?,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
     onOpen: (String) -> Unit,
@@ -196,7 +199,7 @@ private fun TaskCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = statusLine(task),
+                        text = statusLine(task, speed),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -239,7 +242,7 @@ private fun TaskCard(
     }
 }
 
-private fun statusLine(task: TransferTask): String {
+private fun statusLine(task: TransferTask, speed: Long?): String {
     // 整理型任务（整目录下载、整目录转存）自己都不传字节，进度要看那些子任务，
     // 按普通任务拼「已传 / 总共」只会给出一行看不懂的数字。
     if (task.direction == TransferDirection.DOWNLOAD_FOLDER) return folderLine(task)
@@ -249,7 +252,7 @@ private fun statusLine(task: TransferTask): String {
     val total = task.totalBytes?.let { formatBytes(it) }
     return when (task.state) {
         TransferState.QUEUED -> queuedLine(task) + attemptNote(task) + (total?.let { " · " + it } ?: "")
-        TransferState.RUNNING -> runningLine(task, done, total) + attemptNote(task)
+        TransferState.RUNNING -> runningLine(task, done, total) + TransferStatusText.speedNote(task, speed) + attemptNote(task)
         TransferState.COMPLETED -> finishedLine(task) + " · " + done
         TransferState.FAILED -> "失败" + (task.error?.let { " · " + it } ?: "")
         TransferState.CANCELED -> "已取消 · " + done
