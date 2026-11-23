@@ -22,6 +22,7 @@ import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.ProviderCredentials
 import com.panhub.provider.api.ProviderSession
+import com.panhub.provider.api.UploadSource
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -47,6 +48,8 @@ class BaiduProvider(
 
     private val api = BaiduApi(engine)
 
+    private val uploader = BaiduUploader(engine, api)
+
     override val descriptor = ProviderDescriptor(
         id = ProviderId(ID),
         displayName = "百度网盘",
@@ -64,6 +67,8 @@ class BaiduProvider(
             shareList = true,
             search = true,
             directLink = true,
+            upload = true,
+            uploadChunked = true,
         ),
     )
 
@@ -337,6 +342,17 @@ class BaiduProvider(
         val list = root["list"] as? JsonArray
         val first = list?.firstOrNull() as? JsonObject
         return (first?.get("dlink") as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+    }
+
+    override suspend fun upload(
+        session: ProviderSession,
+        parentId: NodeId?,
+        source: UploadSource,
+        listener: PanProvider.UploadProgress,
+    ): PanResult<RemoteNode> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        return uploader.upload(cookie, parentId?.value ?: BaiduApi.ROOT_PATH, source, listener)
     }
 
     override suspend fun createShare(

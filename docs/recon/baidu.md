@@ -78,6 +78,61 @@
 
 ## 已实现
 
-`provider/baidu` — 列表、容量、建目录、改名、移动、删除、取下载地址、创建/取消分享。
+`provider/baidu` — 列表、容量、建目录、改名、移动、删除、取下载地址、创建/取消分享、
+分片上传（含秒传）。
 单测覆盖路径拼接、父目录提取、URL 编码、errno 映射（含 -6 登录失效、errno 2 提示透传、
 非 JSON 响应必须判失败）。
+
+## 上传（网页 Cookie 模式）
+
+事实来源：`/root/workspace/_research/OpenList/drivers/baidu_netdisk/driver.go` 的
+`Put` / `precreate` / `uploadSlice` / `create`，以及 `util.go` 的
+`getSliceSize` / `requestForUploadUrl`；端点存在性另外用真实 HTTP 探测交叉验证。
+
+### 四步
+
+| 步骤 | 端点 | 关键参数 |
+| --- | --- | --- |
+| 预上传 | POST `pan.baidu.com/rest/2.0/xpan/file` | `method=precreate` `path` `size` `isdir=0` `autoinit=1` `rtype=3` `block_list=<JSON数组>` `content-md5` `slice-md5` |
+| 换上传域名 | GET `d.pcs.baidu.com/rest/2.0/pcs/file` | `method=locateupload` `appid=250528` `path` `uploadid` `upload_version=2.0` |
+| 传分片 | POST `<域名>/rest/2.0/pcs/superfile2` | `method=upload` `type=tmpfile` `path` `uploadid` `partseq=<序号>` `app_id=250528`；字节走 multipart 的 `file` 字段 |
+| 收尾 | POST `pan.baidu.com/rest/2.0/xpan/file` | `method=create` `path` `size` `isdir=0` `rtype=3` `uploadid` `block_list=<JSON数组>` |
+
+`precreate` 的 `return_type`：`1` 正常分片上传（响应带 `uploadid` 与
+`block_list`），`2` 服务端已有同内容文件，`info` 里直接是新文件元数据，
+一个字节都不用传（秒传）。
+
+### 摘要规则（与天翼完全不同）
+
+- `content-md5` = 整个文件的 MD5 小写十六进制。
+- `slice-md5` = **前 256 KiB** 的 MD5，不是「所有分片 MD5 再哈希」。
+- `block_list` = 每个分片 MD5 的小写十六进制，按顺序放进 JSON 数组。
+
+### 分片大小
+
+非会员固定 **4 MiB**；会员 16 MiB、超级会员 32 MiB（`getSliceSize`）。
+本项目统一按 4 MiB 切，会员账号也能用，只是片数更多。
+官方上限是 2048 片（文档写 1024，实测 2048）。
+
+### 上传域名
+
+`locateupload` **不需要认证**（传 method 与 upload_version 就够），返回
+`servers[0].server`，可能是裸域名也可能是带 https 的地址，要统一补全。
+拿不到时退回 `https://d.pcs.baidu.com`：实测 `d.` / `c.` / `pcs.baidu.com`
+三台机器行为一致。
+
+### 端点存在性（真实探测，2026-11-23，无凭证）
+
+    GET  pan.baidu.com/api/definitelyNotRealXYZ                → 404 空体
+    GET  pan.baidu.com/api/precreate?<固定query>               → 200 {"errno":2}
+    POST pan.baidu.com/rest/2.0/xpan/file?method=precreate     → 200 {"errno":-6}
+    POST d.pcs.baidu.com/rest/2.0/pcs/superfile2?...           → 403 {"error_code":31045,"error_msg":"user not exists"}
+    POST 同上 + 假 Cookie(BDUSS/STOKEN)                        → 401 {"error_code":0,"error_msg":"unknow errno:check pass error"}
+    GET  d.pcs.baidu.com/rest/2.0/pcs/file?method=locateupload → 200 {"error_code":0,"host":"c.pcs.baidu.com","expire":60,...}
+
+`superfile2` 换成 `partoffset` 或去掉 `partseq`/`app_id`，返回的都是同一个
+31045，说明**服务端在认证之前就拦下了，参数校验探测不出来**。所以
+`partseq`（OpenList 用法）与 `partoffset`（百度 APK 字符串
+`W%1s/rest/2.0/pcs/superfile2?method=upload&type=tmpfile&path=%2s&partoffset=%3$s&app_id=`
+里的写法）到底哪个对，本实现**没有实测证据**，暂时按 OpenList 的 `partseq`。
+
