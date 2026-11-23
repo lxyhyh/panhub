@@ -1,6 +1,8 @@
 package com.panhub.feature.transfers
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -27,12 +30,18 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +57,10 @@ import com.panhub.core.transfer.TransferEstimate
 import com.panhub.core.design.formatBytes
 import com.panhub.core.transfer.TransferState
 import com.panhub.core.transfer.TransferTask
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 传输列表页。
@@ -63,8 +76,30 @@ fun TransfersScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    // 待另存的文件路径。系统文件选择器是另一个界面，回调只能拿到 uri，
+    // 所以「要保存哪一个」必须在这里先记下来。
+    var pendingExport by remember { mutableStateOf<String?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*"),
+    ) { uri ->
+        val source = pendingExport
+        pendingExport = null
+        if (uri == null || source == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val message = withContext(Dispatchers.IO) { saveCopy(context, source, uri) }
+            snackbar.showSnackbar(message)
+        }
+    }
+    val startExport: (String) -> Unit = { path ->
+        pendingExport = path
+        exportLauncher.launch(TransferExport.suggestName(path))
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = {
@@ -153,6 +188,7 @@ fun TransfersScreen(
                             onRetry = { viewModel.retry(task.id) },
                             onOpen = { path -> context.openDownloaded(path) },
                             onShare = { path -> context.shareDownloaded(path) },
+                            onSaveAs = startExport,
                         )
                     }
                     item { Spacer(Modifier.height(Spacing.xl)) }
@@ -172,6 +208,7 @@ private fun TaskCard(
     onRetry: () -> Unit,
     onOpen: (String) -> Unit,
     onShare: (String) -> Unit,
+    onSaveAs: (String) -> Unit,
 ) {
     PanCard {
         Column {
@@ -217,6 +254,18 @@ private fun TaskCard(
                 val donePath = task.filePath?.takeIf { task.state == TransferState.COMPLETED }
                 when {
                     donePath != null -> Row {
+                        // 只有真正下载下来的文件才值得另存：转存任务的 filePath
+                        // 是中间用的临时文件，任务结束后随时会被清掉；
+                        // 上传任务的 filePath 是用户自己的源文件，另存一份没有意义。
+                        if (task.direction == TransferDirection.DOWNLOAD) {
+                            IconButton(onClick = { onSaveAs(donePath) }) {
+                                Icon(
+                                    Icons.Default.SaveAlt,
+                                    contentDescription = "另存到",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                         IconButton(onClick = { onShare(donePath) }) {
                             Icon(
                                 Icons.Default.Share,
@@ -369,6 +418,23 @@ private fun android.content.Context.openDownloaded(path: String) {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
     }
+}
+
+/**
+ * 把下载好的文件写进用户选的位置，返回给用户看的一句话。
+ *
+ * 打开输出流和复制都可能失败（目标被删、空间不够），这些都不该让 App 崩掉：
+ * 下载本身已经成功，这里失败的只是「另存」这一步。
+ */
+private fun saveCopy(context: android.content.Context, path: String, uri: android.net.Uri): String {
+    val source = File(path)
+    if (!source.isFile) return "原文件已经不在了，没法另存"
+    val written = runCatching {
+        context.contentResolver.openOutputStream(uri)?.use { out ->
+            TransferExport.copyTo(source, out)
+        }
+    }.getOrNull() ?: return "没能打开那个位置，换个地方试试"
+    return "已保存 · " + formatBytes(written)
 }
 
 /** 把下载好的文件分享给别的应用（微信、邮件等）。 */
