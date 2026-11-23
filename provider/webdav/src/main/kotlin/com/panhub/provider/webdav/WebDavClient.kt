@@ -79,11 +79,18 @@ class WebDavClient(
     /**
      * COPY。与 MOVE 的区别只在动词：同样是 Destination 头指向新路径。
      *
-     * Depth 必须是 infinity——省略时按 RFC 4918 默认就是 infinity，
-     * 但坚果云对目录 COPY 会看这个头，显式写出来省得依赖默认值。
+     * 两个头都必须显式写：
+     * - Depth: infinity —— 省略时按 RFC 4918 默认就是 infinity，但目录复制
+     *   会看这个头，写出来省得依赖默认值。
+     * - Overwrite: F —— **这个默认是 T**，也就是说目标已存在时服务端会
+     *   直接覆盖。复制一个同名文件到已经放着同名文件的目录里，会静默毁掉
+     *   原来那份。宁可让服务端回 412 让用户自己改名。
      */
     suspend fun copy(from: String, to: String): PanResult<Unit> {
-        val req = request("COPY", from, to).header("Depth", "infinity").build()
+        val req = request("COPY", from, to)
+            .header("Depth", "infinity")
+            .header("Overwrite", "F")
+            .build()
         return engine.executeRaw(req).mapResponse { }
     }
 
@@ -184,6 +191,7 @@ private fun webdavError(code: Int, message: String): PanError = when (code) {
     401, 403 -> PanError.auth("坚果云拒绝了这次操作（$code），请检查应用密码")
     404 -> PanError.notFound()
     409 -> PanError.unknown("目标目录不存在（409）")
+    412 -> PanError.unknown("目标目录里已经有同名的文件")
     423 -> PanError.unknown("文件被锁定（423）")
     429 -> PanError.rateLimited()
     in 500..599 -> PanError(kind = ErrorKind.SERVER, message = "服务器错误（" + code + "）", retryable = true)

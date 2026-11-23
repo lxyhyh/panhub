@@ -23,6 +23,7 @@ class WebDavCopyTest {
         var url: String? = null
         var destination: String? = null
         var depth: String? = null
+        var overwrite: String? = null
 
         override fun intercept(chain: Interceptor.Chain): Response {
             val request = chain.request()
@@ -30,6 +31,7 @@ class WebDavCopyTest {
             url = request.url.toString()
             destination = request.header("Destination")
             depth = request.header("Depth")
+            overwrite = request.header("Overwrite")
             return Response.Builder()
                 .request(request)
                 .protocol(Protocol.HTTP_1_1)
@@ -85,6 +87,25 @@ class WebDavCopyTest {
         client(recorder).copy("photos", "photos-copy")
 
         assertEquals("infinity", recorder.depth)
+    }
+
+    @Test
+    fun overwriteIsRefusedSoExistingFilesSurvive() = runTest {
+        // WebDAV 的 Overwrite 默认是 T：不显式写 F，复制到已存在同名文件的目录
+        // 会静默覆盖掉原来那份。这是会丢数据的默认值。
+        val recorder = Recorder()
+        client(recorder).copy("docs/a.txt", "backup/a.txt")
+
+        assertEquals("F", recorder.overwrite)
+    }
+
+    @Test
+    fun conflictSaysWhyInsteadOfJustACode() = runTest {
+        val recorder = Recorder(code = 412)
+        val result = client(recorder).copy("docs/a.txt", "backup/a.txt")
+
+        val failure = result as com.panhub.core.common.PanResult.Failure
+        assertEquals("目标目录里已经有同名的文件", failure.error.message)
     }
 
     @Test
