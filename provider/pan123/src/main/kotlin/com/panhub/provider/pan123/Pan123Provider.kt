@@ -68,6 +68,7 @@ class Pan123Provider(
             shareExpiry = true,
             directLink = true,
             shareImport = true,
+            search = true,
         ),
     )
 
@@ -121,22 +122,63 @@ class Pan123Provider(
         session: ProviderSession,
         parentId: NodeId?,
         page: PageRequest,
+    ): PanResult<NodePage> = fetchPage(
+        session = session,
+        parentFileId = parentId?.value ?: ROOT_ID,
+        page = page,
+        keyword = null,
+    )
+
+    /**
+     * 全盘搜索文件与文件夹。
+     *
+     * 123 云盘没有独立的搜索端点：网页端的搜索框就是把关键字塞进普通列表
+     * 请求的 searchData，再加一个 isSearchOrder 让服务端按相关度排序
+     * （见 docs/recon/pan123.md）。parentFileId 传 0 表示不限目录。
+     *
+     * 结果里的 HighLight 字段是带高亮标记的同一份文件名，不能直接拿来当
+     * 名字用，否则列表里会出现一堆标记串。用普通的 FileName 就好。
+     */
+    override suspend fun search(
+        session: ProviderSession,
+        query: String,
+        page: PageRequest,
     ): PanResult<NodePage> {
-        val parent = parentId?.value ?: "0"
-        val cursor = page.cursor
+        val keyword = query.trim()
+        if (keyword.isEmpty()) return PanResult.Success(NodePage(emptyList()))
+        return fetchPage(
+            session = session,
+            parentFileId = ROOT_ID,
+            page = page,
+            keyword = keyword,
+        )
+    }
+
+    private suspend fun fetchPage(
+        session: ProviderSession,
+        parentFileId: String,
+        page: PageRequest,
+        keyword: String?,
+    ): PanResult<NodePage> {
         val query = buildString {
             append(Pan123Api.PATH_FILE_LIST)
             append("?driveId=0")
             append("&limit=").append(page.limit)
             // 首次请求用 "0"：服务端把空串当非法游标，会退化成第一页重放。
-            append("&next=").append(cursor ?: "0")
+            append("&next=").append(page.cursor ?: Pan123Wire.EMPTY_CURSOR)
             append("&orderBy=file_name")
             append("&orderDirection=asc")
-            append("&parentFileId=").append(parent)
+            append("&parentFileId=").append(parentFileId)
             append("&trashed=false")
             append("&category=0")
-            append("&searchData=")
+            append("&searchData=").append(Pan123Wire.encode(keyword.orEmpty()))
             append("&type=0")
+            if (keyword != null) {
+                // 搜索专属开关：不带上服务端就退回普通列表，关键字等于没写。
+                append("&isSearchOrder=true")
+                append("&timeMode=0")
+                append("&inDirectSpace=false")
+            }
         }
         return api.get(
             path = query,
@@ -146,10 +188,9 @@ class Pan123Provider(
             },
         ).map { data ->
             NodePage(
-                items = data.infoList.orEmpty().map { it.toRemoteNode(parentId) },
-                // Next 的终止值是字符串 "-1"（不是空串）。原样透传会让界面
-                // 以为还有下一页，点「加载更多」只会拿到同一批数据。
-                nextCursor = data.next?.takeIf { it.isNotBlank() && it != "-1" },
+                items = data.infoList.orEmpty().map { it.toRemoteNode(null, keyword != null) },
+                // 终止游标有两个值："-1" 与 "0"（搜索结果为空时服务端回 "0"）。
+                nextCursor = Pan123Wire.nextCursor(data.next),
             )
         }
     }
@@ -402,16 +443,24 @@ class Pan123Provider(
     private fun tokenOf(session: ProviderSession): String? =
         (session.credentials as? ProviderCredentials.Token)?.accessToken
 
-    private fun FileItem.toRemoteNode(parent: NodeId?): RemoteNode = RemoteNode(
-        id = NodeId(fileId.toString()),
-        parentId = parent ?: parentFileId.takeIf { it != 0L }?.let { NodeId(it.toString()) },
-        name = fileName,
-        kind = if (isDir) NodeKind.DIR else NodeKind.FILE,
-        size = if (isDir) 0L else size,
-        modifiedAt = parseTime(updateAt),
-        createdAt = parseTime(createAt),
-        providerPath = null,
-    )
+    /**
+     * 把服务端条目映射成统一的节点。
+     *
+     * [fromSearch] 只影响两件事：搜索结果的父目录不在当前列表里，所以必须
+     * 从条目自带的信息补齐；搜索也才带 ParentName。普通列表不知道父目录
+     * 名字，硬填会把「我的网盘」写成空串。
+     */
+    private fun FileItem.toRemoteNode(parent: NodeId?, fromSearch: Boolean = false): RemoteNode =
+        RemoteNode(
+            id = NodeId(fileId.toString()),
+            parentId = parent ?: parentFileId.takeIf { it != 0L }?.let { NodeId(it.toString()) },
+            name = fileName,
+            kind = if (isDir) NodeKind.DIR else NodeKind.FILE,
+            size = if (isDir) 0L else size,
+            modifiedAt = parseTime(updateAt),
+            createdAt = parseTime(createAt),
+            providerPath = if (fromSearch) parentName?.takeIf { it.isNotBlank() } else null,
+        )
 
     private fun parseTime(raw: String?): Long? {
         if (raw.isNullOrBlank()) return null
@@ -427,6 +476,9 @@ class Pan123Provider(
 
     companion object {
         const val ID = "pan123"
+
+        /** 根目录 / 不限目录。123 云盘用 0 表示两者。 */
+        private const val ROOT_ID = "0"
 
         /** 超过这个时间一律视为永久分享，不再展示到期日。 */
         private val PERMANENT_CUTOFF = 3_900_000_000_000L

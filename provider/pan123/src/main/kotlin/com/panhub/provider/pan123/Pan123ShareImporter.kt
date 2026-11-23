@@ -270,21 +270,7 @@ internal class Pan123ShareImporter(
     }
 
     /** 手写 URL 编码：只放行 ASCII 未保留字符，其余按 UTF-8 百分号编码。 */
-    private fun encode(value: String): String {
-        val out = StringBuilder(value.length)
-        for (byte in value.toByteArray(Charsets.UTF_8)) {
-            val ch = byte.toInt() and 0xFF
-            val c = ch.toChar()
-            if (c.isLetterOrDigit() && ch < 0x80 || c == '-' || c == '_' || c == '.' || c == '~') {
-                out.append(c)
-            } else {
-                out.append('%')
-                out.append(HEX[ch shr 4])
-                out.append(HEX[ch and 0x0F])
-            }
-        }
-        return out.toString()
-    }
+    private fun encode(value: String): String = Pan123Wire.encode(value)
 
     companion object {
         const val DEFAULT_POLL_ATTEMPTS = 20
@@ -295,10 +281,8 @@ internal class Pan123ShareImporter(
         const val ROOT_PARENT = "0"
 
         /** Next 的终止值。 */
-        private const val NO_MORE_PAGES = "-1"
+        private const val NO_MORE_PAGES = Pan123Wire.NO_MORE
 
         private const val PAGE_SIZE = 100
-
-        private val HEX = "0123456789ABCDEF".toCharArray()
     }
 }

@@ -58,6 +58,13 @@ data class FileItem(
     @SerialName("CreateAt") val createAt: String? = null,
     @SerialName("UpdateAt") val updateAt: String? = null,
     @SerialName("DownloadUrl") val downloadUrl: String? = null,
+    /**
+     * 搜索结果才有：文件所在目录的名字。
+     *
+     * 网页端在搜索结果里就是靠它告诉用户「这个文件在哪个目录」。
+     * 普通列表不带这个字段，值为 null。
+     */
+    @SerialName("ParentName") val parentName: String? = null,
 ) {
     val isDir: Boolean get() = type == 1
 }

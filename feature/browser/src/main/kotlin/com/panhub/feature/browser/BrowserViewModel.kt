@@ -6,6 +6,7 @@ import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeId
+import com.panhub.core.model.NodeKind
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
@@ -1127,10 +1128,34 @@ class BrowserViewModel(
         }
     }
 
-    /** 从搜索结果直接进入某个目录或打开文件：关闭搜索并沿用原有导航。 */
+    /**
+     * 从搜索结果直接进入某个目录或打开文件。
+     *
+     * 搜索结果是跨目录的，点进去时目录栈里只有这一层，按返回键会直接跳回
+     * 根目录，用户会以为自己站错了地方。所以这里补一层「它在哪个目录」的
+     * 占位：返回时先回到那个目录，再往上一级一级退。
+     * 父目录 id 与名字都没有（老接口）时不补，宁可直接回根目录。
+     */
     fun openFromSearch(node: RemoteNode) {
         closeSearch()
-        open(node)
+        if (!node.isDir) {
+            openDetails(node)
+            return
+        }
+        val parentId = node.parentId
+        val stack = if (parentId == null) {
+            listOf(node)
+        } else {
+            val crumb = RemoteNode(
+                id = parentId,
+                parentId = null,
+                name = node.providerPath?.takeIf { it.isNotBlank() } ?: "上一级目录",
+                kind = NodeKind.DIR,
+            )
+            listOf(crumb, node)
+        }
+        _state.update { it.copy(stack = stack) }
+        reloadFromScratch()
     }
 
     private companion object {

@@ -633,6 +633,9 @@ private fun SearchDialog(
                                 onClick = { onOpen(node) },
                                 onLongClick = {},
                                 onMore = { onOpen(node) },
+                                // 搜索是跨目录的，不写清在哪个目录，
+                                // 用户看到三个同名文件只能挨个点开试。
+                                location = node.providerPath,
                             )
                             Spacer(Modifier.height(Spacing.sm))
                         }
@@ -907,6 +910,8 @@ private fun NodeRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onMore: () -> Unit,
+    /** 搜索结果用：这东西在哪个目录里。普通列表不需要，他自己就在那儿。 */
+    location: String? = null,
 ) {
     PanCard(onClick = onClick, onLongClick = onLongClick, modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -962,9 +967,14 @@ private fun NodeRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = if (node.isDir) "文件夹" else formatBytes(node.size),
+                    text = buildString {
+                        append(if (node.isDir) "文件夹" else formatBytes(node.size))
+                        if (location != null) append(" · 在「").append(location).append("」")
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             IconButton(onClick = onMore) {
