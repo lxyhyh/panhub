@@ -117,4 +117,55 @@ class TrashLogicTest {
             TrashLogic.resultMessage(1, 3, "还原", "有 2 项没能还原，原目录可能已经不在了"),
         )
     }
+
+    @Test
+    fun folderOnlyDropsFiles() {
+        val items = listOf(
+            folder("photos"),
+            file("a.txt"),
+            folder("docs"),
+        )
+
+        assertEquals(listOf("photos", "docs"), TrashLogic.folderOnly(items).map { it.name })
+    }
+
+    @Test
+    fun folderOnlyOnAnEmptyPageStaysEmpty() {
+        assertTrue(TrashLogic.folderOnly(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun restoreTargetLabelJoinsTheStack() {
+        val stack = listOf(folder("photos"), folder("2026"))
+
+        // 目标的层级是选目录时唯一能确认「我现在在哪」的东西，
+        // 只显示最后一层会在同名目录上骗人。
+        assertEquals("photos / 2026", TrashLogic.restoreTargetLabel(stack))
+    }
+
+    @Test
+    fun restoreTargetLabelFallsBackToTheRoot() {
+        assertEquals("我的网盘", TrashLogic.restoreTargetLabel(emptyList()))
+    }
+
+    @Test
+    fun restoreTargetLabelIgnoresBlankNames() {
+        val stack = listOf(folder("photos"), folder("   "))
+
+        assertEquals("photos", TrashLogic.restoreTargetLabel(stack))
+    }
 }
+
+private fun folder(name: String) = RemoteNode(
+    id = NodeId("/" + name),
+    parentId = null,
+    name = name,
+    kind = NodeKind.DIR,
+)
+
+private fun file(name: String) = RemoteNode(
+    id = NodeId("/" + name),
+    parentId = null,
+    name = name,
+    kind = NodeKind.FILE,
+)

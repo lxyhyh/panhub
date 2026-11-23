@@ -1,5 +1,6 @@
 package com.panhub.feature.trash
 
+import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.TrashNode
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -17,6 +18,9 @@ object TrashLogic {
     const val URGENT_DAYS = 1L
 
     private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
+
+    /** 根目录没有名字，给它一个能读的说法。 */
+    private const val ROOT_LABEL = "我的网盘"
 
     /**
      * 一行的副标题：删除时间，能算出过期时间时再加一句还有多久。
@@ -60,6 +64,21 @@ object TrashLogic {
     /** 全选与取消全选共用一个按钮，看当前是不是全都选上了。 */
     fun allSelected(items: List<TrashNode>, selected: Set<String>): Boolean =
         items.isNotEmpty() && items.all { it.id.value in selected }
+
+    /**
+     * 选择器里只留文件夹。
+     *
+     * 还原的目标只能是一个目录；把文件也列出来，用户点一下就会得到
+     * 一句「这不是文件夹」，不如一开始就不给点。
+     */
+    fun folderOnly(nodes: List<RemoteNode>): List<RemoteNode> = nodes.filter { it.isDir }
+
+    /** 选择器栈的一句话名字；空栈就是网盘根目录。 */
+    fun restoreTargetLabel(stack: List<RemoteNode>): String {
+        // 名字为空的那一层直接跳过：拼成「photos / 」比只显示 photos 更让人怀疑自己选错了。
+        val name = stack.map { it.name.trim() }.filter { it.isNotEmpty() }.joinToString(" / ")
+        return name.ifBlank { ROOT_LABEL }
+    }
 
     /** 返回 N 项里成功 M 项时的说明。失败的把原因带上，别只说「失败」。 */
     fun resultMessage(done: Int, total: Int, action: String, error: String?): String =

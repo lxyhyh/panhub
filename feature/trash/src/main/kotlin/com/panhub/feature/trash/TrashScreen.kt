@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,7 +20,9 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.AlertDialog
@@ -46,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
@@ -54,6 +59,7 @@ import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
+import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.TrashNode
 
 /**
@@ -127,6 +133,7 @@ fun TrashScreen(
                     count = state.selectedCount,
                     busy = state.busy,
                     onRestore = viewModel::restoreSelected,
+                    onRestoreTo = viewModel::openRestorePicker,
                     onPurge = { pendingPurge = true },
                     onClear = viewModel::clearSelection,
                 )
@@ -212,6 +219,114 @@ fun TrashScreen(
             },
         )
     }
+
+    if (state.picker.visible) {
+        RestorePickerDialog(
+            picker = state.picker,
+            onDismiss = viewModel::closeRestorePicker,
+            onEnter = viewModel::enterPickerFolder,
+            onUp = viewModel::leavePickerFolder,
+            onConfirm = viewModel::confirmRestoreTo,
+        )
+    }
+}
+
+/**
+ * 「还原到…」的目录选择器。
+ *
+ * 复用转存那套对话框形态：目标目录只在这里挑一次，用页面承载会让
+ * 「返回」看起来像是放弃还原，而不是回到上一层目录。
+ */
+@Composable
+private fun RestorePickerDialog(
+    picker: RestorePickerState,
+    onDismiss: () -> Unit,
+    onEnter: (RemoteNode) -> Unit,
+    onUp: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("还原到", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (picker.canGoUp) {
+                        IconButton(onClick = onUp) {
+                            Icon(
+                                Icons.Default.ArrowBack,
+                                contentDescription = "上一级",
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        text = picker.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                when {
+                    picker.loading -> Box(
+                        modifier = Modifier.fillMaxWidth().height(96.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    }
+                    picker.error != null -> Text(
+                        text = picker.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(vertical = Spacing.lg),
+                    )
+                    picker.folders.isEmpty() -> Text(
+                        text = "这里没有子文件夹",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = Spacing.lg),
+                    )
+                    else -> LazyColumn(
+                        modifier = Modifier.heightIn(max = 320.dp),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    ) {
+                        items(picker.folders, key = { it.id.value }) { folder ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onEnter(folder) }
+                                    .padding(vertical = Spacing.md, horizontal = Spacing.sm),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Default.FolderOpen,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    text = folder.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(start = Spacing.md),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !picker.loading) { Text("还原到这里") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 @Composable
@@ -275,6 +390,7 @@ private fun SelectionBar(
     count: Int,
     busy: Boolean,
     onRestore: () -> Unit,
+    onRestoreTo: () -> Unit,
     onPurge: () -> Unit,
     onClear: () -> Unit,
 ) {
@@ -295,6 +411,14 @@ private fun SelectionBar(
         TextButton(onClick = onRestore, enabled = !busy) {
             Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
             Text("还原", modifier = Modifier.padding(start = 4.dp))
+        }
+        // 原目录被删掉之后「还原」会失败，这里给一个能挑去处的出口。
+        IconButton(onClick = onRestoreTo, enabled = !busy) {
+            Icon(
+                Icons.Default.DriveFileMove,
+                contentDescription = "还原到别的目录",
+                modifier = Modifier.size(18.dp),
+            )
         }
         TextButton(onClick = onPurge, enabled = !busy) {
             Icon(
