@@ -4,7 +4,9 @@ import android.content.Context
 import com.panhub.core.common.Clock
 import com.panhub.core.kernel.KernelUpload
 import com.panhub.core.network.HttpEngine
+import com.panhub.core.platform.JsonSettingsStore
 import com.panhub.core.platform.KeystoreCipher
+import com.panhub.core.platform.SettingsRepository
 import com.panhub.core.preview.HttpPreviewLoader
 import com.panhub.core.preview.PreviewLoader
 import com.panhub.core.session.DefaultSessionManager
@@ -51,6 +53,9 @@ object PanHubContainer {
     @Volatile
     private var previews: PreviewLoader? = null
 
+    @Volatile
+    private var settings: SettingsRepository? = null
+
     /** 进程级单例。第一次调用时装配。 */
     fun sessionManager(context: Context): SessionManager =
         instance ?: synchronized(this) {
@@ -84,6 +89,20 @@ object PanHubContainer {
                     sessionProvider = { accountId -> session.connect(accountId) },
                 ).also { previews = it }
             }
+        }
+
+    /**
+     * 本地设置。
+     *
+     * 与账号文件同目录：两者都是「用户配置」，清缓存不该把它们一起清掉。
+     * 读取是挂起的，所以 MainActivity 在 setContent 之前先 load 一次，
+     * 这样第一帧就能用上正确的主题，不会先闪一下浅色再变深色。
+     */
+    fun settingsRepository(context: Context): SettingsRepository =
+        settings ?: synchronized(this) {
+            settings ?: SettingsRepository(
+                JsonSettingsStore(File(applicationContext(context).filesDir, SETTINGS_FILE)),
+            ).also { settings = it }
         }
 
     private fun applicationContext(context: Context): Context =
@@ -140,4 +159,7 @@ object PanHubContainer {
 
     /** 传输队列存档，与账号文件同目录。 */
     private const val TRANSFERS_FILE = "transfers.json"
+
+    /** 本地设置（目前只有外观），同上。 */
+    private const val SETTINGS_FILE = "settings.json"
 }

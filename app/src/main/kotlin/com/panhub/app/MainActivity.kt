@@ -8,10 +8,18 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.app.di.PanHubContainer
 import com.panhub.app.ui.PanHubRoot
 import com.panhub.core.design.PanHubTheme
+import com.panhub.core.kernel.KernelInfo
+import com.panhub.feature.settings.AppInfo
+import com.panhub.feature.settings.SettingsLogic
+import kotlinx.coroutines.runBlocking
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -32,9 +40,27 @@ class MainActivity : ComponentActivity() {
         val session = PanHubContainer.sessionManager(this)
         val transfers = PanHubContainer.transferEngine(this)
         val previews = PanHubContainer.previewLoader(this)
+        val settings = PanHubContainer.settingsRepository(this)
+        // 设置文件只有一行 JSON，同步读一次：第一帧就要用正确的主题，
+        // 异步读会先画一帧浅色再跳成深色，那是能看见的闪。
+        runBlocking { settings.load() }
+        val info = AppInfo(
+            versionName = BuildConfig.VERSION_NAME,
+            kernel = KernelInfo.summary(),
+            downloadsPath = File(filesDir, "downloads").absolutePath,
+        )
         setContent {
-            PanHubTheme {
-                PanHubRoot(session, transfers, previews)
+            val current by settings.settings.collectAsStateWithLifecycle()
+            PanHubTheme(
+                darkTheme = SettingsLogic.darkTheme(current.theme, isSystemInDarkTheme()),
+            ) {
+                PanHubRoot(
+                    session = session,
+                    transfers = transfers,
+                    previews = previews,
+                    settings = settings,
+                    info = info,
+                )
             }
         }
     }

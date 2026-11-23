@@ -18,6 +18,8 @@ android {
 
     buildFeatures {
         compose = true
+        // 设置页要显示版本号；AGP 9 起默认不生成 BuildConfig。
+        buildConfig = true
     }
 
     buildTypes {
@@ -61,6 +63,7 @@ dependencies {
     implementation(project(":feature:transfers"))
     implementation(project(":feature:shares"))
     implementation(project(":feature:shareimport"))
+    implementation(project(":feature:settings"))
     implementation(project(":core:transfer"))
     implementation(project(":core:kernel"))
     implementation(project(":core:preview"))

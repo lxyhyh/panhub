@@ -30,7 +30,7 @@
 | \`:core:transfer\` | 上传/下载队列、整目录上传与下载、跨网盘转存与整目录复制（串行执行、可暂停与取消、断点续传、队列存档、网络抖动自动退避重试） |
 | \`:core:kernel\` | Rust 内核 + JNI 桥接（MD5/SHA1/SHA256/CRC32、分片 MD5、上传摘要一次扫描） |
 | \`:core:preview\` | 文件预览：类型判定、文本解码与截断、按 Range 只取开头一段 |
-| \`:core:platform\` | 只依赖系统的能力：Android Keystore 加密 |
+| \`:core:platform\` | 只依赖系统的能力：Android Keystore 加密、本地设置（外观）的读写与内存视图 |
 | \`:provider:api\` | PanProvider 接口 + ProviderRegistry + ScopedPanProvider + UploadSource |
 | \`:provider:webdav\` | WebDAV 客户端与坚果云实现（含流式上传） |
 | \`:provider:pan123\` | 123 云盘（含秒传与 16MiB 分片上传） |
@@ -43,6 +43,7 @@
 | \`:feature:transfers\` | 传输队列界面 |
 | \`:feature:shares\` | 我的分享：按账号列出已创建的分享链接 |
 | \`:feature:shareimport\` | 打开别人的分享、挑文件转存到自己网盘的任意目录 |
+| \`:feature:settings\` | 设置页：外观（跟随系统 / 浅色 / 深色）与关于信息 |
 | \`:app\` | 组装、导航、依赖注入 |
 
 ## 已接入的网盘
@@ -185,6 +186,13 @@ SD 卡或者某个文档提供者。只有真正下载下来的文件才有这�
 容量是装饰性的：不支持容量查询的网盘不显示，查询失败也不弹错误、不挡住列表，
 每个账号只试一次——失败的多半是凭据过期或服务商不认，每次刷新都重试只是白费流量。
 
+外观可以在账号页右上角的齿轮里改：跟随系统、固定浅色、固定深色。
+选了就立刻生效并写进 `settings.json`，没有「保存」按钮——外观是开关不是表单。
+“跟随系统”会实打实地跟着系统变，包括系统按日落自动切换的那种，
+所以三个选项而不是一个“深色”开关：只有一个布尔就再也回不到跟随模式了。
+设置文件读坏了按默认值处理，与队列存档同一个理由：存档是给人方便的，
+不是真相源，一个解析不了的旧文件不该让 App 打不开。
+
 图片和文本可以在浏览页里就地看一眼（右侧菜单里的「预览」），不用先下载。
 只支持这两类：它们是对话框里就能画出来的东西；PDF、音视频要交给系统应用打开，
 那属于「下载」而不是「预览」，放进来只会多一个含糊的入口。
@@ -204,6 +212,6 @@ SD 卡或者某个文档提供者。只有真正下载下来的文件才有这�
 
 - \`test\`：14 个纯 JVM 模块的单测
 - \`kernel\`：Rust 单测、clippy、交叉编译出 \`jniLibs\`
-- \`android\`：等前两个 job 通过后，跑需要 Android 平台的单测（\`:app\`、\`:feature:accounts\`、\`:feature:browser\`、\`:feature:shares\`、\`:feature:shareimport\`、\`:feature:transfers\`），再编译 debug APK
+- \`android\`：等前两个 job 通过后，跑需要 Android 平台的单测（\`:app\`、\`:core:platform\`、\`:feature:accounts\`、\`:feature:browser\`、\`:feature:settings\`、\`:feature:shares\`、\`:feature:shareimport\`、\`:feature:transfers\`），再编译 debug APK
 
 产物在 Actions 的 artifact 里（\`panhub-debug-apk\`）。

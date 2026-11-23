@@ -21,6 +21,10 @@ import com.panhub.feature.browser.BrowserScreen
 import com.panhub.feature.browser.BrowserViewModel
 import com.panhub.feature.shareimport.ShareImportScreen
 import com.panhub.feature.shareimport.ShareImportViewModel
+import com.panhub.core.platform.SettingsRepository
+import com.panhub.feature.settings.AppInfo
+import com.panhub.feature.settings.SettingsScreen
+import com.panhub.feature.settings.SettingsViewModel
 import com.panhub.feature.shares.SharesScreen
 import com.panhub.feature.shares.SharesViewModel
 
@@ -38,6 +42,8 @@ fun PanHubRoot(
     session: SessionManager,
     transfers: TransferEngine,
     previews: PreviewLoader,
+    settings: SettingsRepository,
+    info: AppInfo,
 ) {
     val nav = rememberNavController()
 
@@ -52,6 +58,7 @@ fun PanHubRoot(
                 onOpenTransfers = { nav.navigate(Routes.TRANSFERS) },
                 onOpenShares = { account -> nav.navigate(Routes.shares(account.value)) },
                 onOpenShareImport = { nav.navigate(Routes.SHARE_IMPORT) },
+                onOpenSettings = { nav.navigate(Routes.SETTINGS) },
             )
         }
         composable(
@@ -91,6 +98,12 @@ fun PanHubRoot(
             )
             ShareImportScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
+        composable(Routes.SETTINGS) {
+            val vm: SettingsViewModel = viewModel(
+                factory = factoryOf { SettingsViewModel(settings, info) },
+            )
+            SettingsScreen(viewModel = vm, onBack = { nav.popBackStack() })
+        }
         composable(Routes.TRANSFERS) {
             val vm: TransfersViewModel = viewModel(
                 factory = factoryOf { TransfersViewModel(transfers) },
@@ -104,6 +117,7 @@ private object Routes {
     const val ACCOUNTS = "accounts"
     const val TRANSFERS = "transfers"
     const val SHARE_IMPORT = "share-import"
+    const val SETTINGS = "settings"
     const val ARG_ACCOUNT = "accountId"
     const val BROWSER = "browser/{$ARG_ACCOUNT}"
     const val SHARES = "shares/{$ARG_ACCOUNT}"
