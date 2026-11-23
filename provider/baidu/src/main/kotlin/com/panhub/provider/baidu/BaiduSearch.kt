@@ -118,7 +118,7 @@ private fun BaiduApi.decodeSearch(raw: String): PanResult<BaiduSearchResp> =
         )
 
 /** bdstoken 会随登录态变化，每次搜索现取，不在会话里缓存过期值。 */
-private suspend fun BaiduApi.fetchBdstoken(cookie: String): PanResult<String> {
+internal suspend fun BaiduApi.fetchBdstoken(cookie: String): PanResult<String> {
     val raw = get(
         path = BaiduApi.PATH_TEMPLATE,
         cookie = cookie,

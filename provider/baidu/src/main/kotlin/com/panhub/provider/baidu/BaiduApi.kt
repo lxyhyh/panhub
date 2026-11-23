@@ -7,6 +7,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
@@ -53,19 +54,63 @@ internal class BaiduApi(
         cookie: String,
         form: List<Pair<String, String>>,
         query: List<Pair<String, String>> = emptyList(),
+        extraHeaders: Map<String, String> = emptyMap(),
     ): PanResult<String> {
-        val body = form.joinToString("&") { (k, v) -> encode(k) + "=" + encode(v) }
-            .toRequestBody(FORM_MEDIA)
-        val request = Request.Builder()
+        val builder = Request.Builder()
             .url(url(path, query) ?: return invalidUrl(path))
             .header("User-Agent", USER_AGENT)
             .header("Accept", "application/json, text/plain, */*")
             .header("Referer", REFERER)
             .header("Cookie", cookie)
-            .post(body)
-            .build()
-        return send(request)
+            .post(formOf(form))
+        extraHeaders.forEach { (k, v) -> builder.header(k, v) }
+        return send(builder.build())
     }
+
+    /**
+     * 只发请求、不判 errno，把响应体原样交给调用方。
+     *
+     * 分享相关接口的 errno 必须由调用方解释：/share/list 用 -21 表示分享已被取消、
+     * -9 表示提取码不对，这些都不是「通用错误」，交给 [checkErrno] 会被翻译成
+     * 「文件或目录不存在」这种误导性的文案。
+     */
+    suspend fun getRaw(
+        path: String,
+        cookie: String,
+        query: List<Pair<String, String>> = emptyList(),
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): PanResult<String> {
+        val builder = Request.Builder()
+            .url(url(path, query) ?: return invalidUrl(path))
+            .header("User-Agent", USER_AGENT)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Referer", REFERER)
+            .header("Cookie", cookie)
+        extraHeaders.forEach { (k, v) -> builder.header(k, v) }
+        return sendRaw(builder.get().build())
+    }
+
+    /** 同 [getRaw]，POST 表单版。 */
+    suspend fun postFormRaw(
+        path: String,
+        cookie: String,
+        form: List<Pair<String, String>>,
+        query: List<Pair<String, String>> = emptyList(),
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): PanResult<String> {
+        val builder = Request.Builder()
+            .url(url(path, query) ?: return invalidUrl(path))
+            .header("User-Agent", USER_AGENT)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Referer", REFERER)
+            .header("Cookie", cookie)
+            .post(formOf(form))
+        extraHeaders.forEach { (k, v) -> builder.header(k, v) }
+        return sendRaw(builder.build())
+    }
+
+    private fun formOf(form: List<Pair<String, String>>): RequestBody =
+        form.joinToString("&") { (k, v) -> encode(k) + "=" + encode(v) }.toRequestBody(FORM_MEDIA)
 
     private fun url(path: String, query: List<Pair<String, String>>) = try {
         ("$baseUrl$path").toHttpUrl().newBuilder().apply {
@@ -84,6 +129,12 @@ internal class BaiduApi(
         PanResult.Failure(PanError.unknown("请求地址不合法", path))
 
     private suspend fun send(request: Request): PanResult<String> =
+        when (val raw = sendRaw(request)) {
+            is PanResult.Failure -> raw
+            is PanResult.Success -> checkErrno(raw.value)
+        }
+
+    private suspend fun sendRaw(request: Request): PanResult<String> =
         when (val result = engine.executeRaw(request)) {
             is PanResult.Failure -> result
             is PanResult.Success -> result.value.use { response ->
@@ -95,7 +146,7 @@ internal class BaiduApi(
                     )
                 }
                 if (text.isBlank()) return@use PanResult.Failure(PanError.unknown("服务端返回空响应"))
-                checkErrno(text)
+                PanResult.Success(text)
             }
         }
 
@@ -161,6 +212,21 @@ internal class BaiduApi(
         const val PATH_SHARE_SET = "/share/set"
         const val PATH_SHARE_RECORD = "/share/record"
         const val PATH_SHARE_CANCEL = "/share/cancel"
+
+        /** 短链 -> shareid / uk。要传带首位 1 的完整 surl。 */
+        const val PATH_SHORTURL_INFO = "/api/shorturlinfo"
+
+        /** 分享内的目录列表。前缀是 /share/，不是 /api/share/（后者 404）。 */
+        const val PATH_SHARE_LIST = "/share/list"
+
+        /** 提取码校验，成功后服务端下发 randsk（写进 Cookie BDCLND）。 */
+        const val PATH_SHARE_VERIFY = "/share/verify"
+
+        /** 把分享里的条目转存到自己的网盘。 */
+        const val PATH_SHARE_TRANSFER = "/share/transfer"
+
+        /** 分享页的 Referer：提取码校验不带它一律 errno 2。 */
+        fun sharePageReferer(surl: String): String = "https://pan.baidu.com/s/" + surl
 
         internal fun encode(value: String): String {
             val out = StringBuilder(value.length * 3)

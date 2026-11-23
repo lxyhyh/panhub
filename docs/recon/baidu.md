@@ -136,3 +136,68 @@
 `W%1s/rest/2.0/pcs/superfile2?method=upload&type=tmpfile&path=%2s&partoffset=%3$s&app_id=`
 里的写法）到底哪个对，本实现**没有实测证据**，暂时按 OpenList 的 `partseq`。
 
+
+## 打开别人的分享并转存（已实现）
+
+走的是网页通道（`/share/*` + `/api/shorturlinfo`），**不需要 App 的 sign/timestamp/sekey 签名**。
+四个端点，全部在 2026-11-23 用真实 HTTP 验证过：
+
+    GET  /api/shorturlinfo?shorturl=1pJ0ok7T&root=1     -> {shareid, uk, errno}
+    POST /share/verify?surl=pJ0ok7T                     -> {errno, randsk}
+    GET  /share/list?shareid=&uk=&root=1&page=1&num=100 -> {errno, list[], title}
+    POST /share/transfer?from=&shareid=&bdstoken=&ondup=newcopy
+
+### surl 的两种写法（最容易踩）
+
+- `/api/shorturlinfo` 要**带**首位 `1` 的完整 surl（`shorturl=1pJ0ok7T`），传 `pJ0ok7T` 一律 errno 2；
+- `/share/verify` 要**去掉**首位 `1`（`surl=pJ0ok7T`），传完整 surl 一律 errno 105。
+
+所以 `BaiduShareLink` 统一按「带首位 1」保存，需要短形态时现切。
+
+### 提取码
+
+`/share/verify` 必须带分享页的 Referer（`https://pan.baidu.com/s/<surl>`），
+不带的话哪怕 Cookie 正常也一律 errno 2。成功后服务端下发 `randsk`，
+要**原样**（保持 URL 编码形态，不解码）写进 Cookie `BDCLND`，后续列目录与转存都带上。
+
+    errno 0   -> 通过，带 randsk
+    errno -9  -> 提取码不对
+    errno -12 -> 这条分享本来就没有密码
+
+### 列目录
+
+根目录只能发 `root=1`；`dir=/` 会 errno 2。子目录发 `dir=<绝对路径>`（URL 编码）。
+分页 `page` 从 1 起、`num` 生效；`cur_total` 是**当前页条数**不是总数，
+所以「还有没有下一页」只能按「这一页拿满了」判断。
+
+条目字段类型**不稳定**：根目录返回字符串（`"fs_id":"257047345573339"`、`"isdir":"0"`），
+子目录返回数字。DTO 因此把 list 收成 JsonElement 逐项手读。
+
+### 转存
+
+    POST /share/transfer?from=<uk>&shareid=<id>&bdstoken=<token>&ondup=newcopy[&sekey=<randsk>]
+    form: fsidlist=<fs_id 的 JSON 数组>&path=<目标绝对路径>
+
+- `bdstoken` 现取（`GET /api/gettemplatevariable?fields=["bdstoken"]`），不缓存；
+- `ondup=newcopy` 遇到同名文件建副本，绝不覆盖用户已有文件；
+- 响应 `info[]` 里每项带自己的 `errno`，非 0 表示那一项没存进去，
+  所以返回值只报真正成功的条数，不全成功也不全失败。
+
+### 匿名可读
+
+`/share/list` 只要带任意一个 Cookie（哪怕 `FOO=bar`）就够，不需要登录态；
+不带 Cookie 头会回 errno 9019 need verify。`/api/shorturlinfo` 连 Cookie 都不用。
+只有最后的 `/share/transfer` 需要登录。
+
+### errno 对照（实测）
+
+    0   成功
+    -6  未登录
+    -9  需要提取码 / 提取码不对
+    -12 该分享没有密码
+    -21 分享已被取消（show_msg=来晚啦，该分享已被取消）
+    2   参数错误 / 目录不存在
+    12  目录不存在
+    140 链接不正确（啊哦，链接出错了）
+    9019 缺 Cookie
+
