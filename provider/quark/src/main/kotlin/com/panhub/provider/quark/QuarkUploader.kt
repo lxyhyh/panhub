@@ -137,7 +137,7 @@ internal class QuarkUploader(
                     headers = mapOf(
                         "Authorization" to authKey,
                         "Content-Type" to mime,
-                        "Referer" to QuarkApi.REFERER + "/",
+                        "Referer" to api.brand.referer + "/",
                         "x-oss-date" to timeStr,
                         "x-oss-user-agent" to QuarkOss.USER_AGENT,
                     ),
@@ -314,7 +314,7 @@ internal class QuarkUploader(
                     "Authorization" to authKey,
                     "Content-MD5" to contentMd5,
                     "Content-Type" to "application/xml",
-                    "Referer" to QuarkApi.REFERER + "/",
+                    "Referer" to api.brand.referer + "/",
                     "x-oss-callback" to callbackBase64,
                     "x-oss-date" to timeStr,
                     "x-oss-user-agent" to QuarkOss.USER_AGENT,

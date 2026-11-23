@@ -27,6 +27,7 @@ internal object QuarkShareParsing {
     /** 服务端用这个时刻表示「永久有效」，本地要当成没有到期时间。 */
     const val PERMANENT_EXPIRED_AT = 4_102_416_000_000L
 
+    /** 默认站点根（夸克）；UC 用 [normalizeUrl] 的 shareHost 参数传自己的。 */
     private const val SHARE_HOST = "https://pan.quark.cn"
 
     /**
@@ -61,13 +62,13 @@ internal object QuarkShareParsing {
      * 只给路径时必须补 host，只给 id 时必须补 /s/ 前缀，否则复制出去是一串
      * 打不开的字符，用户以为分享坏了。
      */
-    fun normalizeUrl(raw: String?): String? {
+    fun normalizeUrl(raw: String?, shareHost: String = SHARE_HOST): String? {
         val trimmed = raw?.trim().orEmpty()
         if (trimmed.isEmpty()) return null
         return when {
             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-            trimmed.startsWith("/") -> SHARE_HOST + trimmed
-            else -> SHARE_HOST + "/s/" + trimmed
+            trimmed.startsWith("/") -> shareHost + trimmed
+            else -> shareHost + "/s/" + trimmed
         }
     }
 
@@ -97,9 +98,9 @@ internal object QuarkShareParsing {
     }
 
     /** 列表项转成统一的分享模型。缺 share_id 的条目直接丢掉（没法取消、没法打开）。 */
-    fun toShareLink(item: QuarkShareItem): ShareLink? {
+    fun toShareLink(item: QuarkShareItem, shareHost: String = SHARE_HOST): ShareLink? {
         val id = item.shareId?.takeIf { it.isNotBlank() } ?: return null
-        val url = normalizeUrl(item.shareUrl ?: item.pwdId) ?: return null
+        val url = normalizeUrl(item.shareUrl ?: item.pwdId, shareHost) ?: return null
         val passcode = item.passcode?.takeIf { it.isNotBlank() }
         return ShareLink(
             id = ShareId(id),
@@ -112,9 +113,13 @@ internal object QuarkShareParsing {
     }
 
     /** 创建成功后组装分享链接。 */
-    fun toShareLink(data: QuarkSharePasswordData, nodeIds: List<NodeId>): ShareLink? {
+    fun toShareLink(
+        data: QuarkSharePasswordData,
+        nodeIds: List<NodeId>,
+        shareHost: String = SHARE_HOST,
+    ): ShareLink? {
         val id = data.shareId?.takeIf { it.isNotBlank() } ?: return null
-        val url = normalizeUrl(data.shareUrl ?: data.pwdId) ?: return null
+        val url = normalizeUrl(data.shareUrl ?: data.pwdId, shareHost) ?: return null
         val passcode = data.passcode?.takeIf { it.isNotBlank() }
         return ShareLink(
             id = ShareId(id),

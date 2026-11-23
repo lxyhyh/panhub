@@ -21,10 +21,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
 /**
- * 夸克网盘的 HTTP 层。
+ * clouddrive 系网盘的 HTTP 层（夸克与 UC 共用一套后端，见 [CloudDriveBrand]）。
  *
- * 端点与参数来自 OpenList drivers/quark_uc（夸克与 UC 是同一套云盘的两个品牌，
- * 只是 host / UA / pr 不同，本项目只接夸克）。
+ * 端点与参数来自 OpenList drivers/quark_uc——那一份 driver 同时注册成夸克与 UC，
+ * 差别只在 baseUrl / referer / pr / UA 四个字段，所以这一层也按品牌参数化。
  *
  * 这一层**不做泛型反序列化**：运行时拿不到类型参数，硬塞只会写出自相矛盾的代码。
  * 它只负责发请求、统一判成功、抽取被轮换的 Cookie，然后把原始 JSON 交给上层用
@@ -32,7 +32,9 @@ import java.io.IOException
  */
 internal class QuarkApi(
     private val engine: HttpEngine,
-    private val baseUrl: String = BASE_URL,
+    /** 接口是同一套，品牌决定主机名、Referer、pr 与 UA。 */
+    val brand: CloudDriveBrand = CloudDriveBrand.Quark,
+    private val baseUrl: String = brand.baseUrl,
 ) {
     val json: Json = Json {
         ignoreUnknownKeys = true
@@ -65,9 +67,9 @@ internal class QuarkApi(
 
         val builder = Request.Builder()
             .url(url)
-            .header("User-Agent", USER_AGENT)
+            .header("User-Agent", brand.userAgent)
             .header("Accept", "application/json, text/plain, */*")
-            .header("Referer", REFERER)
+            .header("Referer", brand.referer)
             .header("Cookie", cookie)
         if (body == null) {
             builder.get()
@@ -138,7 +140,7 @@ internal class QuarkApi(
     private fun buildUrl(path: String, query: List<Pair<String, String>>): HttpUrl? = try {
         ("$baseUrl$path").toHttpUrl().newBuilder().apply {
             // pr 与 fr 是所有端点都带的 PC 客户端标识，缺了会被风控拦截。
-            addQueryParameter("pr", PR)
+            addQueryParameter("pr", brand.pr)
             addQueryParameter("fr", "pc")
             query.forEach { (k, v) -> addQueryParameter(k, v) }
         }.build()
@@ -193,19 +195,16 @@ internal class QuarkApi(
     }
 
     companion object {
+        /** 夸克的基址；品牌化之后调用方应改用 [CloudDriveBrand]。 */
         const val BASE_URL = "https://drive.quark.cn/1/clouddrive"
 
+        /** 夸克的站点根；同上。 */
         const val REFERER = "https://pan.quark.cn"
 
+        /** 夸克的 pr；同上。 */
         const val PR = "ucpro"
 
-        /** 官方 PC 客户端 UA，服务端按它下发风控策略。 */
-        const val USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 " +
-                "Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch"
-
-        /** 夸克的根目录是 "0"。 */
+        /** 两家的根目录 pdir_fid 都是 "0"。 */
         const val ROOT_ID = "0"
 
         const val PATH_FILE_SORT = "/file/sort"

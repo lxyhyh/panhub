@@ -30,6 +30,8 @@ import kotlinx.serialization.json.put
  */
 internal class QuarkShareManager(
     private val api: QuarkApi,
+    /** 只用来把「只有路径」或「只有 id」的分享补成对方品牌能打开的链接。 */
+    private val brand: CloudDriveBrand = CloudDriveBrand.Quark,
     private val pollAttempts: Int = DEFAULT_POLL_ATTEMPTS,
     private val pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS,
 ) {
@@ -174,7 +176,7 @@ internal class QuarkShareManager(
                     is PanResult.Success -> {
                         val data = envelope.value.data
                             ?: return PanResult.Failure(PanError.unknown("分享链接为空"))
-                        QuarkShareParsing.toShareLink(data, nodeIds)
+                        QuarkShareParsing.toShareLink(data, nodeIds, brand.shareHost)
                             ?.let { PanResult.Success(it) }
                             ?: PanResult.Failure(PanError.unknown("分享链接为空"))
                     }

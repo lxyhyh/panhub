@@ -181,3 +181,67 @@ POST\n<Content-MD5>\napplication/xml\n<Date>\nx-oss-callback:<b64>\nx-oss-date:<
 单测覆盖信封判定、错误映射、HTML 实体反转义、根目录常量、分享链接解析（`QuarkShareLinkTest`）、
 转存三步的请求顺序与部分成功判定（`QuarkShareImporterTest`），以及 OSS 待签串与
 合并 XML 的逐字格式（`QuarkOssTest`）。
+
+## UC 网盘（同一套后端的另一个品牌）
+
+夸克与 UC 网盘共用一套 clouddrive 接口：端点、字段、错误码完全一样，
+差别只有四个常量。OpenList 的 `drivers/quark_uc/meta.go` 就是用同一份 driver
+注册两个品牌：
+
+| | 夸克 | UC |
+|---|---|---|
+| `api` | `https://drive.quark.cn/1/clouddrive` | `https://pc-api.uc.cn/1/clouddrive` |
+| `referer` | `https://pan.quark.cn` | `https://drive.uc.cn` |
+| `pr` | `ucpro` | `UCBrowser` |
+| `ua` | `quark-cloud-drive/2.5.20` | `uc-cloud-drive/2.5.20` |
+
+所以本项目只写一份实现，品牌差异收在 `provider/quark/.../CloudDriveBrand.kt`。
+
+### UC 侧端点取证
+
+APK：`UCBrowser_V19.2.8.1564_android_pf145_(zh-cn)_ucrelease_(Build261116085652-arm64).apk`。
+全部 dex 与 assets 逐字节搜索 `/1/clouddrive/...`，共 204 条路径。本项目用到的端点全部命中：
+
+```
+/1/clouddrive/file/sort            1    /1/clouddrive/file/upload/pre       4
+/1/clouddrive/file                 1    /1/clouddrive/file/update/hash     1
+/1/clouddrive/file/rename          1    /1/clouddrive/file/upload/auth     4
+/1/clouddrive/file/move            1    /1/clouddrive/file/upload/finish   5
+/1/clouddrive/file/delete          1    /1/clouddrive/file/download        7
+/1/clouddrive/member               3    /1/clouddrive/config               1
+/1/clouddrive/share                1    /1/clouddrive/task                 2
+/1/clouddrive/share/password       1    /1/clouddrive/share/delete         1
+/1/clouddrive/share/mypage/detail  1    /1/clouddrive/share/sharepage/token 1
+/1/clouddrive/share/sharepage/detail 2  /1/clouddrive/share/sharepage/save  1
+```
+
+主机名 `pc-api.uc.cn`、`drive.uc.cn`、`UCBrowser` 都在包里明文出现。
+
+### 端点存在性探测（无凭证）
+
+```
+GET  /1/clouddrive/file/sort?pr=UCBrowser&fr=pc      → 401 {"status":401,"code":31001,"message":"require login [guest]","req_id":...}
+GET  /1/clouddrive/member?pr=UCBrowser&fr=pc         → 401 同上
+GET  /1/clouddrive/config?pr=UCBrowser&fr=pc&_t=1    → 401 同上
+GET  /1/clouddrive/share/mypage/detail?pr=UCBrowser → 401 同上
+GET  /1/clouddrive/file/download?...                 → 405 Method Not Allowed（说明它是 POST）
+GET  /1/clouddrive/file/definitelyNotRealXYZ        → 404 {"timestamp":...,"status":404,"error":"Not Found","message":"No message available","path":...}
+```
+
+401 带 `code`/`req_id` 与 404 的 Spring 默认体形状不同，可证端点存在；
+和夸克那节用的是同一条判据。
+
+### 已知但未接入的 UC 独有端点
+
+UC 包里另有夸克包里没有的回收站端点：`/1/clouddrive/file/recycle/list`、
+`/file/recycle/recover`、`/file/recycle/remove`、`/file/deep_recycle/list`、
+`/file/deep_recycle/recover`。暂不接入：这几条只有路径证据，
+请求体与状态机都没有第二个来源可交叉验证。
+
+## 已实现（UC）
+
+`provider/quark` 里的 `QuarkProvider` 接两份品牌配置：夸克（`CloudDriveBrand.Quark`）
+与 UC（`CloudDriveBrand.Uc`）。两家能力完全一致：列表、容量、建目录、重命名、移动、
+删除、取下载地址、分片上传（含秒传）、创建/取消/列出分享、打开别人的分享并转存。
+`CloudDriveBrandTest` 钉住「别把 UC 悄悄当成夸克」：主机、Referer、pr、UA、
+账号 id 前缀、分享站点根，任何一处漏换都会让请求发错地方。

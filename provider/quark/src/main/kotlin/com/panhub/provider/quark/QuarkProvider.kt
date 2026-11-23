@@ -34,10 +34,12 @@ import kotlinx.serialization.json.jsonObject
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 夸克网盘实现。
+ * clouddrive 系网盘实现（夸克与 UC）。
  *
  * 端点事实来源：OpenList 的 drivers/quark_uc（not a copy of its code, just the
- * request shapes），本项目只接夸克品牌，UC 那套 host/UA/pr 差异不实现。
+ * request shapes）。那一份 driver 同时注册成夸克与 UC，差别只有 baseUrl /
+ * referer / pr / UA，全部收在 [CloudDriveBrand] 里；这里只按品牌换掉
+ * 四处会露给用户或服务端的文案与常量，逻辑一行不复用两遍。
  *
  * 鉴权是网页会话 Cookie（__pus / __puus 等），没有可直传的 access token 接口，
  * 所以登录方式是粘贴 Cookie。服务端会在响应里轮换 __puus，轮换后的值缓存在
@@ -49,12 +51,14 @@ import java.util.concurrent.ConcurrentHashMap
 class QuarkProvider(
     private val engine: HttpEngine = HttpEngine(),
     private val scanner: UploadScanner = UploadScanner.None,
+    /** 接口同一套，品牌决定主机名、风控参数与所有露给用户的文案。 */
+    private val brand: CloudDriveBrand = CloudDriveBrand.Quark,
 ) : PanProvider {
 
-    private val api = QuarkApi(engine)
+    private val api = QuarkApi(engine, brand)
     private val uploader = QuarkUploader(api, scanner)
-    private val shares = QuarkShareManager(api)
-    private val importer = QuarkShareImporter(api)
+    private val shares = QuarkShareManager(api, brand = brand)
+    private val importer = QuarkShareImporter(api, brand = brand)
 
     /**
      * accountId -> 服务端轮换过的 Cookie 字段。
@@ -66,10 +70,10 @@ class QuarkProvider(
     private val renewedCookies = ConcurrentHashMap<String, Map<String, String>>()
 
     override val descriptor = ProviderDescriptor(
-        id = ProviderId(ID),
-        displayName = "夸克网盘",
+        id = ProviderId(brand.id),
+        displayName = brand.displayName,
         authMethod = AuthMethod.TOKEN,
-        authHint = "浏览器登录 pan.quark.cn 后，把整段 Cookie 粘贴进来",
+        authHint = brand.authHint,
         capabilities = ProviderCapabilities(
             list = true,
             quota = true,
@@ -93,14 +97,14 @@ class QuarkProvider(
         val cookie = when (credentials) {
             is ProviderCredentials.Token -> credentials.accessToken
             is ProviderCredentials.Password ->
-                return PanResult.Failure(PanError.auth("夸克网盘只支持粘贴 Cookie 登录"))
+                return PanResult.Failure(PanError.auth(brand.displayName + "只支持粘贴 Cookie 登录"))
         }.trim()
 
         if (cookie.isEmpty()) {
             return PanResult.Failure(PanError.auth("Cookie 不能为空"))
         }
 
-        val accountId = AccountId("$ID:" + cookie.hashCode().toString())
+        val accountId = AccountId(brand.id + ":" + cookie.hashCode().toString())
         return when (val member = fetchMember(cookie)) {
             is PanResult.Failure -> PanResult.Failure(
                 if (member.error.kind == com.panhub.core.common.ErrorKind.AUTH) member.error
@@ -112,7 +116,7 @@ class QuarkProvider(
                     ProviderSession(
                         accountId = accountId,
                         credentials = ProviderCredentials.Token(accessToken = cookie),
-                        displayName = "夸克网盘",
+                        displayName = brand.displayName,
                     ),
                 )
             }
@@ -217,7 +221,7 @@ class QuarkProvider(
     }
 
     override suspend fun stat(session: ProviderSession, nodeId: NodeId): PanResult<RemoteNode> =
-        PanResult.Failure(PanError.notSupported("夸克网盘暂不支持查询单个文件详情"))
+        PanResult.Failure(PanError.notSupported(brand.displayName + "暂不支持查询单个文件详情"))
 
     override suspend fun quota(session: ProviderSession): PanResult<Quota> {
         val cookie = cookieOf(session)
@@ -392,8 +396,8 @@ class QuarkProvider(
                             // 夸克的下载链接校验 Cookie / Referer / UA，三个都得带。
                             headers = mapOf(
                                 "Cookie" to cookie,
-                                "Referer" to QuarkApi.REFERER + "/",
-                                "User-Agent" to QuarkApi.USER_AGENT,
+                                "Referer" to api.brand.referer + "/",
+                                "User-Agent" to api.brand.userAgent,
                             ),
                         ),
                     )
@@ -509,6 +513,7 @@ class QuarkProvider(
     }
 
     companion object {
+        /** 夸克的品牌标识；UC 是 [CloudDriveBrand.Uc]。 */
         const val ID = "quark"
 
         private const val MAX_PAGE_SIZE = 100

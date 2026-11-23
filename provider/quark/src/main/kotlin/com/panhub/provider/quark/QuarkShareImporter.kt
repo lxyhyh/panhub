@@ -34,6 +34,8 @@ import kotlinx.serialization.json.put
  */
 internal class QuarkShareImporter(
     private val api: QuarkApi,
+    /** 只用来在报错里说清是哪家的分享。 */
+    private val brand: CloudDriveBrand = CloudDriveBrand.Quark,
     private val pollAttempts: Int = DEFAULT_POLL_ATTEMPTS,
     private val pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS,
 ) {
@@ -46,7 +48,7 @@ internal class QuarkShareImporter(
         onRenewed: (Map<String, String>) -> Unit,
     ): PanResult<ShareSource> {
         val parsed = QuarkShareLink.parse(shareUrl)
-            ?: return PanResult.Failure(PanError.unknown("这不是夸克网盘的分享链接"))
+            ?: return PanResult.Failure(PanError.unknown("这不是" + brand.displayName + "的分享链接"))
         // 链接里带的提取码优先：用户是从别处复制过来的，通常已经带了。
         val code = passcode?.trim()?.takeIf { it.isNotEmpty() } ?: parsed.passcode
 

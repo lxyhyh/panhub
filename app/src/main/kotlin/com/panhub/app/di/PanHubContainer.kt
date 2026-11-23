@@ -26,6 +26,7 @@ import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.ProviderRegistry
 import com.panhub.provider.baidu.BaiduProvider
 import com.panhub.provider.cloud189.Cloud189Provider
+import com.panhub.provider.quark.CloudDriveBrand
 import com.panhub.provider.quark.QuarkProvider
 import com.panhub.provider.lanzou.LanzouProvider
 import com.panhub.provider.pan123.Pan123Provider
@@ -145,7 +146,10 @@ object PanHubContainer {
             Pan123Provider(engine, scanner),
             LanzouProvider(engine),
             Cloud189Provider(engine, scanner),
+            // 夸克与 UC 是同一套 clouddrive 后端，差别只有基址与风控参数，
+            // 所以两家共用一个实现、两份品牌配置（见 CloudDriveBrand）。
             QuarkProvider(engine, scanner),
+            QuarkProvider(engine, scanner, CloudDriveBrand.Uc),
             BaiduProvider(engine, scanner),
         )
 

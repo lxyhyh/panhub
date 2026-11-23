@@ -6,6 +6,7 @@ import com.panhub.provider.baidu.BaiduProvider
 import com.panhub.provider.cloud189.Cloud189Provider
 import com.panhub.provider.lanzou.LanzouProvider
 import com.panhub.provider.pan123.Pan123Provider
+import com.panhub.provider.quark.CloudDriveBrand
 import com.panhub.provider.quark.QuarkProvider
 import com.panhub.provider.webdav.NutstoreProvider
 import org.junit.Assert.assertTrue
@@ -26,6 +27,7 @@ class CapabilityContractTest {
         LanzouProvider(),
         Cloud189Provider(),
         QuarkProvider(),
+        QuarkProvider(brand = CloudDriveBrand.Uc),
         BaiduProvider(),
     )
 
