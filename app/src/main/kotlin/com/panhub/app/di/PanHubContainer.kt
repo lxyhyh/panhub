@@ -9,6 +9,7 @@ import com.panhub.core.session.SessionManager
 import com.panhub.core.storage.JsonAccountStore
 import com.panhub.core.transfer.DirectorySink
 import com.panhub.core.transfer.HttpFileDownloader
+import com.panhub.core.transfer.JsonTransferStore
 import com.panhub.core.transfer.TransferEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -76,6 +77,8 @@ object PanHubContainer {
             // 中转临时文件放 cacheDir：系统空间吃紧时可以直接回收，
             // 也不会被当成用户的下载留下一堆半成品。
             scratchDir = File(app.cacheDir, "cloud-copy"),
+            // 队列存档放 filesDir：清缓存不该让「昨天没下完的东西」消失。
+            store = JsonTransferStore(File(app.filesDir, TRANSFERS_FILE)),
         )
     }
 
@@ -106,4 +109,7 @@ object PanHubContainer {
      * 文件里的密钥字段由 Keystore 加密，拷贝出去也解不开。
      */
     private const val ACCOUNTS_FILE = "accounts.json"
+
+    /** 传输队列存档，与账号文件同目录。 */
+    private const val TRANSFERS_FILE = "transfers.json"
 }

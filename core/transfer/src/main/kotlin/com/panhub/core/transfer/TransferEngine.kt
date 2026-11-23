@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -53,6 +55,13 @@ class TransferEngine(
     private val maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
     /** 第一次重试前等多久，之后每次翻倍。 */
     private val retryBaseDelayMillis: Long = DEFAULT_RETRY_DELAY_MILLIS,
+    /**
+     * 队列存档。
+     *
+     * 默认不存档，让测试与「不需要历史」的调用方不用多写一个参数；
+     * App 里注入 [JsonTransferStore]，进程被杀掉后队列还在。
+     */
+    private val store: TransferStore = TransferStore.None,
 ) : DownloadLauncher, UploadLauncher, CloudCopyLauncher {
 
     private val counter = AtomicLong(0L)
@@ -71,8 +80,15 @@ class TransferEngine(
      */
     private val waiting = ConcurrentHashMap.newKeySet<String>()
 
+    /** 存档写入的串行锁，避免两次并发写互相覆盖。 */
+    private val persistMutex = Mutex()
+
     /** 正在退避的任务对应的计时协程，取消任务时要一并停掉。 */
     private val retries = ConcurrentHashMap<String, Job>()
+
+    init {
+        scope.launch { restore() }
+    }
 
     override fun download(accountId: AccountId, nodeId: NodeId, name: String, size: Long?) {
         enqueue(accountId, nodeId, name, size)
@@ -96,7 +112,7 @@ class TransferEngine(
             createdAt = now,
             updatedAt = now,
         )
-        _tasks.update { it + task }
+        push { it + task }
         pump()
     }
 
@@ -126,7 +142,7 @@ class TransferEngine(
             createdAt = now,
             updatedAt = now,
         )
-        _tasks.update { it + task }
+        push { it + task }
         pump()
         return id
     }
@@ -155,7 +171,7 @@ class TransferEngine(
             createdAt = now,
             updatedAt = now,
         )
-        _tasks.update { it + task }
+        push { it + task }
         pump()
         return id
     }
@@ -188,7 +204,7 @@ class TransferEngine(
             createdAt = now,
             updatedAt = now,
         )
-        _tasks.update { it + task }
+        push { it + task }
         pump()
         return id
     }
@@ -218,7 +234,7 @@ class TransferEngine(
             createdAt = now,
             updatedAt = now,
         )
-        _tasks.update { it + task }
+        push { it + task }
         pump()
         return id
     }
@@ -236,7 +252,7 @@ class TransferEngine(
             createdAt = now,
             updatedAt = now,
         )
-        _tasks.update { it + task }
+        push { it + task }
         pump()
         return id
     }
@@ -276,7 +292,7 @@ class TransferEngine(
 
     /** 从列表里移除已结束的任务（不删文件）。 */
     fun clearFinished() {
-        _tasks.update { list -> list.filterNot { it.isFinished } }
+        push { list -> list.filterNot { it.isFinished } }
     }
 
     /** 串行泵：没有在跑的任务时，取队列里第一个 QUEUED 的启动。 */
@@ -478,7 +494,7 @@ class TransferEngine(
                 updatedAt = clock.nowMillis(),
             )
         }
-        _tasks.update { it + children }
+        push { it + children }
         update(id) {
             val total = files.sumOf { entry -> entry.first.length() }
             it.copy(
@@ -689,7 +705,7 @@ class TransferEngine(
                 updatedAt = clock.nowMillis(),
             )
         }
-        _tasks.update { it + children }
+        push { it + children }
         update(id) {
             val total = files.sumOf { entry -> entry.first.size }
             it.copy(
@@ -772,7 +788,7 @@ class TransferEngine(
                 updatedAt = clock.nowMillis(),
             )
         }
-        _tasks.update { it + children }
+        push { it + children }
         update(id) {
             it.copy(
                 state = TransferState.COMPLETED,
@@ -804,8 +820,53 @@ class TransferEngine(
         }
     }
 
-    private inline fun update(id: String, transform: (TransferTask) -> TransferTask) {
-        _tasks.update { list -> list.map { if (it.id == id) transform(it) else it } }
+    private fun update(id: String, transform: (TransferTask) -> TransferTask) {
+        push { list -> list.map { if (it.id == id) transform(it) else it } }
+    }
+
+    /**
+     * 从存档恢复队列。
+     *
+     * 上次进程死掉时正在跑的任务不能保持 RUNNING——那个协程已经不存在了，
+     * 界面上会永远停在半格进度、点取消也没用。一律退回 QUEUED 重跑，
+     * 下载靠 .part 续传，上传与转存本来就可以重来。
+     */
+    private suspend fun restore() {
+        if (store === TransferStore.None) return
+        val restored = runCatching { store.load() }.getOrElse { emptyList() }
+        if (restored.isEmpty()) return
+        val now = clock.nowMillis()
+        val tasks = restored.map { task ->
+            if (task.state == TransferState.RUNNING) {
+                task.copy(state = TransferState.QUEUED, bytes = 0L, updatedAt = now)
+            } else {
+                task
+            }
+        }
+        push { tasks + it }
+        pump()
+    }
+
+    /** 队列变更的统一入口：改内存 + 存档。 */
+    private fun push(transform: (List<TransferTask>) -> List<TransferTask>) {
+        _tasks.update(transform)
+        requestPersist()
+    }
+
+    /**
+     * 把当前队列写下去。
+     *
+     * 每次变更都写、不防抖：写的是一个几十行的 JSON，代价可以接受；
+     * 防抖就得处理「最后一次变更还没落盘就退出」的时序，反而更容易丢数据。
+     * 写入用互斥锁串起来，避免两次并发写互相盖掉。
+     */
+    private fun requestPersist() {
+        if (store === TransferStore.None) return
+        scope.launch {
+            persistMutex.withLock {
+                runCatching { store.save(_tasks.value) }
+            }
+        }
     }
 
     companion object {
