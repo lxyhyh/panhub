@@ -21,6 +21,7 @@ import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
 import com.panhub.provider.api.ProviderCredentials
 import com.panhub.provider.api.ProviderSession
+import com.panhub.provider.api.UploadSource
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -44,6 +45,8 @@ class Cloud189Provider(
 
     private val api = Cloud189Api(engine)
 
+    private val uploader = Cloud189Uploader(engine)
+
     override val descriptor = ProviderDescriptor(
         id = ProviderId(ID),
         displayName = "天翼云盘",
@@ -58,6 +61,8 @@ class Cloud189Provider(
             delete = true,
             createFolder = true,
             directLink = true,
+            upload = true,
+            uploadChunked = true,
         ),
     )
 
@@ -376,6 +381,17 @@ class Cloud189Provider(
                 }
             }
         }
+    }
+
+    override suspend fun upload(
+        session: ProviderSession,
+        parentId: NodeId?,
+        source: UploadSource,
+        listener: PanProvider.UploadProgress,
+    ): PanResult<RemoteNode> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        return uploader.upload(cookie, parentId, source, listener)
     }
 
     override suspend fun createShare(

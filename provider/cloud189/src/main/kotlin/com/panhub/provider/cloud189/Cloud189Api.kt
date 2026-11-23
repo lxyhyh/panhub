@@ -162,6 +162,9 @@ internal class Cloud189Api(
         const val PATH_USER_SIZE = "/api/portal/getUserSizeInfo.action"
         const val PATH_USER_BRIEF = "/v2/getUserBriefInfo.action"
 
+        /** 上传通道用的一次性 RSA 公钥，pubKey 拿来加密随机密钥。 */
+        const val PATH_RSA_KEY = "/api/security/generateRsaKey.action"
+
         /** 官方客户端与 OpenList 都用 60 一页。 */
         const val PAGE_SIZE = 60
 

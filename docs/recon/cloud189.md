@@ -108,3 +108,75 @@ OpenList 是开源实现，路径和参数都可核实，比在字符串里猜�
 `"yyyy-MM-dd"`，按当天零点处理。
 
 注意：`LocalDateTime.parse` 解析不了纯日期，必须用 `LocalDate`。
+
+## 上传（走另一套加密通道）
+
+上传不在 `cloud.189.cn`，而在 `https://upload.cloud.189.cn`，每个请求都要现算签名，
+和 open 接口的 Cookie 直传完全是两回事。事实来源：
+`/root/workspace/_research/OpenList/drivers/189/util.go` 的
+`newUpload` / `uploadRequest`，以及 `help.go` 里的 `RsaEncode` / `AesEncrypt`。
+
+### 前置
+
+1. `GET https://cloud.189.cn/v2/getUserBriefInfo.action` 取 `sessionKey`。
+   **未登录时它返回 200 + `{}`**，所以判断登录失效要看「拿不到 sessionKey」，
+   不能看状态码。
+2. `GET https://cloud.189.cn/api/security/generateRsaKey.action` 取
+   `pubKey` / `pkId` / `expire`（毫秒时间戳）。没过期就能一直复用。
+
+### 每个请求的构造
+
+    secret  = 随机小写十六进制串，长度 16 + int(16 * rand)，即 16..31
+    params  = HEX(AES-128-ECB(PKCS7("k=v&k=v..."), secret[0..16]))
+    date    = 毫秒时间戳
+    Signature = HMAC-SHA1("SessionKey=<k>&Operate=GET&RequestURI=<uri>" +
+                          "&Date=<date>&params=<params>", secret)
+    EncryptionText = Base64(RSA-PKCS1(secret, pubKey))
+
+    GET https://upload.cloud.189.cn<uri>?params=<params>
+    头：accept: application/json;charset=UTF-8
+        SessionKey / Signature / X-Request-Date / X-Request-ID / EncryptionText / PkId
+
+`X-Request-ID` 是 `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx` 形态（版本位 4，变体位 8..b）。
+签名串里 `Operate` 恒为 `GET`，即使业务动作是上传也一样。
+
+### 三个端点
+
+| 用途 | 端点 | 表单字段 |
+| --- | --- | --- |
+| 发起上传 | `/person/initMultiUpload` | `parentFolderId`、`fileName`（URL 编码）、`fileSize`、`sliceSize=10485760`、`fileMd5`、`sliceMd5` |
+| 换分片地址 | `/person/getMultiUploadUrls` | `partInfo=<序号>-<该片MD5的Base64>`、`uploadFileId` |
+| 合并分片 | `/person/commitMultiUploadFile` | `uploadFileId`、`fileMd5`、`sliceMd5`、`lazyCheck=1`、`opertype=3` |
+
+响应判据是 `code == "SUCCESS"`，**不是 open 接口的 `res_code`**。
+`initMultiUpload` 里 `data.fileDataExists == 1` 表示服务端已有同内容文件，
+可以直接 commit，一个字节都不用传（秒传）。
+
+`getMultiUploadUrls` 的响应：
+
+    {"code":"SUCCESS",
+     "uploadUrls":{"partNumber_1":{"requestURL":"https://hb02.upload.cloud.189.cn/...",
+                                   "requestHeader":"Content-Type%3D...%26Content-MD5%3D..."}}}
+
+`requestHeader` 是整体做过一次 URL 编码的 `k=v&k=v` 串：先百分号解码，
+再按 `&` 切，最后按**第一个** `=` 拆名字与值（Base64 里的 `=` 不能被当分隔符）。
+解码时**不能**把 `+` 当空格，否则 Base64 会被改坏。
+
+### 摘要规则
+
+- `fileMd5` = 整个文件 MD5 的小写十六进制。
+- `sliceMd5`：文件大于 10 MiB 时，把每个分片 MD5 的**大写**十六进制用 `\n`
+  连起来再取一次 MD5（小写）；否则直接等于 `fileMd5`。
+- 分片 MD5 只在「当前分片正好写满」时记录，最后不满一片的尾巴在循环结束后补记；
+  空文件也补一个空摘要，保持「至少一片」。
+
+### 端点存在性（真实探测，2026-11-23，无凭证）
+
+    GET https://upload.cloud.189.cn/person/initMultiUpload?params=00
+      → 403 {"code":"InvalidSessionKey","msg":"sessionKey=null,invalid sessionKey,..."}
+    GET https://upload.cloud.189.cn/person/definitelyNotReal?params=00
+      → 404 {"timestamp":"...","status":404,"error":"Not Found","path":"/person/definitelyNotReal"}
+
+这两条形状不同，所以上传通道里「403 + InvalidSessionKey」**可以**证明端点存在
+——和 open 接口那条「任意路径都返回 InvalidSessionKey」的教训正好相反。
+
