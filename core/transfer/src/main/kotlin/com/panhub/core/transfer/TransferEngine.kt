@@ -270,6 +270,49 @@ class TransferEngine(
         return true
     }
 
+    /**
+     * 暂停。
+     *
+     * 与 [cancel] 的差别只在磁盘上：暂停留着 .part，取消删掉。
+     * 队列位置也留着——恢复时它还是原来那一项，不会跑到队尾。
+     *
+     * 正在退避等待重试的任务同样能暂停：它的计时器一并停掉，
+     * 否则几秒后它自己又跑起来了。
+     */
+    fun pause(id: String): Boolean {
+        val task = _tasks.value.firstOrNull { it.id == id } ?: return false
+        if (task.state != TransferState.QUEUED && task.state != TransferState.RUNNING) return false
+        jobs.remove(id)?.cancel(TransferPause())
+        retries.remove(id)?.cancel()
+        waiting.remove(id)
+        update(id) {
+            it.copy(
+                state = TransferState.PAUSED,
+                // 已经下到哪儿是恢复时的起点，界面也该继续显示这个数字，
+                // 归零会让人以为进度丢了。
+                error = null,
+                updatedAt = clock.nowMillis(),
+            )
+        }
+        pump()
+        return true
+    }
+
+    /** 继续一个暂停的任务。其它状态返回 false。 */
+    fun resume(id: String): Boolean {
+        val task = _tasks.value.firstOrNull { it.id == id } ?: return false
+        if (task.state != TransferState.PAUSED) return false
+        update(id) {
+            it.copy(
+                state = TransferState.QUEUED,
+                attempt = 0,
+                updatedAt = clock.nowMillis(),
+            )
+        }
+        pump()
+        return true
+    }
+
     /** 失败/取消的任务重新排队。完成的任务不能重试。 */
     fun retry(id: String): Boolean {
         val task = _tasks.value.firstOrNull { it.id == id } ?: return false

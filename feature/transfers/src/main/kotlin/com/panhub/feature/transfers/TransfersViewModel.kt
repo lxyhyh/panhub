@@ -31,7 +31,7 @@ data class TransfersUiState(
     val visible: List<TransferTask>
         get() = when (filter) {
             TransferFilter.ALL -> tasks
-            TransferFilter.ACTIVE -> tasks.filter { it.state.isActive }
+            TransferFilter.ACTIVE -> tasks.filter { it.state.isActive || it.state.isPaused }
             TransferFilter.FINISHED -> tasks.filter { it.state.isFinished }
         }
 
@@ -83,6 +83,15 @@ class TransfersViewModel(
         engine.cancel(id)
     }
 
+    /** 暂停：留着已经下好的部分，等用户回来接着传。 */
+    fun pause(id: String) {
+        engine.pause(id)
+    }
+
+    fun resume(id: String) {
+        engine.resume(id)
+    }
+
     fun retry(id: String) {
         engine.retry(id)
     }
@@ -113,3 +122,7 @@ private val TransferState.isFinished: Boolean
     get() = this == TransferState.COMPLETED ||
         this == TransferState.FAILED ||
         this == TransferState.CANCELED
+
+/** 暂停中的任务既不算进行中也算不得结束，单独放在「进行中」筛选项里更好找。 */
+private val TransferState.isPaused: Boolean
+    get() = this == TransferState.PAUSED

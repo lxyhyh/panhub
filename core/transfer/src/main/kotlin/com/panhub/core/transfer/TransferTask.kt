@@ -33,10 +33,16 @@ enum class TransferDirection {
  * QUEUED -> RUNNING -> COMPLETED
  *                   -> FAILED
  *                   -> CANCELED
+ *                   -> PAUSED -> QUEUED（resume）
  *
- * FAILED 和 CANCELED 都能被 retry 拉回 QUEUED；COMPLETED 是终态。
+ * FAILED 和 CANCELED 都能被 retry 拉回 QUEUED；PAUSED 只能由 resume 拉回；
+ * COMPLETED 是终态。
+ *
+ * [PAUSED] 与 [CANCELED] 的区别在磁盘上：取消会把没下完的 .part 删掉，
+ * 暂停会留着——它本来就该是下次续传的凭据。用户说「先停一下」和
+ * 「这个不要了」是两件事，不该在磁盘上留下同样的结果。
  */
-enum class TransferState { QUEUED, RUNNING, COMPLETED, FAILED, CANCELED }
+enum class TransferState { QUEUED, RUNNING, COMPLETED, FAILED, CANCELED, PAUSED }
 
 /**
  * 一个传输任务。它是可持久化的纯数据，不含任何协程句柄，
@@ -94,6 +100,7 @@ data class TransferTask(
         get() = totalBytes?.takeIf { it > 0L }
             ?.let { (bytes.toDouble() / it.toDouble()).toFloat().coerceIn(0f, 1f) }
 
+    /** 会占用队列执行位的状态。暂停中的任务不算：它此刻不传任何字节。 */
     val isActive: Boolean
         get() = state == TransferState.QUEUED || state == TransferState.RUNNING
 
@@ -101,4 +108,8 @@ data class TransferTask(
         get() = state == TransferState.COMPLETED ||
             state == TransferState.FAILED ||
             state == TransferState.CANCELED
+
+    /** 已经停下来、但还没结束：还能继续传。 */
+    val isPaused: Boolean
+        get() = state == TransferState.PAUSED
 }

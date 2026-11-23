@@ -47,7 +47,8 @@ class HttpFileDownloader(
                 PanResult.Success(Unit)
             }
         } catch (cancel: CancellationException) {
-            temp.delete()
+            // 暂停要留着残片：它就是下次续传的凭据。取消才是真的不要了。
+            if (!keepsPartialOnPause(cancel)) temp.delete()
             throw cancel
         } catch (stale: RangeNotSatisfiableException) {
             // 服务端说这个区间不存在，说明 .part 已经不能当续传依据，丢掉重来。
@@ -136,6 +137,15 @@ class HttpFileDownloader(
     }
 
     private class RangeNotSatisfiableException : IOException("range not satisfiable")
+
+    /**
+     * 这次取消要不要保留 .part。
+     *
+     * 单独一个函数而不是直接写一句 is 判断：这是整个暂停功能里
+     * 唯一会毁掉用户已下载数据的地方，值得被单独测到。
+     */
+    internal fun keepsPartialOnPause(cause: CancellationException): Boolean =
+        cause is TransferPause
 
     companion object {
         const val PART_SUFFIX = ".part"

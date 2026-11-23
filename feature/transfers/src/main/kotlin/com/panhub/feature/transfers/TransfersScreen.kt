@@ -144,6 +144,8 @@ fun TransfersScreen(
                             task = task,
                             speed = state.speeds[task.id],
                             onCancel = { viewModel.cancel(task.id) },
+                            onPause = { viewModel.pause(task.id) },
+                            onResume = { viewModel.resume(task.id) },
                             onRetry = { viewModel.retry(task.id) },
                             onOpen = { path -> context.openDownloaded(path) },
                             onShare = { path -> context.shareDownloaded(path) },
@@ -161,6 +163,8 @@ private fun TaskCard(
     task: TransferTask,
     speed: Long?,
     onCancel: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
     onRetry: () -> Unit,
     onOpen: (String) -> Unit,
     onShare: (String) -> Unit,
@@ -218,8 +222,16 @@ private fun TaskCard(
                         }
                         TextButton(onClick = { onOpen(donePath) }) { Text("打开") }
                     }
+                    task.state == TransferState.PAUSED ->
+                        Row {
+                            TextButton(onClick = onResume) { Text("继续") }
+                            TextButton(onClick = onCancel) { Text("取消") }
+                        }
                     task.state == TransferState.RUNNING || task.state == TransferState.QUEUED ->
-                        TextButton(onClick = onCancel) { Text("取消") }
+                        Row {
+                            TextButton(onClick = onPause) { Text("暂停") }
+                            TextButton(onClick = onCancel) { Text("取消") }
+                        }
                     task.state == TransferState.FAILED || task.state == TransferState.CANCELED ->
                         TextButton(onClick = onRetry) { Text("重试") }
                     else -> Unit
@@ -256,8 +268,13 @@ private fun statusLine(task: TransferTask, speed: Long?): String {
         TransferState.COMPLETED -> finishedLine(task) + " · " + done
         TransferState.FAILED -> "失败" + (task.error?.let { " · " + it } ?: "")
         TransferState.CANCELED -> "已取消 · " + done
+        TransferState.PAUSED -> pausedLine(done, total)
     }
 }
+
+/** 暂停的任务要能看出「已经到哪儿了」，否则和还没开始没区别。 */
+private fun pausedLine(done: String, total: String?): String =
+    if (total != null) "已暂停 · " + done + " / " + total else "已暂停 · " + done
 
 /**
  * 自动重试的提示。
@@ -280,6 +297,7 @@ private fun folderLine(task: TransferTask): String = when (task.state) {
     TransferState.COMPLETED -> task.phase?.let { "已整理 " + it } ?: "已整理文件列表"
     TransferState.FAILED -> "整理失败" + (task.error?.let { " · " + it } ?: "")
     TransferState.CANCELED -> "已取消整理"
+    TransferState.PAUSED -> "已暂停整理"
 }
 
 private fun copyFolderLine(task: TransferTask): String = when (task.state) {
@@ -288,6 +306,7 @@ private fun copyFolderLine(task: TransferTask): String = when (task.state) {
     TransferState.COMPLETED -> task.phase?.let { "已复制 " + it } ?: "已复制文件夹"
     TransferState.FAILED -> "复制失败" + (task.error?.let { " · " + it } ?: "")
     TransferState.CANCELED -> "已取消复制文件夹"
+    TransferState.PAUSED -> "已暂停复制文件夹"
 }
 
 private fun uploadFolderLine(task: TransferTask): String = when (task.state) {
@@ -296,6 +315,7 @@ private fun uploadFolderLine(task: TransferTask): String = when (task.state) {
     TransferState.COMPLETED -> task.phase?.let { "已整理 " + it } ?: "已整理本地文件夹"
     TransferState.FAILED -> "整理失败" + (task.error?.let { " · " + it } ?: "")
     TransferState.CANCELED -> "已取消整理"
+    TransferState.PAUSED -> "已暂停整理"
 }
 
 private fun queuedLine(task: TransferTask): String = when (task.direction) {
