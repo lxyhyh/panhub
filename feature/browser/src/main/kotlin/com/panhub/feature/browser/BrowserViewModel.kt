@@ -6,6 +6,7 @@ import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeId
+import com.panhub.core.model.NodeFocus
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.Quota
@@ -253,10 +254,20 @@ class BrowserViewModel(
     private val uploader: UploadLauncher? = null,
     private val copier: CloudCopyLauncher? = null,
     private val previewer: PreviewLoader? = null,
+    /**
+     * 从别处跳进来时要定位到哪。
+     *
+     * 跨账号搜索给出的结果可能埋在很深的目录里，进页面后直接落在根目录、
+     * 让用户自己一层层点回去，等于没搜。打开时先按这个位置摆好栈。
+     */
+    private val focus: NodeFocus? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(BrowserUiState(accountId = accountId))
     val state: StateFlow<BrowserUiState> = _state.asStateFlow()
+
+    /** 定位请求只生效一次：重试或换目录时不该又被拉回搜索点中的那一层。 */
+    private var pendingFocus: NodeFocus? = focus
 
     private val _picker = MutableStateFlow(FolderPickerState())
     val picker: StateFlow<FolderPickerState> = _picker.asStateFlow()
@@ -976,10 +987,56 @@ class BrowserViewModel(
                         )
                     }
                     loadQuota(result.value)
+                    val landing = pendingFocus
+                    pendingFocus = null
+                    applyFocus(landing)
                     load()
                 }
             }
         }
+    }
+
+    /**
+     * 把从别处带来的定位请求摆成导航栈。
+     *
+     * 只有父目录名字没有 id 的情况（多数网盘不返回父 id）就造一层占位面包屑：
+     * 用户按返回能退回上一级，而不是一步跳回根目录。名字也拿不到时留一句中性
+     * 说法，不假装知道那个目录叫什么。
+     */
+    private fun applyFocus(focus: NodeFocus?) {
+        if (focus == null) return
+        if (!focus.dir) {
+            // 结果是文件：直接把它交给详情弹窗，不改变当前目录，
+            // 用户关掉弹窗后仍站在根目录，符合「只是看一眼」的预期。
+            _details.value = NodeDetailsState(
+                visible = true,
+                node = RemoteNode(
+                    id = focus.id,
+                    parentId = focus.parentId,
+                    name = focus.name,
+                    kind = NodeKind.FILE,
+                ),
+            )
+            return
+        }
+        val trail = mutableListOf<RemoteNode>()
+        // 跨模块属性不能智能转换，先取到局部变量再用。
+        val parent = focus.parentId
+        if (parent != null) {
+            trail += RemoteNode(
+                id = parent,
+                parentId = null,
+                name = focus.parentName?.takeIf { it.isNotBlank() } ?: "上一级目录",
+                kind = NodeKind.DIR,
+            )
+        }
+        trail += RemoteNode(
+            id = focus.id,
+            parentId = parent,
+            name = focus.name,
+            kind = NodeKind.DIR,
+        )
+        _state.update { it.copy(stack = trail) }
     }
 
     /** 重新连接（错误重试）。 */

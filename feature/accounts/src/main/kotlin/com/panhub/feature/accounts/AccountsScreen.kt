@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -87,6 +88,7 @@ fun AccountsScreen(
     onOpenShares: (AccountId) -> Unit = {},
     onOpenShareImport: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenSearch: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val form by viewModel.form.collectAsStateWithLifecycle()
@@ -107,6 +109,9 @@ fun AccountsScreen(
             TopAppBar(
                 title = { Text("账号") },
                 actions = {
+                    IconButton(onClick = onOpenSearch) {
+                        Icon(Icons.Default.Search, contentDescription = "搜索全部网盘")
+                    }
                     IconButton(onClick = onOpenShareImport) {
                         Icon(Icons.Default.FileDownload, contentDescription = "打开分享转存")
                     }

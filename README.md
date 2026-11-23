@@ -44,6 +44,7 @@
 | \`:feature:shares\` | 我的分享：按账号列出已创建的分享链接 |
 | \`:feature:shareimport\` | 打开别人的分享、挑文件转存到自己网盘的任意目录 |
 | \`:feature:settings\` | 设置页：外观（跟随系统 / 浅色 / 深色）与关于信息 |
+| \`:feature:search\` | 全盘搜索：一次搜所有声明了搜索能力的账号，结果按账号分组 |
 | \`:app\` | 组装、导航、依赖注入 |
 
 ## 已接入的网盘
@@ -114,6 +115,15 @@ id，再换一次链接接口才有能发出去的地址与提取码。有效期
 
 从搜索结果的目录点进去时，目录栈会补一层「它原来在哪个目录」，
 返回键先回到那个上级目录再一级级退，不会从深层目录一步跳回根目录。
+
+账号页顶栏的放大镜是「搜索全部网盘」：一次把关键字发给所有声明了搜索能力的账号，
+结果按账号分组而不是混排——不同网盘的「相关度」根本不可比，混排出来的名次是假的，
+而两个网盘里各有一个同名文件时，分组至少让「这是哪家的」一眼可见。
+每家最多带回来 100 条，超过的账号会在结果上方写明「只显示前 100 条」；
+一家网盘掉线只记在「这些账号没搜成」里，别家的结果照常显示——
+失败要看得见，但不能让整次搜索看起来什么都没找到。
+没有搜索能力的账号（坚果云、蓝奏云、天翼云盘）会列在结果下方说明它们没参与，
+否则用户会以为自己漏看了。
 
 转存的目标目录默认是自己的网盘根目录，列表顶部那行「转存到 …」点开可以换。
 选目录用的是各家都有的普通文件列表接口（只看文件夹），所以三个支持转存的
@@ -231,6 +241,6 @@ SD 卡或者某个文档提供者。只有真正下载下来的文件才有这�
 
 - \`test\`：14 个纯 JVM 模块的单测
 - \`kernel\`：Rust 单测、clippy、交叉编译出 \`jniLibs\`
-- \`android\`：等前两个 job 通过后，跑需要 Android 平台的单测（\`:app\`、\`:core:platform\`、\`:feature:accounts\`、\`:feature:browser\`、\`:feature:settings\`、\`:feature:shares\`、\`:feature:shareimport\`、\`:feature:transfers\`），再编译 debug APK
+- \`android\`：等前两个 job 通过后，跑需要 Android 平台的单测（\`:app\`、\`:core:platform\`、\`:feature:accounts\`、\`:feature:browser\`、\`:feature:settings\`、\`:feature:shares\`、\`:feature:shareimport\`、\`:feature:transfers\`、\`:feature:search\`），再编译 debug APK
 
 产物在 Actions 的 artifact 里（\`panhub-debug-apk\`）。

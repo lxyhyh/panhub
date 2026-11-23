@@ -29,8 +29,11 @@ import com.panhub.core.platform.SettingsRepository
 import com.panhub.feature.settings.AppInfo
 import com.panhub.feature.settings.SettingsScreen
 import com.panhub.feature.settings.SettingsViewModel
+import com.panhub.feature.search.SearchScreen
+import com.panhub.feature.search.SearchViewModel
 import com.panhub.feature.shares.SharesScreen
 import com.panhub.feature.shares.SharesViewModel
+import com.panhub.core.model.NodeFocus
 
 /**
  * 导航图。
@@ -55,6 +58,9 @@ fun PanHubRoot(
     // 从系统分享菜单进来的链接先停在这里，等转存页把 ViewModel 建出来再清掉：
     // 直接塞进路由参数要先编码再解码，链接里带 ? 与 & 时很容易被拆坏。
     val pendingShare = remember { mutableStateOf<SharedLink?>(share) }
+    // 全局搜索点中的那一项。和链接一样走内存传参而不是路由参数：
+    // NodeFocus 里有文件 id 与目录名，编码进 URL 容易在特殊字符上出错。
+    val pendingFocus = remember { mutableStateOf<NodeFocus?>(null) }
 
     LaunchedEffect(share) {
         val incoming = share ?: return@LaunchedEffect
@@ -75,6 +81,7 @@ fun PanHubRoot(
                 onOpenShares = { account -> nav.navigate(Routes.shares(account.value)) },
                 onOpenShareImport = { nav.navigate(Routes.SHARE_IMPORT) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                onOpenSearch = { nav.navigate(Routes.SEARCH) },
             )
         }
         composable(
@@ -93,9 +100,11 @@ fun PanHubRoot(
                         uploader = transfers,
                         copier = transfers,
                         previewer = previews,
+                        focus = pendingFocus.value,
                     )
                 },
             )
+            LaunchedEffect(Unit) { pendingFocus.value = null }
             BrowserScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
         composable(
@@ -122,6 +131,17 @@ fun PanHubRoot(
             LaunchedEffect(Unit) { pendingShare.value = null }
             ShareImportScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
+        composable(Routes.SEARCH) {
+            val vm: SearchViewModel = viewModel(factory = factoryOf { SearchViewModel(session) })
+            SearchScreen(
+                viewModel = vm,
+                onBack = { nav.popBackStack() },
+                onOpenHit = { accountId, focus ->
+                    pendingFocus.value = focus
+                    nav.navigate(Routes.browser(accountId.value))
+                },
+            )
+        }
         composable(Routes.SETTINGS) {
             val vm: SettingsViewModel = viewModel(
                 factory = factoryOf { SettingsViewModel(settings, info) },
@@ -142,6 +162,7 @@ private object Routes {
     const val TRANSFERS = "transfers"
     const val SHARE_IMPORT = "share-import"
     const val SETTINGS = "settings"
+    const val SEARCH = "search"
     const val ARG_ACCOUNT = "accountId"
     const val BROWSER = "browser/{$ARG_ACCOUNT}"
     const val SHARES = "shares/{$ARG_ACCOUNT}"
