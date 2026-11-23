@@ -104,6 +104,14 @@ class TransfersViewModel(
         engine.retryAllFailed()
     }
 
+    /**
+     * 删掉已经下到本机的文件。
+     *
+     * 只对下载完成的任务有效：清空列表并不会让文件消失，
+     * 那些文件会一直占着空间，而且清掉记录之后就再也没有入口能看见它们。
+     */
+    fun deleteLocalFile(id: String): Boolean = engine.deleteLocalFile(id)
+
     fun clearFinished() {
         engine.clearFinished()
         tracker.reset()

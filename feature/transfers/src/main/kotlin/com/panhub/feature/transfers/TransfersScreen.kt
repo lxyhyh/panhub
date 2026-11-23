@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Share
@@ -189,6 +190,14 @@ fun TransfersScreen(
                             onOpen = { path -> context.openDownloaded(path) },
                             onShare = { path -> context.shareDownloaded(path) },
                             onSaveAs = startExport,
+                            onDeleteLocal = {
+                                val done = viewModel.deleteLocalFile(task.id)
+                                scope.launch {
+                                    snackbar.showSnackbar(
+                                        if (done) "已删除本地文件" else "没能删掉这个文件",
+                                    )
+                                }
+                            },
                         )
                     }
                     item { Spacer(Modifier.height(Spacing.xl)) }
@@ -209,6 +218,7 @@ private fun TaskCard(
     onOpen: (String) -> Unit,
     onShare: (String) -> Unit,
     onSaveAs: (String) -> Unit,
+    onDeleteLocal: () -> Unit,
 ) {
     PanCard {
         Column {
@@ -272,6 +282,17 @@ private fun TaskCard(
                                 contentDescription = "分享",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                        // 下载的文件一直占着空间，清空列表不会把它带走，
+                        // 所以删除必须是单独一个动作，和「从列表移除」区分开。
+                        if (task.direction == TransferDirection.DOWNLOAD) {
+                            IconButton(onClick = onDeleteLocal) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "删除本地文件",
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
                         }
                         TextButton(onClick = { onOpen(donePath) }) { Text("打开") }
                     }

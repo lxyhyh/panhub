@@ -362,6 +362,21 @@ class TransferEngine(
         return failed
     }
 
+    /**
+     * 删掉任务下载到本机的文件，把任务记录里的路径一并清掉。
+     *
+     * 与 [clearFinished] 是两件事：清空列表只是不再显示，文件还占着空间；
+     * 这里删的是磁盘上的东西，所以只对真正下载到本机的文件生效
+     * （上传任务的路径是用户自己的源文件，删它等于毁数据）。
+     */
+    fun deleteLocalFile(id: String): Boolean {
+        val task = _tasks.value.firstOrNull { it.id == id } ?: return false
+        if (!DownloadedFiles.canDelete(task)) return false
+        if (!DownloadedFiles.delete(task)) return false
+        update(id) { it.copy(filePath = null, updatedAt = clock.nowMillis()) }
+        return true
+    }
+
     /** 从列表里移除已结束的任务（不删文件）。 */
     fun clearFinished() {
         push { list -> list.filterNot { it.isFinished } }

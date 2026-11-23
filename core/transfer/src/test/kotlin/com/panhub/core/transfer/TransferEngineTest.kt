@@ -286,6 +286,40 @@ class TransferEngineTest {
     }
 
     @Test
+    fun deleteLocalFileRemovesTheDownloadedFile() = runTest {
+        val downloader = FakeDownloader()
+        val provider = FakeProvider(PanResult.Success(DownloadTarget("https://x/y", size = 7L)))
+        val engine = engine(this, provider, downloader)
+
+        val id = engine.enqueue(account, NodeId("n1"), "a.bin", 7L)
+        advanceUntilIdle()
+        val path = engine.tasks.value.single().filePath!!
+        assertTrue(File(path).exists())
+
+        assertTrue(engine.deleteLocalFile(id))
+        assertFalse(File(path).exists())
+        // 记录还在，只是不再指向任何文件：任务本身是成功的，
+        // 用户要的只是「别再占地方」。
+        assertEquals(TransferState.COMPLETED, engine.tasks.value.single().state)
+        assertEquals(null, engine.tasks.value.single().filePath)
+    }
+
+    @Test
+    fun deleteLocalFileLeavesUploadsAlone() = runTest {
+        val downloader = FakeDownloader()
+        val provider = FakeProvider(PanResult.Success(DownloadTarget("https://x/y", size = 7L)))
+        val engine = engine(this, provider, downloader)
+        val local = temp.newFile("source.bin")
+
+        val id = engine.upload(account, NodeId("parent"), local.absolutePath, local.name, local.length())
+        // 上传还没跑起来就取消，省掉真正走网络那一步；这里要验的是删除的边界。
+        engine.cancel(id)
+
+        assertFalse(engine.deleteLocalFile(id))
+        assertTrue(local.exists())
+    }
+
+    @Test
     fun progressFractionIsNullWhenTotalUnknown() {
         val task = TransferTask(
             id = "t",
