@@ -9,6 +9,8 @@ import com.panhub.core.model.AuthMethod
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.NodePage
+import com.panhub.core.model.OfflineLink
+import com.panhub.core.model.OfflineResource
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.ProviderCapabilities
 import com.panhub.core.model.ProviderDescriptor
@@ -48,6 +50,7 @@ class Pan123Provider(
     private val json = api.json
     private val uploader = Pan123Uploader(api, json, scanner)
     private val importer = Pan123ShareImporter(api, json)
+    private val offline = Pan123Offline(api, json)
 
     override val descriptor = ProviderDescriptor(
         id = ProviderId(ID),
@@ -72,6 +75,7 @@ class Pan123Provider(
             shareImport = true,
             search = true,
             trash = true,
+            offlineDownload = true,
         ),
     )
 
@@ -297,6 +301,18 @@ class Pan123Provider(
         session: ProviderSession,
         page: PageRequest,
     ): PanResult<TrashPage> = fetchTrashPage(session, page)
+
+    override suspend fun resolveOffline(
+        session: ProviderSession,
+        link: OfflineLink,
+    ): PanResult<OfflineResource> = offline.resolve(tokenOf(session), link)
+
+    override suspend fun createOffline(
+        session: ProviderSession,
+        resource: OfflineResource,
+        fileIds: List<String>,
+        parentId: NodeId?,
+    ): PanResult<Unit> = offline.create(tokenOf(session), resource, fileIds, parentId)
 
     private suspend fun fetchTrashPage(
         session: ProviderSession,

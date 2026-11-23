@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -107,6 +108,7 @@ import java.util.Locale
 fun BrowserScreen(
     viewModel: BrowserViewModel,
     onBack: () -> Unit,
+    onOpenOffline: (RemoteNode?) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val picker by viewModel.picker.collectAsStateWithLifecycle()
@@ -251,6 +253,17 @@ fun BrowserScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
+                if (state.canOfflineDownload) {
+                    // 离线下载放在上传上面：它和上传是同一类动作（往当前目录加东西），
+                    // 但用得更少，位置偏外一点不容易误触。
+                    SmallFloatingActionButton(
+                        onClick = { onOpenOffline(state.currentFolder) },
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    ) {
+                        Icon(Icons.Default.CloudDownload, contentDescription = "离线下载")
+                    }
+                }
                 if (state.canUpload) {
                     SmallFloatingActionButton(
                         onClick = { pickFile.launch(arrayOf("*/*")) },

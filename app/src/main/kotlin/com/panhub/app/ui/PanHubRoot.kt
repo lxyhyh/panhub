@@ -35,7 +35,10 @@ import com.panhub.feature.shares.SharesScreen
 import com.panhub.feature.shares.SharesViewModel
 import com.panhub.feature.trash.TrashScreen
 import com.panhub.feature.trash.TrashViewModel
+import com.panhub.feature.offline.OfflineScreen
+import com.panhub.feature.offline.OfflineViewModel
 import com.panhub.core.model.NodeFocus
+import com.panhub.core.model.RemoteNode
 
 /**
  * 导航图。
@@ -63,6 +66,8 @@ fun PanHubRoot(
     // 全局搜索点中的那一项。和链接一样走内存传参而不是路由参数：
     // NodeFocus 里有文件 id 与目录名，编码进 URL 容易在特殊字符上出错。
     val pendingFocus = remember { mutableStateOf<NodeFocus?>(null) }
+    // 离线下载页要知道「从哪个目录点进来的」，提交时东西就存在那里。
+    val pendingOfflineParent = remember { mutableStateOf<RemoteNode?>(null) }
 
     LaunchedEffect(share) {
         val incoming = share ?: return@LaunchedEffect
@@ -108,7 +113,14 @@ fun PanHubRoot(
                 },
             )
             LaunchedEffect(Unit) { pendingFocus.value = null }
-            BrowserScreen(viewModel = vm, onBack = { nav.popBackStack() })
+            BrowserScreen(
+                viewModel = vm,
+                onBack = { nav.popBackStack() },
+                onOpenOffline = { folder ->
+                    pendingOfflineParent.value = folder
+                    nav.navigate(Routes.offline(AccountId(raw).value))
+                },
+            )
         }
         composable(
             route = Routes.SHARES,
@@ -129,6 +141,24 @@ fun PanHubRoot(
                 factory = factoryOf { TrashViewModel(session, AccountId(raw)) },
             )
             TrashScreen(viewModel = vm, onBack = { nav.popBackStack() })
+        }
+        composable(
+            route = Routes.OFFLINE,
+            arguments = listOf(navArgument(Routes.ARG_ACCOUNT) { type = NavType.StringType }),
+        ) { entry ->
+            val raw = entry.arguments?.getString(Routes.ARG_ACCOUNT).orEmpty()
+            val vm: OfflineViewModel = viewModel(
+                factory = factoryOf {
+                    OfflineViewModel(
+                        session = session,
+                        accountId = AccountId(raw),
+                        parentId = pendingOfflineParent.value?.id,
+                        parentName = pendingOfflineParent.value?.name,
+                    )
+                },
+            )
+            LaunchedEffect(Unit) { pendingOfflineParent.value = null }
+            OfflineScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
         composable(Routes.SHARE_IMPORT) {
             val vm: ShareImportViewModel = viewModel(
@@ -180,6 +210,7 @@ private object Routes {
     const val BROWSER = "browser/{$ARG_ACCOUNT}"
     const val SHARES = "shares/{$ARG_ACCOUNT}"
     const val TRASH = "trash/{$ARG_ACCOUNT}"
+    const val OFFLINE = "offline/{$ARG_ACCOUNT}"
 
     /** 账号 id 里可能含 ':' 和 '/'，必须编码，否则会拆坏路由。 */
     fun browser(accountId: String): String =
@@ -190,6 +221,9 @@ private object Routes {
 
     fun trash(accountId: String): String =
         "trash/" + java.net.URLEncoder.encode(accountId, "UTF-8")
+
+    fun offline(accountId: String): String =
+        "offline/" + java.net.URLEncoder.encode(accountId, "UTF-8")
 }
 
 /**

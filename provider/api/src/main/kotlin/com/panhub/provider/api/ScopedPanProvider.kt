@@ -3,6 +3,8 @@ package com.panhub.provider.api
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodePage
+import com.panhub.core.model.OfflineLink
+import com.panhub.core.model.OfflineResource
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
@@ -89,6 +91,15 @@ class ScopedPanProvider(
         provider.purgeTrash(session, nodeIds)
 
     suspend fun emptyTrash(): PanResult<Unit> = provider.emptyTrash(session)
+
+    suspend fun resolveOffline(link: OfflineLink): PanResult<OfflineResource> =
+        provider.resolveOffline(session, link)
+
+    suspend fun createOffline(
+        resource: OfflineResource,
+        fileIds: List<String>,
+        parentId: NodeId? = null,
+    ): PanResult<Unit> = provider.createOffline(session, resource, fileIds, parentId)
 
     suspend fun saveShare(
         source: ShareSource,

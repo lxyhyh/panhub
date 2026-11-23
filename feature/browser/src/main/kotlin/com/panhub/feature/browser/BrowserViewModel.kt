@@ -65,6 +65,7 @@ data class BrowserUiState(
     val canSearch: Boolean = false,
     /** 至少还有一个别的账号能接收文件时才有「复制到其他网盘」。 */
     val canCloudCopy: Boolean = false,
+    val canOfflineDownload: Boolean = false,
     val error: PanError? = null,
     val message: String? = null,
     val busy: Boolean = false,
@@ -980,6 +981,7 @@ class BrowserViewModel(
                             canDownload = descriptor.capabilities.download,
                             canDirectLink = descriptor.capabilities.directLink,
                             canSearch = descriptor.capabilities.search,
+                            canOfflineDownload = descriptor.capabilities.offlineDownload,
                             canCloudCopy = copier != null &&
                                 session.accounts.first().any { other ->
                                     other.id != accountId && other.capabilities.upload

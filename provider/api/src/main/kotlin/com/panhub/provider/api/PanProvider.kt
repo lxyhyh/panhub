@@ -5,6 +5,8 @@ import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodePage
+import com.panhub.core.model.OfflineLink
+import com.panhub.core.model.OfflineResource
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.Quota
@@ -209,6 +211,31 @@ interface PanProvider {
         entries: List<com.panhub.core.model.ShareEntry>,
         targetParentId: NodeId?,
     ): PanResult<Int> = PanResult.Failure(PanError.notSupported("该网盘不支持转存分享"))
+
+    /**
+     * 把一个下载地址交给服务商去解析。
+     *
+     * 离线下载是「先解析、再挑选、最后提交」三步：解析返回的是资源里有哪些文件，
+     * 用户勾哪些是自己决定的，所以解析和提交必须分成两个方法。
+     */
+    suspend fun resolveOffline(
+        session: ProviderSession,
+        link: OfflineLink,
+    ): PanResult<OfflineResource> =
+        PanResult.Failure(PanError.notSupported("该网盘不支持离线下载"))
+
+    /**
+     * 提交离线任务。
+     *
+     * [fileIds] 是 [OfflineResource.files] 里被选中的条目 id，
+     * 空表示整个资源一起存（服务端会自己展开）。
+     */
+    suspend fun createOffline(
+        session: ProviderSession,
+        resource: OfflineResource,
+        fileIds: List<String>,
+        parentId: NodeId? = null,
+    ): PanResult<Unit> = PanResult.Failure(PanError.notSupported("该网盘不支持离线下载"))
 }
 
 /** 一次下载所需的一切：URL + 必需的头（很多网盘校验 UA/Referer）。 */

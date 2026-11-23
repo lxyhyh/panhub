@@ -1,0 +1,67 @@
+package com.panhub.feature.offline
+
+import com.panhub.core.model.OfflineFile
+import com.panhub.core.model.OfflineResource
+
+/**
+ * 离线下载界面的纯逻辑。
+ *
+ * 抽出来是为了能在没有 Compose、没有网络的情况下钉住几条容易写错的规则：
+ * 什么时候允许提交、提交后该说什么、文件夹要不要单独区分。
+ */
+object OfflineLogic {
+
+    /** 提交按钮的可用性：解析完、选了东西、且没在忙。 */
+    fun canSubmit(busy: Boolean, resource: OfflineResource?, selected: Set<String>): Boolean {
+        if (busy) return false
+        if (resource == null) return false
+        return selected.isNotEmpty()
+    }
+
+    /**
+     * 提交成功后的说明。
+     *
+     * 整个资源一起存和只挑几个文件，用户的预期不同，话也得不一样。
+     */
+    fun submittedMessage(resource: OfflineResource, selected: Set<String>): String {
+        val total = resource.files.size
+        return when {
+            selected.isEmpty() -> "已提交离线任务，" + resource.name + " 正在下载"
+            selected.size >= total -> "已提交离线任务，" + resource.name + " 里的 " + total + " 项正在下载"
+            else -> "已提交离线任务，选了 " + selected.size + " 项"
+        }
+    }
+
+    /** 资源里的文件数说明：链接任务里全是文件，BT 任务里可能夹着目录。 */
+    fun describeResource(resource: OfflineResource): String {
+        val files = resource.files
+        if (files.isEmpty()) return "没有可以保存的文件"
+        val folders = files.count { it.isDir }
+        return when {
+            folders == 0 -> files.size.toString() + " 个文件"
+            folders == files.size -> files.size.toString() + " 个文件夹"
+            else -> files.size.toString() + " 项（含 " + folders + " 个文件夹）"
+        }
+    }
+
+    /**
+     * 单选切换。
+     *
+     * 「全选」和「一项都不选」都是合法的中间状态，
+     * 但提交按钮在空选择时必须是灰的——所以这里不做任何自动补选。
+     */
+    fun toggle(selected: Set<String>, id: String): Set<String> =
+        if (id in selected) selected - id else selected + id
+
+    /** 全选 / 取消全选：当前已全选就清空，否则补齐。 */
+    fun toggleAll(selected: Set<String>, files: List<OfflineFile>): Set<String> =
+        if (files.isNotEmpty() && selected.containsAll(files.map { it.id })) {
+            emptySet()
+        } else {
+            files.map { it.id }.toSet()
+        }
+
+    /** 解析失败时给用户的提示：空消息要有兜底，否则界面会出现一块空白。 */
+    fun failureMessage(message: String?): String =
+        message?.takeIf { it.isNotBlank() } ?: "这个链接没能解析出内容"
+}

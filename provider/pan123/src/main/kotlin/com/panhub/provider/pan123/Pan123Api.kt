@@ -148,5 +148,9 @@ class Pan123Api(
         const val PATH_SHARE_GET = "/api/share/get"
         const val PATH_COPY_SAVE = "/api/restful/goapi/v1/file/copy/save"
         const val PATH_COPY_SAVE_GET = "/api/restful/goapi/v1/file/copy/save/get"
+
+        // 离线下载：路径来自 interface_config.json，已探测端点存在（未登录回 401 JSON）。
+        const val PATH_OFFLINE_RESOLVE = "/api/v2/offline_download/task/resolve"
+        const val PATH_OFFLINE_SUBMIT = "/api/v2/offline_download/task/submit"
     }
 }

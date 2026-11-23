@@ -62,6 +62,7 @@ class CapabilityContractTest {
             "list", "quota", "upload", "uploadChunked", "download",
             "rename", "move", "copy", "trash", "delete", "createFolder", "search",
             "share", "shareList", "sharePassword", "shareExpiry", "directLink",
+            "offlineDownload",
         )
 
         /** 能力名 → 取值函数。新增能力时必须在这里补一行，否则测不到。 */
