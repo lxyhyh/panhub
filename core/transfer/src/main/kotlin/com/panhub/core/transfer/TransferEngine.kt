@@ -329,6 +329,26 @@ class TransferEngine(
         return true
     }
 
+    /**
+     * 把排队中的任务挪到队首。
+     *
+     * 队列是串行且按加入顺序跑的，用户排了十个文件之后突然要某个先传，
+     * 以前只能全部取消重排。这里只改顺序，不动任务本身的状态，
+     * 所以已经下好的 .part、已经算过的重试次数都还在。
+     *
+     * 正在跑的、已经结束的都不接受：前者是唯一的执行位、挪了也没用，
+     * 后者挪到前面只会让已完成的历史乱掉。
+     */
+    fun moveToFront(id: String): Boolean {
+        val task = _tasks.value.firstOrNull { it.id == id } ?: return false
+        if (task.state != TransferState.QUEUED && task.state != TransferState.PAUSED) return false
+        if (_tasks.value.firstOrNull()?.id == id) return false
+        push { list -> listOf(task) + list.filterNot { it.id == id } }
+        // 当前空闲时它就该立刻开始；正在跑的时候 pump 会直接返回，等跑完自然会挑到它。
+        pump()
+        return true
+    }
+
     /** 失败/取消的任务重新排队。完成的任务不能重试。 */
     fun retry(id: String): Boolean {
         val task = _tasks.value.firstOrNull { it.id == id } ?: return false

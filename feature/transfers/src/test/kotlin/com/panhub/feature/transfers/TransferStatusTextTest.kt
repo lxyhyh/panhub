@@ -101,4 +101,49 @@ class TransferStatusTextTest {
         )
         assertEquals(" · 1.0 MB/s · 还剩 不到 1 秒", text)
     }
+
+    @Test
+    fun theFirstQueuedTaskHasNobodyAhead() {
+        // 队列里只有它一个，下一个就是它。
+        val only = task(TransferState.QUEUED).copy(id = "q1")
+        assertEquals(0, TransferStatusText.aheadOf(listOf(only), only))
+    }
+
+    @Test
+    fun theRunningTaskCountsAsOneAhead() {
+        // 正在跑的那个跑完才轮到排队的人，所以它算一个。
+        val running = task(TransferState.RUNNING).copy(id = "r1")
+        val queued = task(TransferState.QUEUED).copy(id = "q1")
+        assertEquals(1, TransferStatusText.aheadOf(listOf(running, queued), queued))
+    }
+
+    @Test
+    fun pausedTasksAreNotCounted() {
+        // 暂停的任务不会自己跑起来，算进去会让人以为还要等它。
+        val paused = task(TransferState.PAUSED).copy(id = "p1")
+        val queued = task(TransferState.QUEUED).copy(id = "q1")
+        assertEquals(0, TransferStatusText.aheadOf(listOf(paused, queued), queued))
+    }
+
+    @Test
+    fun finishedTasksBehindDoNotCount() {
+        // 排在后面的任务与我的位置无关。
+        val queued = task(TransferState.QUEUED).copy(id = "q1")
+        val done = task(TransferState.COMPLETED).copy(id = "d1")
+        assertEquals(0, TransferStatusText.aheadOf(listOf(queued, done), queued))
+    }
+
+    @Test
+    fun tasksThatAreNotQueuedHaveNoPosition() {
+        val running = task(TransferState.RUNNING).copy(id = "r1")
+        val running2 = task(TransferState.RUNNING).copy(id = "r2")
+        assertEquals(0, TransferStatusText.aheadOf(listOf(running, running2), running2))
+    }
+
+    @Test
+    fun queueNoteSaysHowManyAreLeft() {
+        assertEquals("", TransferStatusText.queueNote(0))
+        assertEquals(" · 前面还有 1 个", TransferStatusText.queueNote(1))
+        assertEquals(" · 前面还有 3 个", TransferStatusText.queueNote(3))
+    }
 }

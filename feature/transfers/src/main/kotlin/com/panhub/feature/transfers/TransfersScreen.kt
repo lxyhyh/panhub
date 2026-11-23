@@ -188,10 +188,14 @@ fun TransfersScreen(
                             task = task,
                             speed = state.speeds[task.id],
                             accountNote = TransferAccountNote.note(task, state.accountLabels),
+                            // 用全部任务算，不用当前筛选后的列表：切到「已结束」时
+                            // 前面的排队任务会全被筛掉，那样算出来的位置是假的。
+                            queuedAhead = TransferStatusText.aheadOf(state.tasks, task),
                             onCancel = { viewModel.cancel(task.id) },
                             onPause = { viewModel.pause(task.id) },
                             onResume = { viewModel.resume(task.id) },
                             onRetry = { viewModel.retry(task.id) },
+                            onMoveToFront = { viewModel.moveToFront(task.id) },
                             onOpen = { path -> context.openDownloaded(path) },
                             onShare = { path -> context.shareDownloaded(path) },
                             onSaveAs = startExport,
@@ -237,10 +241,13 @@ private fun TaskCard(
     task: TransferTask,
     speed: Long?,
     accountNote: String,
+    /** 队列里排在它前面的任务数；0 表示下一个就是它。 */
+    queuedAhead: Int,
     onCancel: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
     onRetry: () -> Unit,
+    onMoveToFront: () -> Unit,
     onOpen: (String) -> Unit,
     onShare: (String) -> Unit,
     onSaveAs: (String) -> Unit,
@@ -280,7 +287,7 @@ private fun TaskCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = statusLine(task, speed) + accountNote,
+                        text = statusLine(task, speed, queuedAhead) + accountNote,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
@@ -329,7 +336,17 @@ private fun TaskCard(
                             TextButton(onClick = onResume) { Text("继续") }
                             TextButton(onClick = onCancel) { Text("取消") }
                         }
-                    task.state == TransferState.RUNNING || task.state == TransferState.QUEUED ->
+                    task.state == TransferState.QUEUED ->
+                        Row {
+                            // 串行队列里排了十个文件之后想先拿某一个，
+                            // 以前只能全部取消重排，所以给排队中的任务一个置顶。
+                            if (queuedAhead > 0) {
+                                TextButton(onClick = onMoveToFront) { Text("优先") }
+                            }
+                            TextButton(onClick = onPause) { Text("暂停") }
+                            TextButton(onClick = onCancel) { Text("取消") }
+                        }
+                    task.state == TransferState.RUNNING ->
                         Row {
                             TextButton(onClick = onPause) { Text("暂停") }
                             TextButton(onClick = onCancel) { Text("取消") }
@@ -356,7 +373,7 @@ private fun TaskCard(
     }
 }
 
-private fun statusLine(task: TransferTask, speed: Long?): String {
+private fun statusLine(task: TransferTask, speed: Long?, queuedAhead: Int): String {
     // 整理型任务（整目录下载、整目录转存）自己都不传字节，进度要看那些子任务，
     // 按普通任务拼「已传 / 总共」只会给出一行看不懂的数字。
     if (task.direction == TransferDirection.DOWNLOAD_FOLDER) return folderLine(task)
@@ -365,7 +382,7 @@ private fun statusLine(task: TransferTask, speed: Long?): String {
     val done = formatBytes(task.bytes)
     val total = task.totalBytes?.let { formatBytes(it) }
     return when (task.state) {
-        TransferState.QUEUED -> queuedLine(task) + attemptNote(task) + (total?.let { " · " + it } ?: "")
+        TransferState.QUEUED -> queuedLine(task) + attemptNote(task) + (total?.let { " · " + it } ?: "") + TransferStatusText.queueNote(queuedAhead)
         TransferState.RUNNING -> runningLine(task, done, total) + TransferStatusText.speedNote(task, speed) + attemptNote(task)
         TransferState.COMPLETED -> finishedLine(task) + " · " + done
         TransferState.FAILED -> "失败" + (task.error?.let { " · " + it } ?: "")

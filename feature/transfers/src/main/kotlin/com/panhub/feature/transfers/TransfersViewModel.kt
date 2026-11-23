@@ -127,6 +127,16 @@ class TransfersViewModel(
         engine.retry(id)
     }
 
+    /**
+     * 把排队中的任务挪到队首。
+     *
+     * 队列串行、按加入顺序跑，排了十个文件之后想先拿某一个，
+     * 以前只能全部取消重排；这里只改顺序。
+     */
+    fun moveToFront(id: String) {
+        engine.moveToFront(id)
+    }
+
     /** 网络恢复后一次把失败的任务都排回队列。 */
     fun retryFailed() {
         engine.retryAllFailed()

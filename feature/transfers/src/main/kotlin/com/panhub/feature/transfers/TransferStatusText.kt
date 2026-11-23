@@ -37,4 +37,29 @@ object TransferStatusText {
         val remaining = TransferEstimate.remainingMillis(task, speed) ?: return head
         return head + " · 还剩 " + TransferEstimate.describe(remaining)
     }
+
+    /**
+     * 这个任务前面还排着几个。
+     *
+     * 暂停的不算：它不会自己跑起来，算进去会让后面的人以为还要等它。
+     * 传入的必须是整条队列而不是筛选后的列表——切到「已结束」时
+     * 前面的排队任务会被筛掉，那样数出来的位置是假的。
+     */
+    fun aheadOf(queue: List<TransferTask>, task: TransferTask): Int {
+        if (task.state != TransferState.QUEUED) return 0
+        var count = 0
+        for (other in queue) {
+            if (other.id == task.id) break
+            // 正在跑的那个也在前面排着，它跑完才轮到我。
+            if (other.state == TransferState.RUNNING || other.state == TransferState.QUEUED) count++
+        }
+        return count
+    }
+
+    /** 前面还有几个；0 表示下一个就是它，说「马上开始」比说「第 1 个」更像人话。 */
+    fun queueNote(ahead: Int): String = when {
+        ahead <= 0 -> ""
+        ahead == 1 -> " · 前面还有 1 个"
+        else -> " · 前面还有 " + ahead + " 个"
+    }
 }
