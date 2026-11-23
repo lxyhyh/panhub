@@ -4,6 +4,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+      传输要在退到后台后继续跑，所以用前台服务。
+      Android 13 起通知要用户授权；没授权时服务仍能跑，只是通知不显示，
+      系统依然按前台服务给进程提优先级。
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
     <application
         android:name=".PanHubApp"
         android:allowBackup="true"
@@ -22,6 +31,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 传输前台服务：只在队列里有活的时候启动，传完自己停。 -->
+        <service
+            android:name=".transfer.TransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!--
           下载的文件落在应用私有目录，其他应用访问不到。
