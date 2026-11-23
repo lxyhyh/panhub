@@ -6,9 +6,12 @@ import com.panhub.core.model.NodePage
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
+import com.panhub.core.model.ShareEntry
+import com.panhub.core.model.ShareEntryPage
 import com.panhub.core.model.ShareLink
-import com.panhub.core.model.SharePage
 import com.panhub.core.model.ShareOptions
+import com.panhub.core.model.SharePage
+import com.panhub.core.model.ShareSource
 
 /**
  * 把「服务商 + 会话」绑定在一起的便捷视图。
@@ -62,4 +65,19 @@ class ScopedPanProvider(
 
     suspend fun listShares(page: PageRequest = PageRequest()): PanResult<SharePage> =
         provider.listShares(session, page)
+
+    suspend fun openShare(shareUrl: String, passcode: String? = null): PanResult<ShareSource> =
+        provider.openShare(session, shareUrl, passcode)
+
+    suspend fun listShare(
+        source: ShareSource,
+        parentId: NodeId?,
+        page: PageRequest = PageRequest(),
+    ): PanResult<ShareEntryPage> = provider.listShare(session, source, parentId, page)
+
+    suspend fun saveShare(
+        source: ShareSource,
+        entries: List<ShareEntry>,
+        targetParentId: NodeId?,
+    ): PanResult<Int> = provider.saveShare(session, source, entries, targetParentId)
 }

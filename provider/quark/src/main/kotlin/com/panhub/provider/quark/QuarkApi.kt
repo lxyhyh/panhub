@@ -227,6 +227,15 @@ internal class QuarkApi(
         const val PATH_SHARE_MYPAGE = "/share/mypage/detail"
         const val PATH_TASK = "/task"
 
+        /** 用「分享 id + 提取码」换 stoken（打开别人的分享）。 */
+        const val PATH_SHARE_PAGE_TOKEN = "/share/sharepage/token"
+
+        /** 列分享里的目录。 */
+        const val PATH_SHARE_PAGE_DETAIL = "/share/sharepage/detail"
+
+        /** 把分享里的条目转存到自己的网盘。 */
+        const val PATH_SHARE_PAGE_SAVE = "/share/sharepage/save"
+
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
         internal fun JsonElement?.asText(): String? = when (this) {

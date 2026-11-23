@@ -9,9 +9,11 @@ import com.panhub.core.model.PageRequest
 import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
+import com.panhub.core.model.ShareEntryPage
 import com.panhub.core.model.ShareLink
-import com.panhub.core.model.SharePage
 import com.panhub.core.model.ShareOptions
+import com.panhub.core.model.SharePage
+import com.panhub.core.model.ShareSource
 
 /**
  * 一个网盘服务商的全部能力。
@@ -127,6 +129,43 @@ interface PanProvider {
         session: ProviderSession,
         page: PageRequest = PageRequest(),
     ): PanResult<SharePage> = PanResult.Failure(PanError.notSupported("该网盘不支持查看分享列表"))
+
+    /**
+     * 打开别人发来的分享链接。
+     *
+     * [shareUrl] 是用户粘进来的整条链接，[passcode] 是提取码（没有就传 null）。
+     * 链接形态各服务商不一样，所以解析放在各 provider 内部做，上层只负责把原文传下来。
+     *
+     * 默认返回 UNSUPPORTED：转存是少数服务商才开放的能力，
+     * 没实现的服务商不该因为漏写这个方法而编译失败。
+     */
+    suspend fun openShare(
+        session: ProviderSession,
+        shareUrl: String,
+        passcode: String? = null,
+    ): PanResult<ShareSource> = PanResult.Failure(PanError.notSupported("该网盘不支持打开分享"))
+
+    /** 列出分享里的条目；[parentId] 为 null 表示分享的根目录。 */
+    suspend fun listShare(
+        session: ProviderSession,
+        source: ShareSource,
+        parentId: NodeId?,
+        page: PageRequest = PageRequest(),
+    ): PanResult<ShareEntryPage> =
+        PanResult.Failure(PanError.notSupported("该网盘不支持浏览分享内容"))
+
+    /**
+     * 把分享里的条目转存到自己的 [targetParentId] 目录。
+     *
+     * [entries] 用 [com.panhub.core.model.ShareEntry] 而不是 [NodeId]：
+     * 转存要回传分享内票据，只有条目自己知道票据是什么。
+     */
+    suspend fun saveShare(
+        session: ProviderSession,
+        source: ShareSource,
+        entries: List<com.panhub.core.model.ShareEntry>,
+        targetParentId: NodeId?,
+    ): PanResult<Int> = PanResult.Failure(PanError.notSupported("该网盘不支持转存分享"))
 }
 
 /** 一次下载所需的一切：URL + 必需的头（很多网盘校验 UA/Referer）。 */

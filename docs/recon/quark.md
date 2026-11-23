@@ -129,6 +129,47 @@ POST\n<Content-MD5>\napplication/xml\n<Date>\nx-oss-callback:<b64>\nx-oss-date:<
 请求参数来自 qrypt 的 `pkg/drivers/quark/share.go` 与 QuarkPanTool 的 `quark.py`
 （两者都用真实账号跑通，字段一致）。
 
+## 打开别人的分享并转存
+
+与「创建分享」是两条链路：这里要用分享的 pwd_id 换一张访问票据，
+再逐目录读条目、挑出要转存的条目提交。三步：
+
+1. **换票据**：`POST /share/sharepage/token`，body `{pwd_id, passcode, support_visit_limit_private_share:true}`，
+   响应 `data.stoken`（后续两步都要带）、`url_type`、`expired_at`、`title`、`share_type`、`author{nick_name,member_type,avatar_url}`。
+2. **读目录**：`GET /share/sharepage/detail`，query `pwd_id` `stoken` `pdir_fid`（根目录是 `0`）
+   `force=0` `_page` `_size=100` `ver=2` `_fetch_total=1` `_sort=file_type:asc,file_name:asc` `fetch_update_flag=1`；
+   **只有根目录**额外带 `_fetch_banner=1&_fetch_share=1`。响应 `data{is_owner, share, list[]}` + `metadata`。
+3. **转存**：`POST /share/sharepage/save`，body
+   `{fid_list, fid_token_list, to_pdir_fid, pwd_id, stoken, pdir_fid, scene:"link", exclude_fids:[]}`，
+   响应 `data{task_id, task_sync, task_resp{data}}`；`task_resp.data.status == 2` 表示同步完成，
+   否则按 `task_id` 轮询 `GET /task`（与创建分享用的是同一个任务接口）。
+
+### 分享条目的字段
+
+`fid`、`file_name`、`pdir_fid`（条目所在的分享目录）、`dir`（bool）、`size`、`format_type`、
+`updated_at`、`file_type`，以及**`share_fid_token`**——只对本次分享有效的取件凭据。
+转存时 `fid_list` 与 `fid_token_list` 要一一对应，缺一个都存不了。
+
+`pdir_fid` 在转存请求里填的是**条目出自哪个分享目录**，不是目标目录；
+目标目录是 `to_pdir_fid`。两者填反会存到分享里的那个目录下（或直接失败）。
+
+### 转存任务的结果
+
+任务对象里有 `save_as{save_as_top_fids, save_as_select_top_fids, to_pdir_fid, to_pdir_name, save_as_sum_num}`。
+**`save_as_top_fids` 最多只回 100 个**，所以不能拿它的长度当成功数；
+优先用 `save_as_sum_num`，没有才退回 `top_fids.size`。
+
+### 端点存在性探测（2026-11-23，无凭证）
+
+    POST /share/sharepage/token  → 404 {"status":404,"code":41006,"message":"分享不存在"}（假 pwd_id，端点存在且校验参数）
+    POST /share/sharepage/save   → 401 {"status":401,"code":31001,"message":"require login [guest]"}
+    POST /share/sharepage/definitelyNotReal → 404 {"timestamp":...,"status":404,"error":"Not Found","message":"No message available","path":...}
+
+两种 404 形状不同：业务失败带 `code` 与中文 message，路由不存在是 Spring 的默认体。
+这条对照是判断「端点存在但业务失败」与「路径写错」的唯一依据。
+
+请求参数来自 qrypt 的 `pkg/drivers/quark/share.go`（`OpenShare` / `ListShareEntries` / `SaveShareEntries`），
+该实现用真实账号跑通；本机无夸克账号，参数校验层面**没有实测**。
 ## 下载
 
 `/file/download` 返回的链接要求同时带 Cookie、`Referer: https://pan.quark.cn/`、
@@ -136,6 +177,7 @@ POST\n<Content-MD5>\napplication/xml\n<Date>\nx-oss-callback:<b64>\nx-oss-date:<
 
 ## 已实现
 
-`provider/quark` — 列表、容量、建目录、重命名、移动、删除、取下载地址、分片上传（含秒传）、创建/取消/列出分享。
-单测覆盖信封判定、错误映射、HTML 实体反转义、根目录常量，以及 OSS 待签串与
+`provider/quark` — 列表、容量、建目录、重命名、移动、删除、取下载地址、分片上传（含秒传）、创建/取消/列出分享、打开别人的分享并浏览与转存。
+单测覆盖信封判定、错误映射、HTML 实体反转义、根目录常量、分享链接解析（`QuarkShareLinkTest`）、
+转存三步的请求顺序与部分成功判定（`QuarkShareImporterTest`），以及 OSS 待签串与
 合并 XML 的逐字格式（`QuarkOssTest`）。

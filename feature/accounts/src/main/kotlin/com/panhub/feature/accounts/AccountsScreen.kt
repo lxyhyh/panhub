@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
@@ -82,6 +83,7 @@ fun AccountsScreen(
     onOpenAccount: (AccountId) -> Unit,
     onOpenTransfers: () -> Unit = {},
     onOpenShares: (AccountId) -> Unit = {},
+    onOpenShareImport: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val form by viewModel.form.collectAsStateWithLifecycle()
@@ -102,6 +104,9 @@ fun AccountsScreen(
             TopAppBar(
                 title = { Text("账号") },
                 actions = {
+                    IconButton(onClick = onOpenShareImport) {
+                        Icon(Icons.Default.FileDownload, contentDescription = "打开分享转存")
+                    }
                     IconButton(onClick = onOpenTransfers) {
                         Icon(Icons.Default.SwapVert, contentDescription = "传输列表")
                     }

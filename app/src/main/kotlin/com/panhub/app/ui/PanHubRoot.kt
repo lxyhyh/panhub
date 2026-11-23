@@ -18,6 +18,8 @@ import com.panhub.feature.accounts.AccountsScreen
 import com.panhub.feature.accounts.AccountsViewModel
 import com.panhub.feature.browser.BrowserScreen
 import com.panhub.feature.browser.BrowserViewModel
+import com.panhub.feature.shareimport.ShareImportScreen
+import com.panhub.feature.shareimport.ShareImportViewModel
 import com.panhub.feature.shares.SharesScreen
 import com.panhub.feature.shares.SharesViewModel
 
@@ -44,6 +46,7 @@ fun PanHubRoot(session: SessionManager, transfers: TransferEngine) {
                 },
                 onOpenTransfers = { nav.navigate(Routes.TRANSFERS) },
                 onOpenShares = { account -> nav.navigate(Routes.shares(account.value)) },
+                onOpenShareImport = { nav.navigate(Routes.SHARE_IMPORT) },
             )
         }
         composable(
@@ -76,6 +79,12 @@ fun PanHubRoot(session: SessionManager, transfers: TransferEngine) {
             )
             SharesScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
+        composable(Routes.SHARE_IMPORT) {
+            val vm: ShareImportViewModel = viewModel(
+                factory = factoryOf { ShareImportViewModel(session) },
+            )
+            ShareImportScreen(viewModel = vm, onBack = { nav.popBackStack() })
+        }
         composable(Routes.TRANSFERS) {
             val vm: TransfersViewModel = viewModel(
                 factory = factoryOf { TransfersViewModel(transfers) },
@@ -88,6 +97,7 @@ fun PanHubRoot(session: SessionManager, transfers: TransferEngine) {
 private object Routes {
     const val ACCOUNTS = "accounts"
     const val TRANSFERS = "transfers"
+    const val SHARE_IMPORT = "share-import"
     const val ARG_ACCOUNT = "accountId"
     const val BROWSER = "browser/{$ARG_ACCOUNT}"
     const val SHARES = "shares/{$ARG_ACCOUNT}"

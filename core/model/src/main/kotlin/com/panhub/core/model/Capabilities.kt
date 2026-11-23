@@ -24,6 +24,8 @@ data class ProviderCapabilities(
     val shareExpiry: Boolean = false,
     val directLink: Boolean = false,
     val offlineDownload: Boolean = false,
+    /** 能否打开别人发来的分享链接，并把里面的东西转存到自己的网盘。 */
+    val shareImport: Boolean = false,
 )
 
 /**

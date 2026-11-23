@@ -13,9 +13,12 @@ import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.ProviderId
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
+import com.panhub.core.model.ShareEntry
+import com.panhub.core.model.ShareEntryPage
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SharePage
+import com.panhub.core.model.ShareSource
 import com.panhub.core.network.HttpEngine
 import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
@@ -49,6 +52,7 @@ class QuarkProvider(
     private val api = QuarkApi(engine)
     private val uploader = QuarkUploader(api)
     private val shares = QuarkShareManager(api)
+    private val importer = QuarkShareImporter(api)
 
     /**
      * accountId -> 服务端轮换过的 Cookie 字段。
@@ -79,6 +83,7 @@ class QuarkProvider(
             shareList = true,
             sharePassword = true,
             shareExpiry = true,
+            shareImport = true,
         ),
     )
 
@@ -431,6 +436,44 @@ class QuarkProvider(
         val cookie = cookieOf(session)
             ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
         return shares.list(cookie, page) { renewed ->
+            rememberRenewed(session.accountId.value, renewed)
+        }
+    }
+
+    override suspend fun openShare(
+        session: ProviderSession,
+        shareUrl: String,
+        passcode: String?,
+    ): PanResult<ShareSource> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        return importer.open(cookie, shareUrl, passcode) { renewed ->
+            rememberRenewed(session.accountId.value, renewed)
+        }
+    }
+
+    override suspend fun listShare(
+        session: ProviderSession,
+        source: ShareSource,
+        parentId: NodeId?,
+        page: PageRequest,
+    ): PanResult<ShareEntryPage> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        return importer.list(cookie, source, parentId, page) { renewed ->
+            rememberRenewed(session.accountId.value, renewed)
+        }
+    }
+
+    override suspend fun saveShare(
+        session: ProviderSession,
+        source: ShareSource,
+        entries: List<ShareEntry>,
+        targetParentId: NodeId?,
+    ): PanResult<Int> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        return importer.save(cookie, source, entries, targetParentId) { renewed ->
             rememberRenewed(session.accountId.value, renewed)
         }
     }
