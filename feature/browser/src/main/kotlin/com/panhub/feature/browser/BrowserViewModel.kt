@@ -523,6 +523,21 @@ class BrowserViewModel(
         return true
     }
 
+    /**
+     * 跳到路径栏上的某一格。根目录是 [BrowserPath.ROOT_DEPTH]。
+     *
+     * 与连续按返回键的差别在请求数：一次点击只重新加载目标目录一次，
+     * 而不是每退一级都拉一遍中间目录的列表。
+     */
+    fun jumpTo(depth: Int): Boolean {
+        val stack = _state.value.stack
+        val target = if (depth <= BrowserPath.ROOT_DEPTH) emptyList() else stack.take(depth + 1)
+        if (target.size == stack.size) return false
+        _state.update { it.copy(stack = target) }
+        reloadFromScratch()
+        return true
+    }
+
     fun refresh() = load(refresh = true)
 
     fun createFolder(name: String) {

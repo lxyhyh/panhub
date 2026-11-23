@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -217,6 +219,13 @@ fun BrowserScreen(
                         containerColor = MaterialTheme.colorScheme.background,
                     ),
                 )
+                if (!state.selectionMode) {
+                    PathBar(
+                        accountName = state.accountName,
+                        stack = state.stack,
+                        onJump = viewModel::jumpTo,
+                    )
+                }
                 state.quota?.let { quota ->
                     QuotaBar(
                         used = quota.used,
@@ -804,6 +813,64 @@ private fun SortDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("完成") } },
     )
+}
+
+/**
+ * 顶部路径栏。
+ *
+ * 只显示到当前这一层为止的祖先，不做「点省略号展开全部」：
+ * 手机的横向空间本来就窄，多一层交互就把「我现在在哪儿」这件事又藏起来了。
+ * 当前层加粗且不可点，其余各层都是可点的祖先。
+ */
+@Composable
+private fun PathBar(
+    accountName: String,
+    stack: List<RemoteNode>,
+    onJump: (Int) -> Unit,
+) {
+    if (!BrowserPath.isJumpable(accountName, stack)) return
+    val crumbs = BrowserPath.crumbs(accountName, stack)
+    val current = BrowserPath.currentDepth(stack)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(start = Spacing.lg, end = Spacing.lg, bottom = Spacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        crumbs.forEachIndexed { index, crumb ->
+            if (index > 0) {
+                Text(
+                    text = "/",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = Spacing.xs),
+                )
+            }
+            val isCurrent = crumb.depth == current
+            Text(
+                text = crumb.label.ifEmpty { "未命名" },
+                style = MaterialTheme.typography.labelMedium,
+                color = if (isCurrent) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Radius.card))
+                    .then(
+                        if (isCurrent) {
+                            Modifier
+                        } else {
+                            Modifier.clickable { onJump(crumb.depth) }
+                        },
+                    )
+                    .padding(horizontal = Spacing.xs, vertical = 2.dp),
+            )
+        }
+    }
 }
 
 /**
