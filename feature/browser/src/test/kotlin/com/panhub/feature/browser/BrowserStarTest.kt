@@ -289,6 +289,80 @@ class BrowserStarTest {
     }
 
     @Test
+    fun selectingSeveralSendsThemInOneRequest() = runTest(dispatcher) {
+        val provider = FakeProvider(listOf(file("a.txt"), file("b.txt")))
+        val vm = viewModel(provider)
+        vm.start()
+        advanceUntilIdle()
+
+        vm.toggleSelect(file("a.txt"))
+        vm.toggleSelect(file("b.txt"))
+        vm.starSelected()
+        advanceUntilIdle()
+
+        // 收藏是幂等的标记，一次发完比逐个发更省事；服务端本来就收数组。
+        assertEquals(1, provider.starCalls.size)
+        assertEquals(
+            listOf(NodeId("/a.txt"), NodeId("/b.txt")),
+            provider.starCalls[0].first.sortedBy { it.value },
+        )
+        assertTrue(provider.starCalls[0].second)
+    }
+
+    @Test
+    fun selectingOnlyStarredItemsUnstarsThem() = runTest(dispatcher) {
+        val provider = FakeProvider(
+            listOf(file("a.txt", starred = true), file("b.txt", starred = true)),
+        )
+        val vm = viewModel(provider)
+        vm.start()
+        advanceUntilIdle()
+
+        vm.toggleSelect(file("a.txt", starred = true))
+        vm.toggleSelect(file("b.txt", starred = true))
+        vm.starSelected()
+        advanceUntilIdle()
+
+        assertEquals(1, provider.starCalls.size)
+        assertFalse(provider.starCalls[0].second)
+        assertTrue(vm.state.value.nodes.none { it.starred })
+    }
+
+    @Test
+    fun aMixedSelectionStarsEverything() = runTest(dispatcher) {
+        val provider = FakeProvider(
+            listOf(file("a.txt", starred = true), file("b.txt")),
+        )
+        val vm = viewModel(provider)
+        vm.start()
+        advanceUntilIdle()
+
+        vm.toggleSelect(file("a.txt", starred = true))
+        vm.toggleSelect(file("b.txt"))
+        vm.starSelected()
+        advanceUntilIdle()
+
+        // 混选时随「有没收藏的」走：用户想做的是把它们都收进来，
+        // 而不是因为第一个已经收藏过就全取消。
+        assertTrue(provider.starCalls[0].second)
+        assertTrue(vm.state.value.nodes.all { it.starred })
+    }
+
+    @Test
+    fun batchStarClearsTheSelection() = runTest(dispatcher) {
+        val provider = FakeProvider(listOf(file("a.txt")))
+        val vm = viewModel(provider)
+        vm.start()
+        advanceUntilIdle()
+
+        vm.toggleSelect(file("a.txt"))
+        vm.starSelected()
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.selected.isEmpty())
+    }
+
+    @Test
     fun aProviderDeclaringStarSupportShowsTheAction() = runTest(dispatcher) {
         val provider = FakeProvider(listOf(file("a.txt")))
         val vm = viewModel(provider)

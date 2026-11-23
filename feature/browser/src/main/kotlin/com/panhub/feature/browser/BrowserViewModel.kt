@@ -609,6 +609,47 @@ class BrowserViewModel(
         }
     }
 
+    /**
+     * 批量收藏 / 取消收藏。
+     *
+     * 一次请求带上所有 id（服务端就是收数组的），而不是像删除那样逐个发：
+     * 收藏是幂等的标记，中途失败一半也不好回滚，索性一次发完。
+     * 目标状态按「是不是全都已经收藏了」来定：全都收藏过就当作取消，
+     * 否则一律收藏——混选时让用户得到「都收藏上」，比随第一个的状态更符合预期。
+     */
+    fun starSelected() {
+        val provider = scoped ?: return
+        if (_state.value.busy) return
+        val nodes = selectedNodes()
+        if (nodes.isEmpty()) return
+        val target = !nodes.all { it.starred }
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            when (val result = provider.setStarred(nodes.map { it.id }, target)) {
+                is PanResult.Success -> {
+                    val ids = nodes.map { it.id }.toSet()
+                    _state.update { current ->
+                        current.copy(
+                            busy = false,
+                            selected = emptySet(),
+                            nodes = current.nodes.map {
+                                if (it.id in ids) it.copy(starred = target) else it
+                            },
+                            message = if (target) {
+                                "已收藏 " + nodes.size + " 项"
+                            } else {
+                                "已取消收藏 " + nodes.size + " 项"
+                            },
+                        )
+                    }
+                }
+                is PanResult.Failure -> _state.update {
+                    it.copy(busy = false, message = result.error.message)
+                }
+            }
+        }
+    }
+
     fun delete(node: RemoteNode) {
         val provider = scoped ?: return
         _state.update { it.copy(busy = true) }

@@ -307,7 +307,7 @@ fun BrowserScreen(
         },
         bottomBar = {
             if (state.selectionMode && (state.canShare || state.canMove || state.canCopy ||
-                state.canDownload || state.canCloudCopy)
+                state.canDownload || state.canCloudCopy || state.canStar)
             ) {
                 SelectionActionBar(
                     canShare = state.canShare,
@@ -315,6 +315,7 @@ fun BrowserScreen(
                     canCopy = state.canCopy,
                     canDownload = state.canDownload,
                     canCloudCopy = state.canCloudCopy,
+                    canStar = state.canStar,
                     onShare = { viewModel.withSelection { viewModel.openShareSheet(it) } },
                     onMove = { viewModel.withSelection { viewModel.openFolderPicker(it) } },
                     onCopy = {
@@ -324,6 +325,7 @@ fun BrowserScreen(
                     },
                     onDownload = viewModel::downloadSelected,
                     onCloudCopy = { viewModel.withSelection { viewModel.openCloudCopy(it) } },
+                    onStar = viewModel::starSelected,
                 )
             }
         },
@@ -553,11 +555,13 @@ private fun SelectionActionBar(
     canCopy: Boolean,
     canDownload: Boolean,
     canCloudCopy: Boolean,
+    canStar: Boolean,
     onShare: () -> Unit,
     onMove: () -> Unit,
     onCopy: () -> Unit,
     onDownload: () -> Unit,
     onCloudCopy: () -> Unit,
+    onStar: () -> Unit,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -568,40 +572,55 @@ private fun SelectionActionBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+                .padding(horizontal = Spacing.xs, vertical = Spacing.sm),
+            // 等分宽度而不是 SpaceEvenly：动作最多能有六个（分享/移动/复制/下载/转存/收藏），
+            // 按内容撑开会把最后的按钮挤出屏幕，等分至少保证每个都在。
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             if (canShare) {
-                SelectionAction("分享", Icons.Default.Share, onShare)
+                SelectionAction("分享", Icons.Default.Share, onShare, Modifier.weight(1f))
             }
             if (canMove) {
-                SelectionAction("移动", Icons.AutoMirrored.Filled.DriveFileMove, onMove)
+                SelectionAction("移动", Icons.AutoMirrored.Filled.DriveFileMove, onMove, Modifier.weight(1f))
             }
             if (canCopy) {
-                SelectionAction("复制", Icons.Default.ContentCopy, onCopy)
+                SelectionAction("复制", Icons.Default.ContentCopy, onCopy, Modifier.weight(1f))
             }
             if (canDownload) {
-                SelectionAction("下载", Icons.Default.Download, onDownload)
+                SelectionAction("下载", Icons.Default.Download, onDownload, Modifier.weight(1f))
             }
             if (canCloudCopy) {
-                SelectionAction("转存", Icons.Default.SyncAlt, onCloudCopy)
+                SelectionAction("转存", Icons.Default.SyncAlt, onCloudCopy, Modifier.weight(1f))
+            }
+            if (canStar) {
+                SelectionAction("收藏", Icons.Default.Star, onStar, Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun SelectionAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun SelectionAction(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(Radius.card))
             .clickable(onClick = onClick)
-            .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
+            .padding(vertical = Spacing.sm),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
         Spacer(Modifier.size(Spacing.xs))
-        Text(text = label, style = MaterialTheme.typography.labelMedium)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
