@@ -24,5 +24,8 @@ android {
 
 dependencies {
     api(project(":core:common"))
+    // FileHasher 用 kotlinx.serialization 解析内核返回的一行 JSON。
+    // 只解析字符串，不需要 serialization 编译器插件。
+    implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
 }

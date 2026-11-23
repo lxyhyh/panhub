@@ -2,6 +2,7 @@ package com.panhub.app.di
 
 import android.content.Context
 import com.panhub.core.common.Clock
+import com.panhub.core.kernel.KernelUpload
 import com.panhub.core.network.HttpEngine
 import com.panhub.core.platform.KeystoreCipher
 import com.panhub.core.session.DefaultSessionManager
@@ -84,14 +85,18 @@ object PanHubContainer {
 
     private fun build(app: Context): SessionManager {
         val engine = HttpEngine()
+        // 上传前的摘要计算是纯 IO 活，几 GB 的文件差一个量级。
+        // 内核编出来了就走 Rust，没编出来 KernelUpload 返回空实现，
+        // 各 provider 会自动退回自己的 Kotlin 实现。
+        val scanner = KernelUpload.scanner()
 
         val providers: List<PanProvider> = listOf(
             NutstoreProvider(engine),
-            Pan123Provider(engine),
+            Pan123Provider(engine, scanner),
             LanzouProvider(engine),
-            Cloud189Provider(engine),
-                        QuarkProvider(engine),
-                        BaiduProvider(engine),
+            Cloud189Provider(engine, scanner),
+            QuarkProvider(engine, scanner),
+            BaiduProvider(engine, scanner),
         )
 
         val registry = ProviderRegistry(providers)

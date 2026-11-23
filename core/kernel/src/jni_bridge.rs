@@ -13,7 +13,7 @@
 //!  - 用 `resolve::<ThrowRuntimeExAndDefault>()` 把 Rust 错误转成
 //!    java.lang.RuntimeException，并返回 null 作为默认值。
 
-use crate::{digest, error::KernelError, Hashes};
+use crate::{digest, error::KernelError, Hashes, UploadScan};
 use jni::errors::{Error as JniError, ThrowRuntimeExAndDefault};
 use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jlong, jstring};
@@ -100,8 +100,54 @@ pub extern "system" fn Java_com_panhub_core_kernel_NativeKernel_sliceMd5<'caller
             return Err(KernelError::Argument("offset/length 不能为负".into()).into());
         }
         let path_str = path.try_to_string(env)?;
-        let md5 = digest::slice_md5(std::path::Path::new(&path_str), offset as u64, length as u64)?;
+        let md5 = digest::slice_md5(
+            std::path::Path::new(&path_str),
+            offset as u64,
+            length as u64,
+        )?;
         Ok(md5)
+    })
+}
+
+/// 把 [UploadScan] 序列化成一行 JSON。
+///
+/// 分片列表可能很长（几个 GB 的文件有上千片），所以用 String 拼接而不是
+/// 引入 JSON 库：内核里所有字段都是十六进制串，不需要转义。
+fn scan_to_json(s: &UploadScan) -> String {
+    let slices = s
+        .slice_md5s
+        .iter()
+        .map(|md5| format!("\"{md5}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "{{\"md5\":\"{}\",\"sha1\":\"{}\",\"size\":{},\"prefixMd5\":\"{}\",\"sliceMd5s\":[{}]}}",
+        s.md5, s.sha1, s.size, s.prefix_md5, slices
+    )
+}
+
+/// 一遍读盘算出上传需要的全部摘要。
+///
+/// sliceSize 传 0 表示不算分片；prefixLimit 传 0 表示不算前缀摘要。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_panhub_core_kernel_NativeKernel_scanFile<'caller>(
+    mut unowned_env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    path: JString<'caller>,
+    slice_size: jlong,
+    prefix_limit: jlong,
+) -> jstring {
+    return_string(&mut unowned_env, move |env| {
+        if slice_size < 0 || prefix_limit < 0 {
+            return Err(KernelError::Argument("sliceSize/prefixLimit 不能为负".into()).into());
+        }
+        let path_str = path.try_to_string(env)?;
+        let scan = digest::scan_file(
+            std::path::Path::new(&path_str),
+            slice_size as u64,
+            prefix_limit as u64,
+        )?;
+        Ok(scan_to_json(&scan))
     })
 }
 

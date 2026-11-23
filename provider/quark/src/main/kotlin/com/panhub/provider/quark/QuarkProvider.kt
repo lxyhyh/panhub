@@ -2,6 +2,7 @@ package com.panhub.provider.quark
 
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
+import com.panhub.core.common.UploadScanner
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.AuthMethod
 import com.panhub.core.model.NodeId
@@ -47,10 +48,11 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class QuarkProvider(
     private val engine: HttpEngine = HttpEngine(),
+    private val scanner: UploadScanner = UploadScanner.None,
 ) : PanProvider {
 
     private val api = QuarkApi(engine)
-    private val uploader = QuarkUploader(api)
+    private val uploader = QuarkUploader(api, scanner)
     private val shares = QuarkShareManager(api)
     private val importer = QuarkShareImporter(api)
 

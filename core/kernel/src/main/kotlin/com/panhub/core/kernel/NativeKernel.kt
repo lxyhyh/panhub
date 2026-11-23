@@ -25,5 +25,13 @@ internal object NativeKernel {
     /** 对文件 [offset] 起 [length] 字节算 MD5，用于分片上传。 */
     external fun sliceMd5(path: String, offset: Long, length: Long): String
 
+    /**
+     * 一遍读盘算出上传需要的全部摘要，返回一行 JSON：
+     * {"md5","sha1","size","prefixMd5","sliceMd5s":[...]}。
+     *
+     * [sliceSize] 传 0 表示不算分片，[prefixLimit] 传 0 表示不算前缀摘要。
+     */
+    external fun scanFile(path: String, sliceSize: Long, prefixLimit: Long): String
+
     external fun kernelVersion(): String
 }

@@ -95,6 +95,102 @@ pub fn slice_md5(path: &Path, offset: u64, length: u64) -> Result<String, Kernel
     Ok(hex::encode(hasher.finalize()))
 }
 
+/// 一次扫描算出的上传摘要。
+///
+/// 各网盘要的东西不一样，但都能从同一遍读盘里拿到：
+///  - 123 云盘 / 坚果云只认整文件 MD5；
+///  - 夸克要 MD5 + SHA-1；
+///  - 百度要整文件 MD5 + 前 256 KiB 的 MD5 + 每个 4 MiB 分片的 MD5；
+///  - 天翼要整文件 MD5 + 每个 10 MiB 分片的 MD5。
+///
+/// 分开扫四遍等于把几个 GB 的文件读四遍，在手机上要多花十几秒 IO。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UploadScan {
+    /// 整文件 MD5，小写十六进制。
+    pub md5: String,
+    /// 整文件 SHA-1，小写十六进制。
+    pub sha1: String,
+    /// 文件字节数。
+    pub size: u64,
+    /// 开头 prefix_limit 字节的 MD5；prefix_limit 为 0 时是空串。
+    pub prefix_md5: String,
+    /// 每个分片的 MD5，小写十六进制，按顺序排列。
+    ///
+    /// 最后一片不满时按实际字节算；空文件返回空列表。
+    pub slice_md5s: Vec<String>,
+}
+
+/// 一遍读盘同时算整文件摘要、前缀摘要与逐分片摘要。
+///
+/// [slice_size] 为 0 时只算整文件与前缀摘要（不产生分片）。
+pub fn scan_file(
+    path: &Path,
+    slice_size: u64,
+    prefix_limit: u64,
+) -> Result<UploadScan, KernelError> {
+    let file = File::open(path)?;
+    let size = file.metadata()?.len();
+    let mut reader = BufReader::with_capacity(BUFFER_SIZE, file);
+    let mut buf = vec![0u8; BUFFER_SIZE];
+
+    let mut whole_md5 = Md5::new();
+    let mut whole_sha1 = Sha1::new();
+    let mut prefix = Md5::new();
+    let mut prefix_remaining = prefix_limit;
+
+    let mut slice = Md5::new();
+    let mut slice_filled = 0u64;
+    let mut slice_md5s: Vec<String> = Vec::new();
+
+    loop {
+        let read = reader.read(&mut buf)?;
+        if read == 0 {
+            break;
+        }
+        let chunk = &buf[..read];
+        whole_md5.update(chunk);
+        whole_sha1.update(chunk);
+
+        if prefix_remaining > 0 {
+            let take = std::cmp::min(prefix_remaining, read as u64) as usize;
+            prefix.update(&chunk[..take]);
+            prefix_remaining -= take as u64;
+        }
+
+        if slice_size > 0 {
+            let mut offset = 0usize;
+            while offset < read {
+                let room = (slice_size - slice_filled) as usize;
+                let take = std::cmp::min(room, read - offset);
+                slice.update(&chunk[offset..offset + take]);
+                offset += take;
+                slice_filled += take as u64;
+                if slice_filled == slice_size {
+                    slice_md5s.push(hex::encode(slice.finalize_reset()));
+                    slice_filled = 0;
+                }
+            }
+        }
+    }
+
+    // 最后不满一片的尾巴也要记下来，否则服务端算出来的分片数会对不上。
+    if slice_size > 0 && slice_filled > 0 {
+        slice_md5s.push(hex::encode(slice.finalize_reset()));
+    }
+
+    Ok(UploadScan {
+        md5: hex::encode(whole_md5.finalize()),
+        sha1: hex::encode(whole_sha1.finalize()),
+        size,
+        prefix_md5: if prefix_limit == 0 {
+            String::new()
+        } else {
+            hex::encode(prefix.finalize())
+        },
+        slice_md5s,
+    })
+}
+
 /// 把四个哈希器的更新逻辑收在一起，保证每个缓冲块只被处理一次。
 struct Digests {
     md5: Md5,
@@ -150,8 +246,7 @@ mod tests {
         let f = temp_file(b"");
         let h = hash_file(f.path()).unwrap();
         assert_eq!(
-            h.md5,
-            "d41d8cd98f00b204e9800998ecf8427e",
+            h.md5, "d41d8cd98f00b204e9800998ecf8427e",
             "空文件 MD5 是 RFC 1321 的固定值"
         );
         assert_eq!(
@@ -188,7 +283,10 @@ mod tests {
             slice_md5(f.path(), 3, 4).unwrap(),
             hex::encode(Md5::digest(b"defg"))
         );
-        assert_eq!(slice_md5(f.path(), 10, 0).unwrap(), "d41d8cd98f00b204e9800998ecf8427e");
+        assert_eq!(
+            slice_md5(f.path(), 10, 0).unwrap(),
+            "d41d8cd98f00b204e9800998ecf8427e"
+        );
     }
 
     #[test]
@@ -220,5 +318,70 @@ mod tests {
         assert_eq!(h.size, data.len() as u64);
         assert_eq!(h.md5, hex::encode(Md5::digest(&data)));
         assert_eq!(h.sha256, hex::encode(Sha256::digest(&data)));
+    }
+
+    #[test]
+    fn scan_reports_whole_prefix_and_slices_in_one_pass() {
+        let f = temp_file(b"abc");
+        let scan = scan_file(f.path(), 2, 2).unwrap();
+        assert_eq!(scan.md5, "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(scan.sha1, "a9993e364706816aba3e25717850c26c9cd0d89d");
+        assert_eq!(scan.size, 3);
+        assert_eq!(scan.prefix_md5, hex::encode(Md5::digest(b"ab")));
+        assert_eq!(
+            scan.slice_md5s,
+            vec![
+                hex::encode(Md5::digest(b"ab")),
+                hex::encode(Md5::digest(b"c")),
+            ]
+        );
+    }
+
+    #[test]
+    fn scan_without_slice_size_skips_slices() {
+        let f = temp_file(b"abcdefghij");
+        let scan = scan_file(f.path(), 0, 0).unwrap();
+        assert!(scan.slice_md5s.is_empty());
+        assert!(scan.prefix_md5.is_empty());
+        assert_eq!(scan.md5, hex::encode(Md5::digest(b"abcdefghij")));
+    }
+
+    #[test]
+    fn scan_of_empty_file_is_well_known() {
+        let f = temp_file(b"");
+        let scan = scan_file(f.path(), 4, 8).unwrap();
+        assert_eq!(scan.md5, "d41d8cd98f00b204e9800998ecf8427e");
+        assert_eq!(scan.sha1, "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+        assert_eq!(scan.size, 0);
+        assert!(scan.slice_md5s.is_empty());
+        assert_eq!(scan.prefix_md5, "d41d8cd98f00b204e9800998ecf8427e");
+    }
+
+    #[test]
+    fn scan_prefix_longer_than_file_covers_whole_file() {
+        let f = temp_file(b"abc");
+        let scan = scan_file(f.path(), 0, 4096).unwrap();
+        assert_eq!(scan.prefix_md5, scan.md5);
+    }
+
+    #[test]
+    fn scan_slices_cross_buffer_boundaries() {
+        // 分片大小不是缓冲区的整数分之一，强制「一次 read 跨多个分片」。
+        let data: Vec<u8> = (0..(BUFFER_SIZE * 2 + 17))
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let f = temp_file(&data);
+        let slice_size = 70_000u64;
+        let scan = scan_file(f.path(), slice_size, 1000).unwrap();
+
+        assert_eq!(scan.size, data.len() as u64);
+        assert_eq!(scan.md5, hex::encode(Md5::digest(&data)));
+        assert_eq!(scan.prefix_md5, hex::encode(Md5::digest(&data[..1000])));
+
+        let expected: Vec<String> = data
+            .chunks(slice_size as usize)
+            .map(|chunk| hex::encode(Md5::digest(chunk)))
+            .collect();
+        assert_eq!(scan.slice_md5s, expected);
     }
 }

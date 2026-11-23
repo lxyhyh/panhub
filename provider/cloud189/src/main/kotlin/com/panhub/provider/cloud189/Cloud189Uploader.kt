@@ -2,7 +2,9 @@ package com.panhub.provider.cloud189
 
 import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.PanError
+import com.panhub.core.common.KotlinUploadScanner
 import com.panhub.core.common.PanResult
+import com.panhub.core.common.UploadScanner
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.RemoteNode
@@ -10,6 +12,7 @@ import com.panhub.core.network.HttpEngine
 import com.panhub.core.network.StreamRequestBody
 import com.panhub.core.network.bounded
 import com.panhub.provider.api.PanProvider
+import com.panhub.provider.api.UploadDigestScan
 import com.panhub.provider.api.UploadSource
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -37,6 +40,7 @@ internal class Cloud189Uploader(
     private val engine: HttpEngine,
     private val random: Random = Random.Default,
     private val clock: () -> Long = { System.currentTimeMillis() },
+    private val scanner: UploadScanner = UploadScanner.None,
 ) {
 
     /** sessionKey 与 RSA 公钥都随会话有效，缓存起来省掉每片一次往返。 */
@@ -62,12 +66,32 @@ internal class Cloud189Uploader(
 
         // 摘要只算一遍：秒传判断和分片都要用，重算等于把文件读两遍。
         // 进度回调是挂起函数，不能从非挂起的 compute 里直接调，所以先记账再补报一次。
-        val digests = try {
-            source.openStream().use { input ->
-                Cloud189UploadDigest.compute(input, source.size)
+        // 有内核时这一遍走 Rust，分片摘要也一起带回来，下面换上传地址时直接用，
+        // 不必再为每个分片重开一次流。
+        val scanned = UploadDigestScan.scan(
+            scanner = scanner,
+            source = source,
+            sliceSize = Cloud189UploadDigest.SLICE_SIZE,
+            prefixLimit = 0L,
+        )
+        val digests = if (scanned != null) {
+            Cloud189UploadDigests(
+                fileMd5 = scanned.md5,
+                sliceMd5 = Cloud189UploadDigest.sliceMd5Of(
+                    sliceMd5s = scanned.sliceMd5s.map { it.uppercase() },
+                    fileMd5 = scanned.md5,
+                    size = source.size,
+                ),
+                sliceMd5s = scanned.sliceMd5s.map { it.uppercase() },
+            )
+        } else {
+            try {
+                source.openStream().use { input ->
+                    Cloud189UploadDigest.compute(input, source.size)
+                }
+            } catch (io: IOException) {
+                return PanResult.Failure(PanError.network(io.message ?: "读取本地文件失败", io))
             }
-        } catch (io: IOException) {
-            return PanResult.Failure(PanError.network(io.message ?: "读取本地文件失败", io))
         }
         // 摘要阶段占进度条前 10%，剩下的留给真正的传输。
         listener.onProgress(source.size / 10L, source.size)
@@ -108,7 +132,10 @@ internal class Cloud189Uploader(
             currentCoroutineContext().ensureActive()
             val offset = (index - 1).toLong() * sliceSize
             val length = minOf(sliceSize, total - offset)
-            val sliceMd5 = sliceDigest(source, offset, length)
+            // 扫描时已经算过分片摘要就换算成 Base64，省掉每片一次重开流。
+            val sliceMd5 = digests.sliceMd5s.getOrNull(index - 1)?.let { hex ->
+                Base64.getEncoder().encodeToString(KotlinUploadScanner.hexToBytes(hex.lowercase()))
+            } ?: sliceDigest(source, offset, length)
                 ?: return PanResult.Failure(PanError.network("读取第 " + index + " 个分片失败"))
 
             val urls = when (

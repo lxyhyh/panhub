@@ -4,12 +4,14 @@ import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.FileDigest
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
+import com.panhub.core.common.UploadScanner
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.network.StreamRequestBody
 import com.panhub.core.network.bounded
 import com.panhub.provider.api.PanProvider
+import com.panhub.provider.api.UploadDigestScan
 import com.panhub.provider.api.UploadSource
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -41,6 +43,7 @@ import java.util.TimeZone
  */
 internal class QuarkUploader(
     private val api: QuarkApi,
+    private val scanner: UploadScanner = UploadScanner.None,
 ) {
 
     suspend fun upload(
@@ -55,10 +58,16 @@ internal class QuarkUploader(
         }
 
         // 摘要只算一遍：服务端同时要 MD5 和 SHA-1 才肯认秒传。
-        val digests = try {
-            source.openStream().use { FileDigest.md5AndSha1(it) }
-        } catch (io: IOException) {
-            return PanResult.Failure(PanError.network(io.message ?: "读取本地文件失败", io))
+        // 有内核时这一遍走 Rust，算完顺手把 SHA-1 也带回来，不用读第二次。
+        val scanned = UploadDigestScan.scan(scanner, source, sliceSize = 0L, prefixLimit = 0L)
+        val digests = if (scanned != null) {
+            scanned.md5 to scanned.sha1
+        } else {
+            try {
+                source.openStream().use { FileDigest.md5AndSha1(it) }
+            } catch (io: IOException) {
+                return PanResult.Failure(PanError.network(io.message ?: "读取本地文件失败", io))
+            }
         }
 
         val ticket = when (val result = pre(source, parentId, cookieProvider, onRenewed)) {

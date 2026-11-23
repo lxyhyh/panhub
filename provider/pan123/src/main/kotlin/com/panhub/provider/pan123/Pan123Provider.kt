@@ -2,6 +2,7 @@ package com.panhub.provider.pan123
 
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
+import com.panhub.core.common.UploadScanner
 import com.panhub.core.common.map
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.AuthMethod
@@ -38,11 +39,12 @@ import kotlinx.serialization.json.Json
  */
 class Pan123Provider(
     private val engine: HttpEngine = HttpEngine(),
+    private val scanner: UploadScanner = UploadScanner.None,
 ) : PanProvider {
 
     private val api = Pan123Api(engine)
     private val json = api.json
-    private val uploader = Pan123Uploader(api, json)
+    private val uploader = Pan123Uploader(api, json, scanner)
     private val importer = Pan123ShareImporter(api, json)
 
     override val descriptor = ProviderDescriptor(

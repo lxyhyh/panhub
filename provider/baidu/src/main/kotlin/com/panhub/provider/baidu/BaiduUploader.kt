@@ -3,6 +3,7 @@ package com.panhub.provider.baidu
 import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
+import com.panhub.core.common.UploadScanner
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.RemoteNode
@@ -10,6 +11,7 @@ import com.panhub.core.network.HttpEngine
 import com.panhub.core.network.StreamRequestBody
 import com.panhub.core.network.bounded
 import com.panhub.provider.api.PanProvider
+import com.panhub.provider.api.UploadDigestScan
 import com.panhub.provider.api.UploadSource
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -38,6 +40,7 @@ import java.io.IOException
 internal class BaiduUploader(
     private val engine: HttpEngine,
     private val api: BaiduApi,
+    private val scanner: UploadScanner = UploadScanner.None,
 ) {
 
     suspend fun upload(
@@ -51,10 +54,26 @@ internal class BaiduUploader(
         }
 
         val path = BaiduProvider.joinPath(parentPath, source.name)
-        val digests = try {
-            source.openStream().use { BaiduUploadDigest.compute(it, source.size) }
-        } catch (io: IOException) {
-            return PanResult.Failure(PanError.network(io.message ?: "读取本地文件失败", io))
+        // 百度要的三个摘要（整文件 MD5、前 256 KiB 的 MD5、每 4 MiB 分片 MD5）
+        // 正好是内核一次扫描的产物；没有内核时退回自己读流。
+        val scanned = UploadDigestScan.scan(
+            scanner = scanner,
+            source = source,
+            sliceSize = BaiduUploadDigest.SLICE_SIZE,
+            prefixLimit = BaiduUploadDigest.SLICE_MD5_LIMIT,
+        )
+        val digests = if (scanned != null) {
+            BaiduUploadDigests(
+                contentMd5 = scanned.md5,
+                sliceMd5 = scanned.prefixMd5,
+                blockList = scanned.sliceMd5s,
+            )
+        } else {
+            try {
+                source.openStream().use { BaiduUploadDigest.compute(it, source.size) }
+            } catch (io: IOException) {
+                return PanResult.Failure(PanError.network(io.message ?: "读取本地文件失败", io))
+            }
         }
 
         val pre = when (

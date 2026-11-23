@@ -28,7 +28,7 @@
 | \`:core:storage\` | 账号持久化（JSON + AES-GCM 加密） |
 | \`:core:session\` | 会话管理：登录、恢复、跨 provider 的账号表 |
 | \`:core:transfer\` | 上传/下载队列、整目录上传与下载、跨网盘转存与整目录复制（串行执行、可取消、断点续传、队列存档、网络抖动自动退避重试） |
-| \`:core:kernel\` | Rust 内核 + JNI 桥接（MD5/SHA1/SHA256/CRC32、分片 MD5） |
+| \`:core:kernel\` | Rust 内核 + JNI 桥接（MD5/SHA1/SHA256/CRC32、分片 MD5、上传摘要一次扫描） |
 | \`:core:platform\` | 只依赖系统的能力：Android Keystore 加密 |
 | \`:provider:api\` | PanProvider 接口 + ProviderRegistry + ScopedPanProvider + UploadSource |
 | \`:provider:webdav\` | WebDAV 客户端与坚果云实现（含流式上传） |
@@ -58,6 +58,11 @@
 跨网盘转存不需要服务商提供额外接口：源端取下载直链、目标端走上传，
 任何同时支持下载与上传的两个账号之间都能转存。中间文件落应用缓存目录，
 传完即删。
+
+上传前的摘要计算走 \`:core:kernel\` 的 \`scan_file\`：一遍读盘同时算出整文件
+MD5、SHA-1、前缀 MD5 与逐分片 MD5，四家网盘各取所需。没有 NDK 产物时
+（本机调试构建）\`KernelUpload.scanner()\` 返回空实现，各 provider 自动退回
+自己的 Kotlin 实现，所以「有没有内核」不影响正确性，只影响大文件的准备时间。
 
 复制整个文件夹时，先在目标账号里按原层级把空目录逐层建出来，再把每个文件
 当成一次普通的转存排进队列；目标账号必须支持新建文件夹。已经在目标端建好的

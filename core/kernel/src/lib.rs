@@ -19,5 +19,5 @@ mod digest;
 mod error;
 mod jni_bridge;
 
-pub use digest::{hash_bytes, hash_file, slice_md5, Hashes};
+pub use digest::{hash_bytes, hash_file, scan_file, slice_md5, Hashes, UploadScan};
 pub use error::KernelError;

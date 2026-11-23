@@ -3,12 +3,14 @@ package com.panhub.provider.pan123
 import com.panhub.core.common.FileDigest
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
+import com.panhub.core.common.UploadScanner
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.network.StreamRequestBody
 import com.panhub.core.network.bounded
 import com.panhub.provider.api.PanProvider
+import com.panhub.provider.api.UploadDigestScan
 import com.panhub.provider.api.UploadSource
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -29,6 +31,7 @@ import java.util.concurrent.atomic.AtomicLong
 internal class Pan123Uploader(
     private val api: Pan123Api,
     private val json: Json,
+    private val scanner: UploadScanner = UploadScanner.None,
 ) {
 
     suspend fun upload(
@@ -41,7 +44,9 @@ internal class Pan123Uploader(
             return PanResult.Failure(PanError.notSupported("暂不支持上传空文件"))
         }
 
-        val etag = runCatching {
+        // 有内核就走内核（一遍读盘、走 Rust），没有就退回逐流算 MD5。
+        val scanned = UploadDigestScan.scan(scanner, source, sliceSize = 0L, prefixLimit = 0L)
+        val etag = scanned?.md5 ?: runCatching {
             source.openStream().use { FileDigest.md5(it) }
         }.getOrElse { e ->
             return PanResult.Failure(PanError.unknown("读取本地文件失败", e.message, e))

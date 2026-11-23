@@ -2,6 +2,7 @@ package com.panhub.provider.baidu
 
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
+import com.panhub.core.common.UploadScanner
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.AuthMethod
 import com.panhub.core.model.NodeId
@@ -47,11 +48,12 @@ import kotlinx.serialization.json.buildJsonObject
  */
 class BaiduProvider(
     private val engine: HttpEngine = HttpEngine(),
+    private val scanner: UploadScanner = UploadScanner.None,
 ) : PanProvider {
 
     private val api = BaiduApi(engine)
 
-    private val uploader = BaiduUploader(engine, api)
+    private val uploader = BaiduUploader(engine, api, scanner)
 
     override val descriptor = ProviderDescriptor(
         id = ProviderId(ID),

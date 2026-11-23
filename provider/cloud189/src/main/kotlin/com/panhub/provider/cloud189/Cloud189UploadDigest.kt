@@ -70,13 +70,31 @@ internal object Cloud189UploadDigest {
         }
 
         val fileMd5 = whole.digest().toLowerHex()
-        val sliceMd5 = if (size > sliceSize && slices.isNotEmpty()) {
-            MessageDigest.getInstance("MD5")
-                .digest(slices.joinToString("\n").toByteArray(Charsets.UTF_8))
-                .toLowerHex()
-        } else {
-            fileMd5
-        }
-        return Cloud189UploadDigests(fileMd5 = fileMd5, sliceMd5 = sliceMd5, sliceMd5s = slices)
+        return Cloud189UploadDigests(
+            fileMd5 = fileMd5,
+            sliceMd5 = sliceMd5Of(slices, fileMd5, size, sliceSize),
+            sliceMd5s = slices,
+        )
+    }
+
+    /**
+     * 由逐片摘要拼出 sliceMd5。
+     *
+     * 规则：文件大于一片时，把所有分片 MD5（大写）用换行连起来再取一次 MD5；
+     * 否则服务端要求 sliceMd5 直接等于 fileMd5。
+     *
+     * 单独抽出来是因为内核扫描出的分片摘要也要走同一套拼法，两边算法一旦
+     * 不一致，秒传判断会静默失效（服务端只是不回 fileDataExists）。
+     */
+    fun sliceMd5Of(
+        sliceMd5s: List<String>,
+        fileMd5: String,
+        size: Long,
+        sliceSize: Long = SLICE_SIZE,
+    ): String {
+        if (size <= sliceSize || sliceMd5s.isEmpty()) return fileMd5
+        return MessageDigest.getInstance("MD5")
+            .digest(sliceMd5s.joinToString("\n").toByteArray(Charsets.UTF_8))
+            .toLowerHex()
     }
 }
