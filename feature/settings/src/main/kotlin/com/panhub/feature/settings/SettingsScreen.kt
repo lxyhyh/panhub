@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,7 +49,13 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBack: () -> Unit,
 ) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
+    val state by viewModel.ui.collectAsStateWithLifecycle()
+    val message = state.message
+    LaunchedEffect(message) {
+        if (message == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(3000)
+        viewModel.clearMessage()
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -115,6 +123,61 @@ fun SettingsScreen(
                             Switch(
                                 checked = state.wifiOnly,
                                 onCheckedChange = { viewModel.setWifiOnly(it) },
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                PanCard {
+                    Column {
+                        SectionTitle("存储")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = state.canClearCache) { viewModel.clearCache() }
+                                .padding(vertical = Spacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "清理缓存",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = state.cacheLine,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (state.clearing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Text(
+                                    text = "清理",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = if (state.canClearCache) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            }
+                        }
+                        Hint(
+                            "只清上传前复制的副本和跨网盘中转的临时文件。" +
+                                "下载下来的文件、账号、传输队列都不受影响。",
+                        )
+                        state.message?.let { line ->
+                            Text(
+                                text = line,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = Spacing.sm),
                             )
                         }
                     }

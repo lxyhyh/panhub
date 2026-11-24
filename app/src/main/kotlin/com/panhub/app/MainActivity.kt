@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
                     settings = settings,
                     info = info,
                     downloadsRoot = File(filesDir, "downloads"),
+                    caches = PanHubContainer.cacheCleaner(this@MainActivity),
                     share = sharedLink.value,
                     onShareConsumed = { sharedLink.value = null },
                 )

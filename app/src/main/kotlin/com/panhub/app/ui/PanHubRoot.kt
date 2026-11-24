@@ -28,6 +28,7 @@ import com.panhub.feature.shareimport.ShareImportViewModel
 import com.panhub.core.platform.SettingsRepository
 import com.panhub.feature.settings.AppInfo
 import com.panhub.feature.settings.SettingsScreen
+import com.panhub.core.platform.CacheCleaner
 import com.panhub.feature.settings.SettingsViewModel
 import com.panhub.feature.search.SearchScreen
 import com.panhub.feature.search.SearchViewModel
@@ -62,6 +63,7 @@ fun PanHubRoot(
     settings: SettingsRepository,
     info: AppInfo,
     downloadsRoot: File,
+    caches: CacheCleaner,
     share: SharedLink? = null,
     onShareConsumed: () -> Unit = {},
 ) {
@@ -225,7 +227,7 @@ fun PanHubRoot(
         }
         composable(Routes.SETTINGS) {
             val vm: SettingsViewModel = viewModel(
-                factory = factoryOf { SettingsViewModel(settings, info) },
+                factory = factoryOf { SettingsViewModel(settings, info, caches) },
             )
             SettingsScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }

@@ -5,7 +5,9 @@ import com.panhub.core.common.Clock
 import com.panhub.core.kernel.KernelUpload
 import com.panhub.core.network.HttpEngine
 import com.panhub.core.platform.JsonSettingsStore
+import com.panhub.core.platform.CacheCleaner
 import com.panhub.core.platform.KeystoreCipher
+import com.panhub.core.platform.LocalCacheCleaner
 import com.panhub.core.platform.SettingsRepository
 import com.panhub.core.preview.HttpPreviewLoader
 import com.panhub.core.preview.PreviewLoader
@@ -108,6 +110,21 @@ object PanHubContainer {
             ).also { settings = it }
         }
 
+    /**
+     * 缓存清理。
+     *
+     * 只认我们自己造的两处临时目录：上传前复制的副本（cacheDir/upload）
+     * 与跨网盘中转文件（cacheDir/cloud-copy）。filesDir 里的下载、账号、
+     * 传输队列、设置都不在里面——「清理缓存」不该删掉用户的下载。
+     */
+    fun cacheCleaner(context: Context): CacheCleaner {
+        val app = applicationContext(context)
+        return LocalCacheCleaner(
+            uploadDir = File(app.cacheDir, UPLOAD_CACHE_DIR),
+            scratchDir = File(app.cacheDir, CLOUD_COPY_DIR),
+        )
+    }
+
     private fun applicationContext(context: Context): Context =
         context.applicationContext ?: context
 
@@ -174,4 +191,10 @@ object PanHubContainer {
 
     /** 本地设置（目前只有外观），同上。 */
     private const val SETTINGS_FILE = "settings.json"
+
+    /** 上传前复制文件用的缓存目录名（cacheDir 下）。 */
+    private const val UPLOAD_CACHE_DIR = "upload"
+
+    /** 跨网盘复制的中转目录名（cacheDir 下）。 */
+    private const val CLOUD_COPY_DIR = "cloud-copy"
 }
