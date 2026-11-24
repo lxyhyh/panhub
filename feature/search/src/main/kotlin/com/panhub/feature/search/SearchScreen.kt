@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -112,7 +113,7 @@ fun SearchScreen(
                 )
             }
 
-            // 失败与截断的说明必须一直挂着：有结果时也要看得到「还有家没搜成」，
+            // 失败与跳过的说明必须一直挂着：有结果时也要看得到「还有家没搜成」，
             // 否则用户会把不完整的结果当成全部。
             HintBlock(state)
 
@@ -129,6 +130,27 @@ fun SearchScreen(
                     item(key = "group-" + accountName) { GroupHeader(accountName, hits.size) }
                     items(hits, key = { hit -> hit.key }) { hit ->
                         HitRow(hit) { onOpenHit(hit.accountId, hit.focus) }
+                    }
+                }
+                // 还有下一页时才出现。一次每账号只取 100 条，关键字宽的时候
+                // 一家网盘就可能远超这个数，不给入口等于把后面的结果藏了。
+                if (state.hasMore) {
+                    item(key = "load-more") {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = state.moreNames.joinToString("、") + " 还有更多结果",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = Spacing.sm),
+                            )
+                            TextButton(
+                                onClick = viewModel::loadMore,
+                                enabled = !state.loadingMore,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(if (state.loadingMore) "正在加载…" else "加载更多")
+                            }
+                        }
                     }
                 }
             }
@@ -159,16 +181,6 @@ private fun HintBlock(state: SearchUiState) {
                 }
             }
             Spacer(Modifier.size(Spacing.sm))
-        }
-        if (state.truncated.isNotEmpty()) {
-            Text(
-                text = state.truncated.joinToString("、") + " 的结果超过 " +
-                    SearchLogic.PER_ACCOUNT_LIMIT + " 条，只显示前 " +
-                    SearchLogic.PER_ACCOUNT_LIMIT + " 条",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.size(Spacing.xs))
         }
         if (state.skipped.isNotEmpty()) {
             Text(

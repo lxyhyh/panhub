@@ -163,14 +163,53 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun aFullPageIsReportedAsTruncated() = runTest {
-        val many = (1..SearchLogic.PER_ACCOUNT_LIMIT).map { RemoteNode(NodeId("n" + it), null, "f" + it, NodeKind.FILE) }
-        val provider = StubProvider(PanResult.Success(NodePage(many, null)))
+    fun aProviderWithAnotherPageOffersToLoadMore() = runTest {
+        val provider = StubProvider(PanResult.Success(NodePage(listOf(file("a")), nextCursor = "2")))
         val vm = SearchViewModel(StubSession(listOf(summary("quark:1", "夸克")), mapOf("quark:1" to provider)))
         vm.setQuery("报告")
         vm.submit()
         advanceUntilIdle()
-        assertEquals(listOf("夸克"), vm.state.value.truncated)
+        assertTrue(vm.state.value.hasMore)
+        assertEquals(listOf("夸克"), vm.state.value.moreNames)
+    }
+
+    @Test
+    fun loadingMoreAppendsTheSecondPageWithItsCursor() = runTest {
+        val provider = StubProvider(PanResult.Success(NodePage(listOf(file("a")), nextCursor = "2")))
+        provider.followUp = NodePage(listOf(file("b")), nextCursor = null)
+        val vm = SearchViewModel(StubSession(listOf(summary("quark:1", "夸克")), mapOf("quark:1" to provider)))
+        vm.setQuery("报告")
+        vm.submit()
+        advanceUntilIdle()
+        vm.loadMore()
+        advanceUntilIdle()
+        assertEquals(listOf("a", "b"), vm.state.value.hits.map { it.node.id.value })
+        assertEquals(listOf(null, "2"), provider.cursors)
+        assertFalse(vm.state.value.hasMore)
+    }
+
+    @Test
+    fun loadingMoreKeepsTheOldResultsInPlace() = runTest {
+        val provider = StubProvider(PanResult.Success(NodePage(listOf(file("a"), file("b")), nextCursor = "2")))
+        provider.followUp = NodePage(listOf(file("c")), nextCursor = null)
+        val vm = SearchViewModel(StubSession(listOf(summary("quark:1", "夸克")), mapOf("quark:1" to provider)))
+        vm.setQuery("报告")
+        vm.submit()
+        advanceUntilIdle()
+        vm.loadMore()
+        advanceUntilIdle()
+        // 已经看过的那批不换位置，否则用户会以为自己点错了。
+        assertEquals(listOf("a", "b", "c"), vm.state.value.hits.map { it.node.id.value })
+    }
+
+    @Test
+    fun aFailedAccountNeverAdvertisesMore() = runTest {
+        val broken = StubProvider(PanResult.Failure(PanError.network("网络不通")))
+        val vm = SearchViewModel(StubSession(listOf(summary("quark:1", "夸克")), mapOf("quark:1" to broken)))
+        vm.setQuery("报告")
+        vm.submit()
+        advanceUntilIdle()
+        assertFalse(vm.state.value.hasMore)
     }
 
     @Test
@@ -182,6 +221,8 @@ class SearchViewModelTest {
         advanceUntilIdle()
         assertEquals(listOf(SearchLogic.PER_ACCOUNT_LIMIT), provider.limits)
     }
+
+    private fun file(id: String) = RemoteNode(NodeId(id), null, id + ".txt", NodeKind.FILE)
 
     private fun page(vararg ids: String) = NodePage(
         ids.map { RemoteNode(NodeId(it), null, it + ".txt", NodeKind.FILE) },
@@ -200,6 +241,10 @@ class SearchViewModelTest {
     private class StubProvider(private val result: PanResult<NodePage>) : PanProvider {
         val queries = mutableListOf<String>()
         val limits = mutableListOf<Int>()
+        val cursors = mutableListOf<String?>()
+
+        /** 第二页及之后给什么；null 表示和第一页一样。 */
+        var followUp: NodePage? = null
 
         override val descriptor = ProviderDescriptor(
             id = ProviderId("p"),
@@ -277,7 +322,9 @@ class SearchViewModelTest {
         ): PanResult<NodePage> {
             queries += query
             limits += page.limit
-            return result
+            cursors += page.cursor
+            // 第一页用构造时给的，之后的页用 followUp 覆盖。
+            return if (page.cursor == null) result else followUp?.let { PanResult.Success(it) } ?: result
         }
     }
 

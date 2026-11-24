@@ -33,15 +33,31 @@ data class SearchUiState(
     val failures: List<SearchFailure> = emptyList(),
     /** 这次没参与搜索的账号名（服务商没有搜索能力）。 */
     val skipped: List<String> = emptyList(),
-    /** 撞到每账号上限、结果被截断的账号名。 */
-    val truncated: List<String> = emptyList(),
+    /** 服务端说还有下一页的账号（账号 id、账号名、下一页游标）。 */
+    val cursors: List<SearchCursor> = emptyList(),
+    val loadingMore: Boolean = false,
 ) {
     val groups: List<Pair<String, List<SearchHit>>> get() = SearchLogic.grouped(hits)
     val summary: String get() = SearchLogic.summary(this)
     val canSubmit: Boolean get() = query.isNotBlank() && !busy
     val hasBackground: Boolean get() = busy || !searched || resultsEmpty
+    // 不看 loadingMore：正在加载时按钮要留在原地显示「正在加载…」，
+    // 把整行收掉会让列表在页底跳一下。
+    val hasMore: Boolean get() = cursors.isNotEmpty() && !busy
+    val moreNames: List<String> get() = cursors.map { it.accountName }
     private val resultsEmpty: Boolean get() = hits.isEmpty() && failures.isEmpty()
 }
+
+/**
+ * 某个账号还有下一页。
+ *
+ * 带上账号名是为了界面上能说清「是夸克还有更多」，而不是干巴巴一句「还有更多」。
+ */
+data class SearchCursor(
+    val accountId: AccountId,
+    val accountName: String,
+    val cursor: String,
+)
 
 /**
  * 跨账号搜索。
@@ -83,7 +99,8 @@ class SearchViewModel(
                 searched = true,
                 hits = emptyList(),
                 failures = emptyList(),
-                truncated = emptyList(),
+                cursors = emptyList(),
+                loadingMore = false,
             )
         }
         job = viewModelScope.launch {
@@ -103,16 +120,16 @@ class SearchViewModel(
             val failures = outcomes.mapNotNull { outcome ->
                 outcome.error?.let { SearchFailure(outcome.account.label, it) }
             }
-            val truncated = outcomes
-                .filter { it.hits != null && it.hits.size >= SearchLogic.PER_ACCOUNT_LIMIT }
-                .map { it.account.label }
             _state.update {
                 it.copy(
                     busy = false,
+                    loadingMore = false,
                     hits = SearchLogic.merge(it.hits, hits),
                     failures = failures,
                     skipped = skipped,
-                    truncated = truncated,
+                    cursors = SearchLogic.cursorsOf(outcomes.map { o ->
+                        SearchCursor(o.account.id, o.account.label, o.cursor.orEmpty())
+                    }, outcomes.filter { it.hits != null }.map { o -> o.account.id.value }.toSet()),
                 )
             }
         }
@@ -123,22 +140,71 @@ class SearchViewModel(
 
     fun accountOf(hit: SearchHit): AccountId = hit.accountId
 
-    private suspend fun searchOne(account: AccountSummary, keyword: String): Outcome {
+    /**
+     * 「还有更多」：对每家还留了游标的账号再要一页。
+     *
+     * 只追加不重排：用户已经看过的那批结果不该在点一下之后换位置，
+     * 否则他会以为自己点错了。
+     */
+    fun loadMore() {
+        val cursors = _state.value.cursors
+        if (cursors.isEmpty()) return
+        if (_state.value.busy || _state.value.loadingMore) return
+        val keyword = _state.value.query.trim()
+        if (keyword.isEmpty()) return
+        _state.update { it.copy(loadingMore = true) }
+        job = viewModelScope.launch {
+            val accounts = session.accounts.first().associateBy { it.id }
+            val targets = cursors.mapNotNull { cursor -> accounts[cursor.accountId]?.let { it to cursor } }
+            // 账号被删掉之后就再没有下一页可要了，留着入口只会让人点了没反应。
+            val alive = targets.mapTo(mutableSetOf()) { (_, cursor) -> cursor.accountId.value }
+            val outcomes = coroutineScope {
+                targets.map { (account, cursor) ->
+                    async { searchOne(account, keyword, PageRequest(cursor = cursor.cursor, limit = SearchLogic.PER_ACCOUNT_LIMIT)) }
+                }.awaitAll()
+            }
+            val incoming = outcomes.flatMap { it.hits.orEmpty() }
+            val failures = outcomes.mapNotNull { outcome ->
+                outcome.error?.let { SearchFailure(outcome.account.label, it) }
+            }
+            _state.update {
+                it.copy(
+                    loadingMore = false,
+                    hits = SearchLogic.merge(it.hits, incoming),
+                    // 只有这一轮真问到了的账号才更新游标：失败的那些保留旧游标，
+                    // 让用户还能再点一次，而不是被一次超时抹掉。
+                    cursors = SearchLogic.nextCursors(
+                        current = it.cursors.filter { cursor -> cursor.accountId.value in alive },
+                        refreshed = outcomes.map { o ->
+                            SearchCursor(o.account.id, o.account.label, o.cursor.orEmpty())
+                        },
+                        asked = outcomes.filter { it.hits != null }.map { o -> o.account.id.value }.toSet(),
+                    ),
+                    failures = (it.failures + failures).distinctBy { f -> f.accountName },
+                )
+            }
+        }
+    }
+
+    private suspend fun searchOne(
+        account: AccountSummary,
+        keyword: String,
+        page: PageRequest = PageRequest(limit = SearchLogic.PER_ACCOUNT_LIMIT),
+    ): Outcome {
         val connected = session.connect(account.id)
         if (connected is PanResult.Failure) {
-            return Outcome(account, null, connected.error.message)
+            return Outcome(account, null, connected.error.message, null)
         }
         val provider = (connected as PanResult.Success).value
-        return when (
-            val result = provider.search(keyword, PageRequest(limit = SearchLogic.PER_ACCOUNT_LIMIT))
-        ) {
-            is PanResult.Failure -> Outcome(account, null, result.error.message)
+        return when (val result = provider.search(keyword, page)) {
+            is PanResult.Failure -> Outcome(account, null, result.error.message, null)
             is PanResult.Success -> Outcome(
                 account = account,
                 hits = result.value.items.map { node ->
                     SearchHit(accountId = account.id, accountName = account.label, node = node)
                 },
                 error = null,
+                cursor = result.value.nextCursor,
             )
         }
     }
@@ -147,5 +213,6 @@ class SearchViewModel(
         val account: AccountSummary,
         val hits: List<SearchHit>?,
         val error: String?,
+        val cursor: String?,
     )
 }

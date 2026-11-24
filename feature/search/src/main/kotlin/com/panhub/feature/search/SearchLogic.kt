@@ -37,7 +37,8 @@ object SearchLogic {
      * 一次搜索最多从每个账号带回来多少条。
      *
      * 一个大盘可以有几十万文件，关键字稍宽就铺满屏幕，把别的账号的结果
-     * 全挤到看不见的地方。截断之后提示里会写明「只显示前 N 条」。
+     * 全挤到看不见的地方。所以一页只取这么多，服务端说还有下一页时
+     * 界面底部会出现「加载更多」，由用户决定要不要继续往下看。
      */
     const val PER_ACCOUNT_LIMIT = 100
 
@@ -73,6 +74,35 @@ object SearchLogic {
     fun merge(current: List<SearchHit>, incoming: List<SearchHit>): List<SearchHit> {
         val known = current.mapTo(mutableSetOf()) { it.key }
         return current + incoming.filter { known.add(it.key) }
+    }
+
+    /**
+     * 一轮搜索之后还剩哪些账号有下一页。
+     *
+     * 只认这一轮真问到结果的账号：失败的账号给不出可信的游标，
+     * 把它算进「还有更多」会让人点进去只看到一句错误。
+     */
+    fun cursorsOf(all: List<SearchCursor>, succeeded: Set<String>): List<SearchCursor> =
+        all.filter { it.accountId.value in succeeded && it.cursor.isNotBlank() }
+
+    /**
+     * 翻一页之后更新游标表。
+     *
+     * 这一轮没问到的账号保留旧游标：一次超时不该把「还有更多」这个入口抹掉，
+     * 否则用户只能重新搜一遍、从头翻。
+     */
+    fun nextCursors(
+        current: List<SearchCursor>,
+        refreshed: List<SearchCursor>,
+        asked: Set<String>,
+    ): List<SearchCursor> {
+        val byId = refreshed.associateBy { it.accountId.value }
+        return current.mapNotNull { cursor ->
+            val id = cursor.accountId.value
+            if (id !in asked) return@mapNotNull cursor
+            val fresh = byId[id] ?: return@mapNotNull null
+            if (fresh.cursor.isBlank()) null else fresh
+        }
     }
 
     /** 「在 3 个网盘里找到 12 项」这种说法，没有结果时给一句人话。 */
