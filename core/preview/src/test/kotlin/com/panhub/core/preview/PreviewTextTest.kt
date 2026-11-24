@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 
 class PreviewTextTest {
@@ -53,5 +54,40 @@ class PreviewTextTest {
     @Test
     fun shortBinaryIsStillDetected() {
         assertTrue(PreviewText.looksBinary(byteArrayOf(0)))
+    }
+
+    @Test
+    fun gb18030TextIsNotShownAsGarbage() {
+        // 中文 .txt 大量是记事本或 Excel 导出的 GBK，按 UTF-8 硬解就是一串方块。
+        val gbk = "中文内容".toByteArray(Charset.forName("GB18030"))
+        assertEquals("中文内容", PreviewText.decode(gbk))
+    }
+
+    @Test
+    fun utf8StaysAheadOfTheFallback() {
+        // 先试严格 UTF-8：能干净解出来就用它，绝不能让 GB18030 抢先
+        // （GB18030 几乎什么字节都能解，抢先就用会把 UTF-8 解成乱码）。
+        assertEquals("café 咖啡", PreviewText.decode(bytes("café 咖啡")))
+    }
+
+    @Test
+    fun utf16LittleEndianWithBomIsDecoded() {
+        val le = byteArrayOf(0xFF.toByte(), 0xFE.toByte()) +
+            "记事本另存为".toByteArray(StandardCharsets.UTF_16LE)
+        assertEquals("记事本另存为", PreviewText.decode(le))
+    }
+
+    @Test
+    fun utf16BigEndianWithBomIsDecoded() {
+        val be = byteArrayOf(0xFE.toByte(), 0xFF.toByte()) +
+            "hello".toByteArray(StandardCharsets.UTF_16BE)
+        assertEquals("hello", PreviewText.decode(be))
+    }
+
+    @Test
+    fun undecodableBytesFallBackInsteadOfThrowing() {
+        // 两个孤立的续字节：既不是合法 UTF-8，也不该让整次预览失败。
+        val broken = byteArrayOf(0x80.toByte(), 0x81.toByte())
+        PreviewText.decode(broken)
     }
 }
