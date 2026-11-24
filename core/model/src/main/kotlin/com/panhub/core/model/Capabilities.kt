@@ -52,6 +52,16 @@ enum class AuthMethod {
 
     /** 两者都支持，用户自己选。 */
     BOTH,
+
+    /**
+     * 内嵌 WebView 打开官方登录页。
+     *
+     * 夸克/UC/百度的官方 App 自己就是「WebView 开 CAS 页 → 登录完成 →
+     * Cookie 交给原生层」（dex 里 CookieManager + WebViewClient 佐证）。
+     * 与官方一致的做法不是让用户去浏览器复制 Cookie，而是在 App 里
+     * 加载同一个登录地址，登录完成自动抓 Cookie。
+     */
+    WEBVIEW,
 }
 
 /**
@@ -66,4 +76,9 @@ data class ProviderDescriptor(
     val capabilities: ProviderCapabilities,
     val authMethod: AuthMethod = AuthMethod.PASSWORD,
     val authHint: String? = null,
+    /**
+     * 官方 App 内嵌 WebView 加载的登录页地址（APK dex 里提取的原文）。
+     * [AuthMethod.WEBVIEW] 时必填；App 加载它，登录完成后抓 Cookie。
+     */
+    val webLoginUrl: String? = null,
 )

@@ -55,6 +55,8 @@ data class LoginFormState(
             AuthMethod.PASSWORD -> username.isNotBlank() && password.isNotBlank()
             AuthMethod.TOKEN -> token.isNotBlank()
             AuthMethod.BOTH -> username.isNotBlank() && password.isNotBlank()
+            // WebView 登录：抓到 Cookie 后回调 onTokenChange 填进来，再由 UI 提交。
+            AuthMethod.WEBVIEW -> token.isNotBlank()
         }
 }
 
@@ -115,6 +117,7 @@ class AccountsViewModel(
                 AuthMethod.PASSWORD -> AuthMethod.PASSWORD
                 AuthMethod.TOKEN -> AuthMethod.TOKEN
                 AuthMethod.BOTH -> AuthMethod.PASSWORD
+                AuthMethod.WEBVIEW -> AuthMethod.WEBVIEW
             },
         )
     }

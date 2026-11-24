@@ -31,6 +31,13 @@ data class CloudDriveBrand(
     val shareHost: String,
     /** 登录提示语里那句人话，比如「浏览器登录 pan.quark.cn 后…」。 */
     val authHint: String,
+    /**
+     * 官方 App 内嵌 WebView 加载的 CAS 登录页（APK dex 里的原文地址）。
+     * 夸克：uop.quark.cn/cas/login（classes7.dex）；UC：api.open.uc.cn/cas/login
+     * （classes11.dex）。官方 App 登录完成后由 CookieManager 把 Cookie 交给原生层，
+     * 我们的 WebView 登录页照做同一件事。
+     */
+    val webLoginUrl: String,
 ) {
     companion object {
         /** 夸克：drive.quark.cn，pr=ucpro。 */
@@ -46,6 +53,8 @@ data class CloudDriveBrand(
                 "Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch",
             shareHost = "https://pan.quark.cn",
             authHint = "浏览器登录 pan.quark.cn 后，把整段 Cookie 粘贴进来",
+            webLoginUrl = "https://uop.quark.cn/cas/login?client_id=258&target_client_id=4" +
+                "&display=mobile&browser_type=html5",
         )
 
         /** UC：pc-api.uc.cn，pr=UCBrowser。 */
@@ -61,6 +70,8 @@ data class CloudDriveBrand(
                 "Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch",
             shareHost = "https://drive.uc.cn",
             authHint = "浏览器登录 drive.uc.cn 后，把整段 Cookie 粘贴进来",
+            webLoginUrl = "https://api.open.uc.cn/cas/login?client_id=72&target_client_id=4" +
+                "&display=mobile&browser_type=html5",
         )
     }
 }

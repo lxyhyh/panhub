@@ -72,8 +72,9 @@ class QuarkProvider(
     override val descriptor = ProviderDescriptor(
         id = ProviderId(brand.id),
         displayName = brand.displayName,
-        authMethod = AuthMethod.TOKEN,
+        authMethod = AuthMethod.WEBVIEW,
         authHint = brand.authHint,
+        webLoginUrl = brand.webLoginUrl,
         capabilities = ProviderCapabilities(
             list = true,
             quota = true,

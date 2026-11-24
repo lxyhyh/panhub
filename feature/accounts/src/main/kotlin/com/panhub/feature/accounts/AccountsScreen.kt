@@ -199,17 +199,33 @@ fun AccountsScreen(
 
     form.providerId?.let { providerId ->
         val descriptor = state.providerOf(providerId)
-        LoginDialog(
-            descriptor = descriptor,
-            form = form,
-            busy = state.busy,
-            onMethodChange = viewModel::setMethod,
-            onUsernameChange = viewModel::setUsername,
-            onPasswordChange = viewModel::setPassword,
-            onTokenChange = viewModel::setToken,
-            onSubmit = viewModel::submit,
-            onDismiss = viewModel::cancelLogin,
-        )
+        if (descriptor?.authMethod == AuthMethod.WEBVIEW) {
+            // 与官方 App 一致：内嵌 WebView 开官方登录页，Cookie 齐了自动提交。
+            // Cookie 抓回来当 Token 用，走同一条验证链路，provider 层无感知。
+            LoginWebViewDialog(
+                descriptor = descriptor,
+                requiredCookies = webLoginCookiesOf(providerId.value),
+                busy = state.busy,
+                onCookies = { cookie ->
+                    viewModel.setToken(cookie)
+                    viewModel.setMethod(AuthMethod.TOKEN)
+                    viewModel.submit()
+                },
+                onDismiss = viewModel::cancelLogin,
+            )
+        } else {
+            LoginDialog(
+                descriptor = descriptor,
+                form = form,
+                busy = state.busy,
+                onMethodChange = viewModel::setMethod,
+                onUsernameChange = viewModel::setUsername,
+                onPasswordChange = viewModel::setPassword,
+                onTokenChange = viewModel::setToken,
+                onSubmit = viewModel::submit,
+                onDismiss = viewModel::cancelLogin,
+            )
+        }
     }
 
     pendingDelete?.let { account ->

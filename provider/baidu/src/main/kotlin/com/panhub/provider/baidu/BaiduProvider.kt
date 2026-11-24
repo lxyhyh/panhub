@@ -60,8 +60,11 @@ class BaiduProvider(
     override val descriptor = ProviderDescriptor(
         id = ProviderId(ID),
         displayName = "百度网盘",
-        authMethod = AuthMethod.TOKEN,
+        authMethod = AuthMethod.WEBVIEW,
         authHint = "浏览器登录 pan.baidu.com 后，把整段 Cookie（含 BDUSS、STOKEN）粘贴进来",
+        // 官方 App 的登录就是内嵌 H5（dex：wappass.baidu.com/passport/*?tpl=netdisk_android）。
+        // 我们加载同一个页面，登录完成抓 BDUSS/STOKEN。
+        webLoginUrl = "https://wappass.baidu.com/passport/login?tpl=netdisk_android",
         capabilities = ProviderCapabilities(
             list = true,
             quota = true,
