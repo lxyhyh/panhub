@@ -90,6 +90,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
+import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LabeledRow
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
@@ -272,6 +273,7 @@ fun BrowserScreen(
                 if (showFilter && !state.selectionMode) {
                     FilterBar(
                         query = state.filter,
+                        placeholder = "当前目录内",
                         summary = NodeFilter.summary(state.visible.size, state.nodes.size, state.filter),
                         onQuery = viewModel::setFilter,
                         onClear = viewModel::clearFilter,
@@ -920,42 +922,6 @@ private fun CloudCopyDialog(
     )
 }
 
-@Composable
-private fun FilterBar(
-    query: String,
-    summary: String?,
-    onQuery: (String) -> Unit,
-    onClear: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.lg, bottom = Spacing.md)) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQuery,
-            singleLine = true,
-            label = { Text("按名字筛选") },
-            placeholder = { Text("当前目录内") },
-            trailingIcon = if (query.isNotEmpty()) {
-                {
-                    IconButton(onClick = onClear) {
-                        Icon(Icons.Default.Close, contentDescription = "清空筛选")
-                    }
-                }
-            } else {
-                null
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        // 只在真的筛掉了一些东西时才报数：全都命中时说「10/10」只是噪音。
-        if (summary != null) {
-            Text(
-                text = summary,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = Spacing.sm, top = Spacing.xs),
-            )
-        }
-    }
-}
 
 /**
  * 顶部路径栏。

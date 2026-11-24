@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Refresh
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
+import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
@@ -76,6 +78,8 @@ fun SharesScreen(
     val snackbar = remember { SnackbarHostState() }
     val context = androidx.compose.ui.platform.LocalContext.current
     var pendingCancel by remember { mutableStateOf<ShareRow?>(null) }
+    // 筛选条默认收起：分享列表通常只有几条，多一行输入框反而挡住链接。
+    var showFilter by remember { mutableStateOf(false) }
 
     state.message?.let { message ->
         LaunchedEffect(message) {
@@ -107,6 +111,14 @@ fun SharesScreen(
                         }
                     },
                     actions = {
+                        IconButton(
+                            onClick = {
+                                if (showFilter) viewModel.clearQuery()
+                                showFilter = !showFilter
+                            },
+                        ) {
+                            Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                        }
                         IconButton(onClick = viewModel::refresh, enabled = !state.refreshing) {
                             Icon(Icons.Default.Refresh, contentDescription = "刷新")
                         }
@@ -125,45 +137,58 @@ fun SharesScreen(
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { inner ->
-        Box(modifier = Modifier.fillMaxSize().padding(inner)) {
-            when {
-                state.loading -> LoadingState()
-                state.error != null && state.rows.isEmpty() -> EmptyState(
-                    icon = Icons.Default.LinkOff,
-                    title = "没能读到分享",
-                    message = state.error?.message.orEmpty(),
+        Column(modifier = Modifier.fillMaxSize().padding(inner)) {
+            if (showFilter && state.rows.isNotEmpty()) {
+                FilterBar(
+                    query = state.query,
+                    placeholder = "分享的标题或链接",
+                    summary = state.filterSummary,
+                    onQuery = viewModel::setQuery,
+                    onClear = viewModel::clearQuery,
                 )
-                state.rows.isEmpty() -> EmptyState(
-                    icon = Icons.Default.Link,
-                    title = "还没有分享",
-                    message = "在文件列表里选中文档，就能生成分享链接",
-                )
-                else -> LazyColumn(
-                    contentPadding = PaddingValues(
-                        start = Spacing.lg,
-                        end = Spacing.lg,
-                        top = Spacing.sm,
-                        bottom = Spacing.xxl + Spacing.xxl,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.md),
-                ) {
-                    items(state.sorted, key = { it.key }) { row ->
-                        ShareCard(
-                            row = row,
-                            busy = state.busyKey == row.key,
-                            canCancel = state.canCancel,
-                            onCopy = { text -> context.copyText(text) },
-                            onShare = { text -> context.shareText(text) },
-                            onOpen = { url -> context.openUrl(url) },
-                            onCancel = { pendingCancel = row },
-                        )
-                    }
-                    if (state.hasMore) {
-                        item(key = "__more__") {
-                            LoadMoreRow(
-                                loading = state.loadingMore,
-                                onClick = viewModel::loadMore,
+            }
+            Box(modifier = Modifier.fillMaxSize()) {
+                when {
+                    state.loading -> LoadingState()
+                    state.error != null && state.rows.isEmpty() -> EmptyState(
+                        icon = Icons.Default.LinkOff,
+                        title = "没能读到分享",
+                        message = state.error?.message.orEmpty(),
+                    )
+                    // 一条分享都没有，和「有分享但被关键字筛没了」是两件事，
+                    // 说法必须分开，否则用户不知道该改关键字还是去创建分享。
+                    state.visible.isEmpty() -> EmptyState(
+                        icon = if (state.filtering) Icons.Default.FilterList else Icons.Default.Link,
+                        title = state.emptyTitle,
+                        message = state.emptyHint,
+                    )
+                    else -> LazyColumn(
+                        contentPadding = PaddingValues(
+                            start = Spacing.lg,
+                            end = Spacing.lg,
+                            top = Spacing.sm,
+                            bottom = Spacing.xxl + Spacing.xxl,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                    ) {
+                        items(state.visible, key = { it.key }) { row ->
+                            ShareCard(
+                                row = row,
+                                busy = state.busyKey == row.key,
+                                canCancel = state.canCancel,
+                                onCopy = { text -> context.copyText(text) },
+                                onShare = { text -> context.shareText(text) },
+                                onOpen = { url -> context.openUrl(url) },
+                                onCancel = { pendingCancel = row },
                             )
+                        }
+                        if (state.hasMore) {
+                            item(key = "__more__") {
+                                LoadMoreRow(
+                                    loading = state.loadingMore,
+                                    onClick = viewModel::loadMore,
+                                )
+                            }
                         }
                     }
                 }

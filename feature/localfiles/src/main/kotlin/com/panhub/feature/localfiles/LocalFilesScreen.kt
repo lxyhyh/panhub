@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DownloadDone
@@ -30,7 +29,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -52,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
+import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
@@ -174,8 +173,9 @@ fun LocalFilesScreen(
                 )
             }
             if (showFilter && !state.empty) {
-                LocalFilterBar(
+                FilterBar(
                     query = state.filter,
+                    placeholder = "本机已下载的文件",
                     summary = state.filterSummary,
                     onQuery = viewModel::setFilter,
                     onClear = viewModel::clearFilter,
@@ -273,51 +273,6 @@ fun LocalFilesScreen(
     }
 }
 
-/**
- * 按名字筛选本机文件。
- *
- * 与网盘浏览页的筛选条长得一样是有意的：同一个手势在两处应该有一致的反应。
- * 这里筛的是已经盘点出来的那一份，不会重新遍历磁盘。
- */
-@Composable
-private fun LocalFilterBar(
-    query: String,
-    summary: String?,
-    onQuery: (String) -> Unit,
-    onClear: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Spacing.lg, vertical = Spacing.xs),
-    ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQuery,
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            label = { Text("按名字筛选") },
-            placeholder = { Text("本机已下载的文件") },
-            trailingIcon = if (query.isNotEmpty()) {
-                {
-                    IconButton(onClick = onClear) {
-                        Icon(Icons.Default.Close, contentDescription = "清空筛选")
-                    }
-                }
-            } else {
-                null
-            },
-        )
-        if (summary != null) {
-            Text(
-                text = summary,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = Spacing.sm, top = Spacing.xs),
-            )
-        }
-    }
-}
 
 /** 一个文件一张卡片：左边图标，中间名字与副标题，右边一个更多菜单。 */
 @Composable

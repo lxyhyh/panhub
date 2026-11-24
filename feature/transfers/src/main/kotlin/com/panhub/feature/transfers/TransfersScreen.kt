@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -33,7 +32,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -54,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
+import com.panhub.core.design.FilterBar
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
@@ -189,8 +188,9 @@ fun TransfersScreen(
             }
 
             if (showFilter && state.tasks.isNotEmpty()) {
-                TransferFilterBar(
+                FilterBar(
                     query = state.query,
+                    placeholder = "这个队列里的任务",
                     summary = state.filterSummary,
                     onQuery = viewModel::setQuery,
                     onClear = viewModel::clearQuery,
@@ -246,51 +246,6 @@ fun TransfersScreen(
     }
 }
 
-/**
- * 按名字找任务。
- *
- * 规则与浏览页、本机文件页共用 [NodeFilter]：同一个手势在三页表现不同，
- * 用户会当成 bug 报上来。
- */
-@Composable
-private fun TransferFilterBar(
-    query: String,
-    summary: String?,
-    onQuery: (String) -> Unit,
-    onClear: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Spacing.lg, vertical = Spacing.xs),
-    ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQuery,
-            singleLine = true,
-            label = { Text("按名字筛选") },
-            placeholder = { Text("这个队列里的任务") },
-            trailingIcon = if (query.isNotEmpty()) {
-                {
-                    IconButton(onClick = onClear) {
-                        Icon(Icons.Default.Close, contentDescription = "清空筛选")
-                    }
-                }
-            } else {
-                null
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        if (summary != null) {
-            Text(
-                text = summary,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = Spacing.sm, top = Spacing.xs),
-            )
-        }
-    }
-}
 
 /** 队列被挡住的原因。用自己的卡片而不是 Snackbar：它会一直成立到网络改变为止。 */
 @Composable

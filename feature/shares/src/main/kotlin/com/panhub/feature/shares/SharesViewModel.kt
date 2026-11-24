@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.ShareLink
 import com.panhub.core.session.SessionManager
@@ -38,6 +39,8 @@ data class SharesUiState(
     val message: String? = null,
     /** 正在取消的那条，用来禁用它的按钮并显示进度。 */
     val busyKey: String? = null,
+    /** 按标题筛选的关键字。纯本地行为，不重新拉列表。 */
+    val query: String = "",
 ) {
     val hasMore: Boolean get() = nextCursor != null
 
@@ -47,6 +50,27 @@ data class SharesUiState(
             compareBy<ShareRow> { it.link.expired }
                 .thenByDescending { it.link.createdAt ?: 0L },
         )
+
+    /** 屏幕上真正显示的那些。规则与另外三页共用 [NodeFilter]。 */
+    val visible: List<ShareRow>
+        get() = NodeFilter.applyBy(sorted, query) { shareTitleOf(it.link) }
+
+    val filtering: Boolean get() = NodeFilter.active(query)
+
+    val filterSummary: String? get() = NodeFilter.summary(visible.size, sorted.size, query)
+
+    /** 空列表有三种原因，说法要分开，否则用户不知道该改关键字还是去创建分享。 */
+    val emptyTitle: String
+        get() = when {
+            rows.isEmpty() -> "还没有分享"
+            else -> NodeFilter.emptyMessage(query)
+        }
+
+    val emptyHint: String
+        get() = when {
+            rows.isEmpty() -> "在文件列表里选中文档，就能生成分享链接"
+            else -> "换个关键字，或者点上面的清空"
+        }
 }
 
 /**
@@ -181,6 +205,10 @@ class SharesViewModel(
             }
         }
     }
+
+    fun setQuery(value: String) = _state.update { it.copy(query = value) }
+
+    fun clearQuery() = _state.update { it.copy(query = "") }
 
     fun showMessage(text: String) = _state.update { it.copy(message = text) }
 
