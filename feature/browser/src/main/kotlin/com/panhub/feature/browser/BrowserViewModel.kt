@@ -342,6 +342,13 @@ class BrowserViewModel(
     private val copier: CloudCopyLauncher? = null,
     private val previewer: PreviewLoader? = null,
     /**
+     * 记住的排序偏好。为 null 时排序只活在这次会话里，界面行为与以前一致。
+     *
+     * 传进来的是一层窄接口而不是整个设置仓库：浏览页只关心「上次按什么排」，
+     * 让它认识主题、仅 Wi-Fi 那些开关只会让这个类越来越难测。
+     */
+    private val sortSettings: SortSettingsSource? = null,
+    /**
      * 从别处跳进来时要定位到哪。
      *
      * 跨账号搜索给出的结果可能埋在很深的目录里，进页面后直接落在根目录、
@@ -868,19 +875,34 @@ class BrowserViewModel(
      * 找文件时想先看最新的，但按名字找时想从 A 开始。
      * 再点一次已经选中的依据就翻转方向，这样用户不必先去按下面的"反向"。
      */
-    fun setSortOrder(order: SortOrder) = _state.update {
-        val same = it.sort.order == order
-        it.copy(
-            sort = SortSpec(
-                order = order,
-                descending = if (same) !it.sort.descending else order.defaultDescending,
-            ),
-        )
+    fun setSortOrder(order: SortOrder) {
+        _state.update {
+            val same = it.sort.order == order
+            it.copy(
+                sort = SortSpec(
+                    order = order,
+                    descending = if (same) !it.sort.descending else order.defaultDescending,
+                ),
+            )
+        }
+        rememberSort()
     }
 
     /** 反转当前排序方向。 */
-    fun toggleSortDirection() = _state.update {
-        it.copy(sort = it.sort.copy(descending = !it.sort.descending))
+    fun toggleSortDirection() {
+        _state.update { it.copy(sort = it.sort.copy(descending = !it.sort.descending)) }
+        rememberSort()
+    }
+
+    /** 把当前排序写回设置。写盘失败不该影响这一次浏览，所以吞掉异常。 */
+    private fun rememberSort() {
+        val source = sortSettings ?: return
+        val spec = _state.value.sort
+        viewModelScope.launch {
+            runCatching {
+                source.rememberSort(spec)
+            }
+        }
     }
 
     /**
@@ -1284,6 +1306,12 @@ class BrowserViewModel(
             // 账号显示名从 accounts 流里取：它是唯一权威来源，
             // 页面不应该自己再拼一份可能过期的名字。
             val summary = session.accounts.first().firstOrNull { it.id == accountId }
+
+            // 上次挑的排序在第一次加载前就摆好：等列表出来了再改排序，
+            // 用户会看到一屏文件先按名称排、再跳成按时间排。
+            sortSettings?.rememberedSort()?.let { remembered ->
+                _state.update { it.copy(sort = remembered) }
+            }
 
             when (val result = session.connect(accountId)) {
                 is PanResult.Failure -> _state.update {

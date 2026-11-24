@@ -163,4 +163,74 @@ class AppSettingsTest {
         assertEquals(ThemeMode.LIGHT, stored.theme)
         assertTrue(stored.wifiOnly)
     }
+
+    // ---- 排序偏好 ----
+
+    @Test
+    fun defaultSettingsHaveNoCustomSort() {
+        assertFalse(AppSettings().hasCustomSort)
+        assertEquals(SortOrderName.NAME, AppSettings().sortOrder)
+    }
+
+    @Test
+    fun anyNonDefaultSortCountsAsCustom() {
+        assertTrue(AppSettings(sortDescending = true).hasCustomSort)
+        assertTrue(AppSettings(sortOrder = SortOrderName.TIME).hasCustomSort)
+    }
+
+    @Test
+    fun parseAcceptsEveryStoredSortName() {
+        assertEquals(SortOrderName.NAME, SortOrderName.parse("NAME"))
+        assertEquals(SortOrderName.TIME, SortOrderName.parse("time"))
+        assertEquals(SortOrderName.SIZE, SortOrderName.parse("Size"))
+    }
+
+    @Test
+    fun anUnknownSortNameFallsBackToName() {
+        // 旧版本写的值、或者手改坏的值不该让列表排不出来。
+        assertEquals(SortOrderName.NAME, SortOrderName.parse(null))
+        assertEquals(SortOrderName.NAME, SortOrderName.parse("RELEVANCE"))
+    }
+
+    @Test
+    fun savedSortComesBackAfterRestart() = runTest {
+        val file = File(temp.newFolder("sort"), "settings.json")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+
+        JsonSettingsStore(file, dispatcher).save(
+            AppSettings(sortOrder = SortOrderName.SIZE, sortDescending = true),
+        )
+
+        val loaded = JsonSettingsStore(file, dispatcher).load()
+        assertEquals(SortOrderName.SIZE, loaded.sortOrder)
+        assertTrue(loaded.sortDescending)
+    }
+
+    @Test
+    fun anOldFileWithoutSortKeysStillLoads() = runTest {
+        // 上一个版本的存档里没有这两个键，读出来必须是默认排序而不是崩溃。
+        val file = File(temp.newFolder("legacy"), "settings.json")
+        file.writeText("{\"theme\":\"DARK\",\"wifiOnly\":\"true\"}")
+        val loaded = JsonSettingsStore(file, StandardTestDispatcher(testScheduler)).load()
+        assertEquals(ThemeMode.DARK, loaded.theme)
+        assertEquals(SortOrderName.NAME, loaded.sortOrder)
+        assertFalse(loaded.sortDescending)
+    }
+
+    @Test
+    fun settingTheSortLeavesEverythingElseAlone() = runTest {
+        val file = File(temp.newFolder("sortKeep"), "settings.json")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = SettingsRepository(JsonSettingsStore(file, dispatcher))
+        repository.setTheme(ThemeMode.DARK)
+        repository.setWifiOnly(true)
+
+        repository.setSort(SortOrderName.TIME, descending = true)
+
+        val stored = JsonSettingsStore(file, dispatcher).load()
+        assertEquals(ThemeMode.DARK, stored.theme)
+        assertTrue(stored.wifiOnly)
+        assertEquals(SortOrderName.TIME, stored.sortOrder)
+        assertTrue(stored.sortDescending)
+    }
 }

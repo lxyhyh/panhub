@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.app.di.PanHubContainer
+import com.panhub.app.settings.SettingsSortSource
 import com.panhub.app.share.SharedIntent
 import com.panhub.app.ui.PanHubRoot
 import com.panhub.core.design.PanHubTheme
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
                     info = info,
                     downloadsRoot = File(filesDir, "downloads"),
                     caches = PanHubContainer.cacheCleaner(this@MainActivity),
+                    sortSettings = SettingsSortSource(settings),
                     share = sharedLink.value,
                     onShareConsumed = { sharedLink.value = null },
                 )

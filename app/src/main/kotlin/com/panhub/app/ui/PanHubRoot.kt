@@ -20,6 +20,7 @@ import com.panhub.feature.transfers.TransfersScreen
 import com.panhub.feature.transfers.TransfersViewModel
 import com.panhub.feature.accounts.AccountsScreen
 import com.panhub.feature.accounts.AccountsViewModel
+import com.panhub.feature.browser.SortSettingsSource
 import com.panhub.feature.browser.BrowserScreen
 import com.panhub.feature.browser.BrowserViewModel
 import com.panhub.feature.shareimport.ShareImportScreen
@@ -64,6 +65,7 @@ fun PanHubRoot(
     info: AppInfo,
     downloadsRoot: File,
     caches: CacheCleaner,
+    sortSettings: SortSettingsSource,
     share: SharedLink? = null,
     onShareConsumed: () -> Unit = {},
 ) {
@@ -118,6 +120,7 @@ fun PanHubRoot(
                         uploader = transfers,
                         copier = transfers,
                         previewer = previews,
+                        sortSettings = sortSettings,
                         focus = pendingFocus.value,
                     )
                 },

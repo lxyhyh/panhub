@@ -51,7 +51,41 @@ data class AppSettings(
      * 反过来「明明有网却不动」是更难理解的故障。
      */
     val wifiOnly: Boolean = false,
-)
+    /**
+     * 文件列表按什么排。
+     *
+     * 只存名字（NAME/TIME/SIZE），不存 `SortOrder` 本身：这个模块不认识
+     * core:model，硬塞一个模型进来会把「设置」和「文件」两个概念绑在一起。
+     * 认不出的值回退到名称，见 [SortOrderName.parse]。
+     */
+    val sortOrder: SortOrderName = SortOrderName.NAME,
+    /** 排序方向：true = 从大到小 / 从新到旧 / 从 Z 到 A。 */
+    val sortDescending: Boolean = false,
+) {
+    /** 记住的这组排序是否还是默认值。界面据此决定要不要显示「用默认排序」。 */
+    val hasCustomSort: Boolean
+        get() = sortOrder != SortOrderName.NAME || sortDescending
+}
+
+/**
+ * 排序依据在设置里的存法。
+ *
+ * 与 `com.panhub.core.model.SortOrder` 一一对应，但刻意不复用那个枚举：
+ * core:platform 是设置与平台能力，core:model 是网盘数据，让前者依赖后者
+ * 会把「换个默认排序」这种小事牵连到数据模型上。
+ */
+enum class SortOrderName {
+    NAME,
+    TIME,
+    SIZE,
+    ;
+
+    companion object {
+        /** 认不出就回退到名称：旧版本写的值或手改坏的值不该让列表排不出来。 */
+        fun parse(raw: String?): SortOrderName =
+            entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: NAME
+    }
+}
 
 /**
  * 设置的持久化。
@@ -89,6 +123,9 @@ class JsonSettingsStore(
                 AppSettings(
                     theme = ThemeMode.parse(obj["theme"]?.jsonPrimitive?.contentOrNull),
                     wifiOnly = obj["wifiOnly"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false,
+                    sortOrder = SortOrderName.parse(obj["sortOrder"]?.jsonPrimitive?.contentOrNull),
+                    sortDescending = obj["sortDescending"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+                        ?: false,
                 )
             }.getOrElse { AppSettings() }
         }
@@ -99,6 +136,8 @@ class JsonSettingsStore(
             val text = buildJsonObject {
                 put("theme", settings.theme.name)
                 put("wifiOnly", settings.wifiOnly.toString())
+                put("sortOrder", settings.sortOrder.name)
+                put("sortDescending", settings.sortDescending.toString())
             }.toString()
             file.parentFile?.mkdirs()
             // 先写临时文件再改名，闪存写到一半掉电不能留下半个 JSON。
@@ -143,6 +182,19 @@ class SettingsRepository(
 
     suspend fun setWifiOnly(enabled: Boolean) {
         val next = state.value.copy(wifiOnly = enabled)
+        if (next == state.value) return
+        state.value = next
+        store.save(next)
+    }
+
+    /**
+     * 记住文件列表的排序。
+     *
+     * 每次改排序都落一次盘：用户挑了一个排序，下次进另一个网盘还是这个排序，
+     * 才符合「我习惯了这么看」的预期。写一个几十字节的 JSON 不值得攒。
+     */
+    suspend fun setSort(order: SortOrderName, descending: Boolean) {
+        val next = state.value.copy(sortOrder = order, sortDescending = descending)
         if (next == state.value) return
         state.value = next
         store.save(next)
