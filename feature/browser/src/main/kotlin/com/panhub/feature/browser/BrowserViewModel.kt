@@ -265,6 +265,25 @@ data class DeleteConfirmState(
 }
 
 /**
+ * 上传前的同名确认。
+ *
+ * 只装「这次要传什么」与「哪些名字在目录里已经有了」两件事：
+ * 真正入队要等用户点过确认，所以待上传的文件与文件夹必须原样留在这里。
+ */
+data class UploadConfirmState(
+    val visible: Boolean = false,
+    /** 待上传的本地文件；上传文件夹任务时为空。 */
+    val files: List<Pair<File, String>> = emptyList(),
+    /** 待上传的本地文件夹；上传文件任务时为 null。两者只会有一个非空。 */
+    val folder: LocalDirectory? = null,
+    /** 与当前目录重名的那些名字。 */
+    val clashes: List<String> = emptyList(),
+) {
+    val title: String get() = UploadConflicts.title(clashes)
+    val question: String get() = UploadConflicts.question(clashes)
+}
+
+/**
  * 文件详情面板的状态。
  *
  * 只用列表里已有的字段，不再单独查一次：详情面板是「多看一眼」的动作，
@@ -345,6 +364,9 @@ class BrowserViewModel(
 
     private val _preview = MutableStateFlow(PreviewState())
     val preview: StateFlow<PreviewState> = _preview.asStateFlow()
+
+    private val _uploadConfirm = MutableStateFlow(UploadConfirmState())
+    val uploadConfirm: StateFlow<UploadConfirmState> = _uploadConfirm.asStateFlow()
 
     private val _delete = MutableStateFlow(DeleteConfirmState())
     val delete: StateFlow<DeleteConfirmState> = _delete.asStateFlow()
@@ -983,17 +1005,7 @@ class BrowserViewModel(
      * 这样它在纯 JVM 下可测，也不需要认识 ContentResolver。
      */
     fun upload(file: File, name: String) {
-        val target = uploader ?: run {
-            _state.update { it.copy(message = "上传功能不可用") }
-            return
-        }
-        val size = file.length()
-        if (size <= 0L) {
-            _state.update { it.copy(message = "文件为空，无法上传") }
-            return
-        }
-        target.upload(accountId, _state.value.parentId, file.absolutePath, name, size)
-        _state.update { it.copy(message = "已加入上传队列：" + name) }
+        requestUpload(listOf(file to name), folder = null)
     }
 
     /**
@@ -1004,12 +1016,72 @@ class BrowserViewModel(
      * 必然失败的任务，还要用户自己去传输页里找原因。
      */
     fun uploadAll(files: List<Pair<File, String>>) {
-        val target = uploader ?: run {
+        if (files.isEmpty()) return
+        requestUpload(files, folder = null)
+    }
+
+    /**
+     * 上传整个本地文件夹。
+     *
+     * 目录遍历在 View 层做完了（见 LocalFilePicker），这里只负责入队：
+     * 整理型任务会在传输页里自己显示「正在整理本地文件夹」。
+     */
+    fun uploadFolder(directory: LocalDirectory) {
+        requestUpload(emptyList(), folder = directory)
+    }
+
+    /**
+     * 入队前的最后一道关：看看这些名字在目录里是不是已经有了。
+     *
+     * 有重名就先把选择停在这里，等用户点过确认再入队。没重名直接入队——
+     * 绝大多数上传都不会撞名，每次都弹框只会让人学会无脑点「确定」。
+     */
+    private fun requestUpload(files: List<Pair<File, String>>, folder: LocalDirectory?) {
+        if (uploader == null) {
             _state.update { it.copy(message = "上传功能不可用") }
             return
         }
-        if (files.isEmpty()) return
+        val names = if (folder != null) listOf(folder.name) else files.map { it.second }
+        val clashes = UploadConflicts.clashes(_state.value.nodes, names)
+        if (clashes.isEmpty()) {
+            enqueueUpload(files, folder)
+            return
+        }
+        _uploadConfirm.value = UploadConfirmState(
+            visible = true,
+            files = files,
+            folder = folder,
+            clashes = clashes,
+        )
+    }
+
+    /** 关掉同名确认，什么都不传。 */
+    fun cancelUpload() {
+        _uploadConfirm.value = UploadConfirmState()
+    }
+
+    /** 用户确认「仍然上传」：按原样入队。 */
+    fun confirmUpload() {
+        val pending = _uploadConfirm.value
+        if (!pending.visible) return
+        _uploadConfirm.value = UploadConfirmState()
+        enqueueUpload(pending.files, pending.folder)
+    }
+
+    /** 真正入队。空文件在这里筛掉，不落到队列里变成一条必然失败的任务。 */
+    private fun enqueueUpload(files: List<Pair<File, String>>, folder: LocalDirectory?) {
+        val target = uploader ?: return
         val parentId = _state.value.parentId
+        if (folder != null) {
+            target.uploadFolder(
+                accountId = accountId,
+                parentId = parentId,
+                localDir = folder.path,
+                rootName = folder.name,
+            )
+            _state.update { it.copy(message = "已加入上传队列，正在整理「" + folder.name + "」") }
+            return
+        }
         var queued = 0
         var skipped = 0
         for ((file, name) in files) {
@@ -1030,26 +1102,6 @@ class BrowserViewModel(
                 },
             )
         }
-    }
-
-    /**
-     * 上传整个本地文件夹。
-     *
-     * 目录遍历在 View 层做完了（见 LocalFilePicker），这里只负责入队：
-     * 整理型任务会在传输页里自己显示「正在整理本地文件夹」。
-     */
-    fun uploadFolder(directory: LocalDirectory) {
-        val target = uploader ?: run {
-            _state.update { it.copy(message = "上传功能不可用") }
-            return
-        }
-        target.uploadFolder(
-            accountId = accountId,
-            parentId = _state.value.parentId,
-            localDir = directory.path,
-            rootName = directory.name,
-        )
-        _state.update { it.copy(message = "已加入上传队列，正在整理「" + directory.name + "」") }
     }
 
     /**

@@ -130,6 +130,7 @@ fun BrowserScreen(
     val details by viewModel.details.collectAsStateWithLifecycle()
     val preview by viewModel.preview.collectAsStateWithLifecycle()
     val deleting by viewModel.delete.collectAsStateWithLifecycle()
+    val uploading by viewModel.uploadConfirm.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -514,6 +515,14 @@ fun BrowserScreen(
                 showNewFolder = false
                 viewModel.createFolder(name)
             },
+        )
+    }
+
+    if (uploading.visible) {
+        UploadConfirmDialog(
+            state = uploading,
+            onDismiss = viewModel::cancelUpload,
+            onConfirm = viewModel::confirmUpload,
         )
     }
 
@@ -1494,6 +1503,37 @@ private fun DeleteConfirmDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !state.busy) { Text("取消") }
+        },
+    )
+}
+
+/**
+ * 上传前的同名确认框。
+ *
+ * 不用错误色：这不是「做错了」，而是「有两种合理做法，你选哪一种」。
+ * 但确认按钮写成「仍然上传」而不是「确定」——按下去有可能覆盖掉旧文件。
+ */
+@Composable
+private fun UploadConfirmDialog(
+    state: UploadConfirmState,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(state.title) },
+        text = {
+            Text(
+                text = state.question,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(UploadConflicts.CONFIRM_LABEL) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(UploadConflicts.DISMISS_LABEL) }
         },
     )
 }
