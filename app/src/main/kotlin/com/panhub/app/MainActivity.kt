@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.app.di.PanHubContainer
+import com.panhub.app.settings.SettingsSearchHistory
 import com.panhub.app.settings.SettingsSortSource
 import com.panhub.app.share.SharedIntent
 import com.panhub.app.ui.PanHubRoot
@@ -57,6 +58,9 @@ class MainActivity : ComponentActivity() {
         // 设置文件只有一行 JSON，同步读一次：第一帧就要用正确的主题，
         // 异步读会先画一帧浅色再跳成深色，那是能看见的闪。
         runBlocking { settings.load() }
+        val history = PanHubContainer.searchHistory(this)
+        // 历史只有十几条字符串，同样同步读一次：搜索页一进来就该看到它。
+        runBlocking { history.load() }
         sharedLink.value = SharedIntent.read(intent)
         val info = AppInfo(
             versionName = BuildConfig.VERSION_NAME,
@@ -77,6 +81,7 @@ class MainActivity : ComponentActivity() {
                     downloadsRoot = File(filesDir, "downloads"),
                     caches = PanHubContainer.cacheCleaner(this@MainActivity),
                     sortSettings = SettingsSortSource(settings),
+                    searchHistory = SettingsSearchHistory(history),
                     share = sharedLink.value,
                     onShareConsumed = { sharedLink.value = null },
                 )

@@ -8,6 +8,8 @@ import com.panhub.core.platform.JsonSettingsStore
 import com.panhub.core.platform.CacheCleaner
 import com.panhub.core.platform.KeystoreCipher
 import com.panhub.core.platform.LocalCacheCleaner
+import com.panhub.core.platform.JsonSearchHistoryStore
+import com.panhub.core.platform.SearchHistory
 import com.panhub.core.platform.SettingsRepository
 import com.panhub.core.preview.HttpPreviewLoader
 import com.panhub.core.preview.PreviewLoader
@@ -61,6 +63,9 @@ object PanHubContainer {
     @Volatile
     private var settings: SettingsRepository? = null
 
+    @Volatile
+    private var searchHistoryStore: SearchHistory? = null
+
     /** 进程级单例。第一次调用时装配。 */
     fun sessionManager(context: Context): SessionManager =
         instance ?: synchronized(this) {
@@ -108,6 +113,19 @@ object PanHubContainer {
             settings ?: SettingsRepository(
                 JsonSettingsStore(File(applicationContext(context).filesDir, SETTINGS_FILE)),
             ).also { settings = it }
+        }
+
+    /**
+     * 搜索历史。
+     *
+     * 与设置分开一个文件：设置坏了最多是主题变回跟随系统，
+     * 历史坏了不该把设置一起带走；清理搜索历史也不该动主题。
+     */
+    fun searchHistory(context: Context): SearchHistory =
+        searchHistoryStore ?: synchronized(this) {
+            searchHistoryStore ?: SearchHistory(
+                JsonSearchHistoryStore(File(applicationContext(context).filesDir, SEARCH_HISTORY_FILE)),
+            ).also { searchHistoryStore = it }
         }
 
     /**
@@ -191,6 +209,9 @@ object PanHubContainer {
 
     /** 本地设置（目前只有外观），同上。 */
     private const val SETTINGS_FILE = "settings.json"
+
+    /** 搜索历史，同上。 */
+    private const val SEARCH_HISTORY_FILE = "search-history.json"
 
     /** 上传前复制文件用的缓存目录名（cacheDir 下）。 */
     private const val UPLOAD_CACHE_DIR = "upload"

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -104,6 +105,16 @@ fun SearchScreen(
                 },
             )
 
+            // 历史只在还没开始搜、或者输入框空着的时候出现：
+            // 有结果时它会把结果往下挤，而那时用户想看的是文件不是旧词。
+            if (state.history.isNotEmpty() && (state.query.isBlank() || !state.searched)) {
+                HistoryBlock(
+                    entries = state.history,
+                    onPick = viewModel::useHistory,
+                    onClear = viewModel::clearHistory,
+                )
+            }
+
             if (state.summary.isNotBlank()) {
                 Text(
                     text = state.summary,
@@ -152,6 +163,55 @@ fun SearchScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/** 最近搜过的关键字。一行一个，点一下用原来的词再搜一次。 */
+@Composable
+private fun HistoryBlock(
+    entries: List<String>,
+    onPick: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.md)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.History,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = "最近搜过",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f).padding(start = Spacing.xs),
+            )
+            TextButton(onClick = onClear) { Text("清空") }
+        }
+        for (entry in entries) {
+            PanCard(
+                onClick = { onPick(entry) },
+                modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = entry,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(start = Spacing.sm),
+                    )
                 }
             }
         }

@@ -36,6 +36,8 @@ data class SearchUiState(
     /** 服务端说还有下一页的账号（账号 id、账号名、下一页游标）。 */
     val cursors: List<SearchCursor> = emptyList(),
     val loadingMore: Boolean = false,
+    /** 最近搜过的关键字，新的在前；不带历史时为空。 */
+    val history: List<String> = emptyList(),
 ) {
     val groups: List<Pair<String, List<SearchHit>>> get() = SearchLogic.grouped(hits)
     val summary: String get() = SearchLogic.summary(this)
@@ -68,6 +70,7 @@ data class SearchCursor(
  */
 class SearchViewModel(
     private val session: SessionManager,
+    private val history: SearchHistorySource? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SearchUiState())
@@ -84,9 +87,31 @@ class SearchViewModel(
             val accounts = session.accounts.first()
             _state.update { it.copy(skipped = SearchLogic.skipped(accounts).map { a -> a.label }) }
         }
+        val source = history ?: return
+        viewModelScope.launch {
+            source.entries.collect { remembered ->
+                _state.update { it.copy(history = remembered) }
+            }
+        }
     }
 
     fun setQuery(value: String) = _state.update { it.copy(query = value) }
+
+    /**
+     * 点了一条历史：填进输入框并立刻搜。
+     *
+     * 直接搜而不是只填进去，是因为点历史的人想看的正是那次的结果；
+     * 只填不搜等于让他再按一次回车。
+     */
+    fun useHistory(query: String) {
+        setQuery(query)
+        submit()
+    }
+
+    fun clearHistory() {
+        val source = history ?: return
+        viewModelScope.launch { runCatching { source.clear() } }
+    }
 
     fun submit() {
         val keyword = _state.value.query.trim()
@@ -102,6 +127,11 @@ class SearchViewModel(
                 cursors = emptyList(),
                 loadingMore = false,
             )
+        }
+        // 记历史放在发请求之前：这一笔是「用户搜过」，不是「搜到了」。
+        // 一家网盘掉线不该让刚敲的词从历史里消失。
+        history?.let { source ->
+            viewModelScope.launch { runCatching { source.remember(keyword) } }
         }
         job = viewModelScope.launch {
             val accounts = session.accounts.first()

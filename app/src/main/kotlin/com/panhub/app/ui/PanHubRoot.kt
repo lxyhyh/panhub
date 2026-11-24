@@ -31,6 +31,7 @@ import com.panhub.feature.settings.AppInfo
 import com.panhub.feature.settings.SettingsScreen
 import com.panhub.core.platform.CacheCleaner
 import com.panhub.feature.settings.SettingsViewModel
+import com.panhub.feature.search.SearchHistorySource
 import com.panhub.feature.search.SearchScreen
 import com.panhub.feature.search.SearchViewModel
 import com.panhub.feature.shares.SharesScreen
@@ -66,6 +67,7 @@ fun PanHubRoot(
     downloadsRoot: File,
     caches: CacheCleaner,
     sortSettings: SortSettingsSource,
+    searchHistory: SearchHistorySource,
     share: SharedLink? = null,
     onShareConsumed: () -> Unit = {},
 ) {
@@ -212,7 +214,9 @@ fun PanHubRoot(
             ShareImportScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
         composable(Routes.SEARCH) {
-            val vm: SearchViewModel = viewModel(factory = factoryOf { SearchViewModel(session) })
+            val vm: SearchViewModel = viewModel(
+                factory = factoryOf { SearchViewModel(session, history = searchHistory) },
+            )
             SearchScreen(
                 viewModel = vm,
                 onBack = { nav.popBackStack() },
