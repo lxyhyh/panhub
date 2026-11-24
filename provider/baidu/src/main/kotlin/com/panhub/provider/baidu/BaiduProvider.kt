@@ -21,6 +21,8 @@ import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SharePage
 import com.panhub.core.model.ShareSource
+import com.panhub.core.model.TrashNode
+import com.panhub.core.model.TrashPage
 import com.panhub.core.network.HttpEngine
 import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
@@ -67,6 +69,7 @@ class BaiduProvider(
             rename = true,
             move = true,
             copy = true,
+            trash = true,
             delete = true,
             createFolder = true,
             share = true,
@@ -312,6 +315,152 @@ class BaiduProvider(
         buildJsonArray { add(JsonPrimitive(nodeId.value)) },
     )
 
+    // ------------------------------------------------------------------
+    // 回收站。
+    //
+    // 网页版回收站的四个端点（list / restore / clear / delete）在 APK 的
+    // classes15.dex 里以字符串常量出现，请求参数与 cssxsh/baidu-client
+    // 的开源实现一致，三方互证。还原与清空都是「errno == 0 但 faillist
+    // 里可能列着没成功的 fs_id」的形状，所以每一步都要查 faillist。
+    // ------------------------------------------------------------------
+
+    override suspend fun listTrash(
+        session: ProviderSession,
+        page: PageRequest,
+    ): PanResult<TrashPage> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        val pageIndex = page.cursor?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val pageSize = if (page.limit in 1..MAX_PAGE_SIZE) page.limit else MAX_PAGE_SIZE
+        val raw = api.get(
+            BaiduApi.PATH_RECYCLE_LIST,
+            cookie,
+            listOf(
+                "web" to "1",
+                "page" to pageIndex.toString(),
+                "num" to pageSize.toString(),
+            ),
+        )
+        return when (raw) {
+            is PanResult.Failure -> raw
+            is PanResult.Success -> when (
+                val resp = decode(raw.value, BaiduRecycleListResp.serializer())
+            ) {
+                is PanResult.Failure -> PanResult.Failure(resp.error)
+                is PanResult.Success -> {
+                    val items = resp.value.list.orEmpty().mapNotNull { dto ->
+                        val path = dto.path ?: return@mapNotNull null
+                        TrashNode(
+                            node = RemoteNode(
+                                id = NodeId(path),
+                                parentId = null,
+                                name = dto.serverFilename ?: path.substringAfterLast('/'),
+                                kind = if (dto.isDir) NodeKind.DIR else NodeKind.FILE,
+                                size = dto.size,
+                                modifiedAt = dto.serverMtime?.takeIf { it > 0 }?.times(1000),
+                                createdAt = dto.serverCtime?.takeIf { it > 0 }?.times(1000),
+                            ),
+                            // leftTime 是「还剩多少秒自动清理」，不是时刻；
+                            // 0 表示不自动清理。折算成时刻方便 UI 直接展示。
+                            expiresAt = dto.leftTime.takeIf { it > 0 }
+                                ?.let { System.currentTimeMillis() + it * 1000 },
+                        )
+                    }
+                    PanResult.Success(
+                        TrashPage(
+                            items = items,
+                            // 服务端不回总数，按「本页是否满」判断还有没有下一页。
+                            nextCursor = if (items.size >= pageSize) (pageIndex + 1).toString() else null,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    override suspend fun restoreTrash(
+        session: ProviderSession,
+        nodeIds: List<NodeId>,
+        parentId: NodeId?,
+    ): PanResult<Unit> {
+        if (nodeIds.isEmpty()) return PanResult.Success(Unit)
+        // 网页接口只能还原回原位置；原目录已被删掉的条目会出现在 faillist 里。
+        // 指定目录还原没有对应端点，明确拒绝比静默忽略诚实。
+        if (parentId != null) {
+            return PanResult.Failure(
+                PanError.notSupported("百度网盘不支持还原到指定目录，只能还原到原位置"),
+            )
+        }
+        return recycleOpera(session, BaiduApi.PATH_RECYCLE_RESTORE, nodeIds)
+    }
+
+    override suspend fun purgeTrash(
+        session: ProviderSession,
+        nodeIds: List<NodeId>,
+    ): PanResult<Unit> {
+        if (nodeIds.isEmpty()) return PanResult.Success(Unit)
+        return recycleOpera(session, BaiduApi.PATH_RECYCLE_DELETE, nodeIds)
+    }
+
+    override suspend fun emptyTrash(session: ProviderSession): PanResult<Unit> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        val raw = api.postForm(
+            BaiduApi.PATH_RECYCLE_CLEAR,
+            cookie,
+            form = emptyList(),
+            query = listOf("async" to "1", "web" to "1"),
+        )
+        return when (raw) {
+            is PanResult.Failure -> raw
+            is PanResult.Success -> when (
+                val resp = decode(raw.value, BaiduRecycleOperaResp.serializer())
+            ) {
+                is PanResult.Failure -> PanResult.Failure(resp.error)
+                is PanResult.Success -> PanResult.Success(Unit)
+            }
+        }
+    }
+
+    /** 还原与彻底删除共用：POST 表单 fidlist=[fs_id 数组]，检查 faillist。 */
+    private suspend fun recycleOpera(
+        session: ProviderSession,
+        path: String,
+        nodeIds: List<NodeId>,
+    ): PanResult<Unit> {
+        val cookie = cookieOf(session)
+            ?: return PanResult.Failure(PanError.auth("会话缺少 Cookie"))
+        val fsIds = nodeIds.mapNotNull { it.value.toLongOrNull() }
+        if (fsIds.size != nodeIds.size) {
+            return PanResult.Failure(
+                PanError.unknown("回收站条目缺少 fs_id，无法执行该操作"),
+            )
+        }
+        val raw = api.postForm(
+            path,
+            cookie,
+            listOf("fidlist" to fsIds.toString()),
+            query = listOf("async" to "1", "web" to "1"),
+        )
+        return when (raw) {
+            is PanResult.Failure -> raw
+            is PanResult.Success -> when (
+                val resp = decode(raw.value, BaiduRecycleOperaResp.serializer())
+            ) {
+                is PanResult.Failure -> PanResult.Failure(resp.error)
+                is PanResult.Success -> {
+                    val failed = resp.value.failList.orEmpty()
+                    if (failed.isEmpty()) {
+                        PanResult.Success(Unit)
+                    } else {
+                        PanResult.Failure(
+                            PanError.unknown("有 " + failed.size + " 项没有成功，可能已过期或原目录不存在"),
+                        )
+                    }
+                }
+            }
+        }
+    }
     /** 移动 / 复制 / 删除 / 改名共用 /rest/2.0/xpan/file?method=filemanager。 */
     private suspend fun manage(
         session: ProviderSession,

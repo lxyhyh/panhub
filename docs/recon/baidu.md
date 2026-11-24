@@ -219,3 +219,54 @@
     140 链接不正确（啊哦，链接出错了）
     9019 缺 Cookie
 
+
+## 回收站（已实现）
+
+### 证据链
+
+- APK base.apk 的 `classes15.dex` 字符串池里有四个路径：`recycle/list`、
+  `recycle/restore`、`recycle/delete`、`recycle/clear`（各 1 处，前后是
+  `recycleBin` / `recycle_bin_restore_net_error` 等 UI 字符串）；
+- 无凭证探测：`GET /api/recycle/list` → 200 `{"errno":-6,"list":[],...}`，
+  `POST /api/recycle/delete` → 200 `{"errno":-6,...}`；对照不存在的路径
+  `/api/definitelyNotRealXYZ` → 404 空体。errno 形状与 404 形状可区分，
+  证明端点存在；
+- 请求参数与 cssxsh/baidu-client（开源 Kotlin 客户端）一致：
+  list 用 query `page`/`num`/`web=1`；restore/delete 用 form
+  `fidlist=[fs_id 数组]` + query `async`；clear 不带 form。
+  三方互证。
+
+### 端点
+
+    GET  /api/recycle/list?web=1&page=<页码>&num=<每页>&<固定query>
+    POST /api/recycle/restore?async=1&web=1&<固定query>   form: fidlist=[fs_id...]
+    POST /api/recycle/delete?async=1&web=1&<固定query>    form: fidlist=[fs_id...]
+    POST /api/recycle/clear?async=1&web=1&<固定query>     （无 form）
+
+固定 query 与其他 /api/* 接口相同（channel=chunlei&app_id=250528&web=1&clienttype=0），
+Cookie 需要登录态（BDUSS+STOKEN）。
+
+### 响应
+
+- 列表：`{"errno":0,"list":[{fs_id, path, server_filename, size, isdir,
+  server_mtime, server_ctime, leftTime, delete_type, ...}]}`。条目结构与
+  /api/list 一致，多的字段：`leftTime` 是「还剩多少秒自动清理」（0 表示
+  不自动清理），`delete_type` 是删除来源；
+- 还原 / 彻底删除：`{"errno":0,"faillist":[...],"taskid":...}`。
+  **errno == 0 不代表全部成功**，没成功的 fs_id 列在 `faillist` 里，
+  必须自己检查；
+- 清空：`{"errno":0,"taskid":...}`。
+
+### 限制
+
+- 网页接口**没有**「还原到指定目录」的端点，只能还原回原位置。
+  原目录已被删掉的条目会进 faillist。App 里对 parentId != null 明确拒绝；
+- 回收站条目用 `fs_id`（数字）寻址，不是路径——还原 / 删除时把 NodeId
+  解析成数字，解析失败直接拒绝不发请求；
+- 回收站分页：服务端不回总数，按「本页条数是否满 num」判断还有下一页。
+
+### UI 行为
+
+- 界面只在进页面时拉一次列表，「刷新」手动重拉；
+- 「还原到指定目录」入口对百度不显示（契约方法会明确报不支持）；
+- 清空前确认。

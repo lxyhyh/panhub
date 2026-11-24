@@ -225,6 +225,11 @@ internal class BaiduApi(
         /** 把分享里的条目转存到自己的网盘。 */
         const val PATH_SHARE_TRANSFER = "/share/transfer"
 
+        /** 回收站列表 / 还原 / 清空。APK dex 里有 recycle/list 等四个路径字符串。 */
+        const val PATH_RECYCLE_LIST = "/api/recycle/list"
+        const val PATH_RECYCLE_RESTORE = "/api/recycle/restore"
+        const val PATH_RECYCLE_CLEAR = "/api/recycle/clear"
+        const val PATH_RECYCLE_DELETE = "/api/recycle/delete"
         /** 分享页的 Referer：提取码校验不带它一律 errno 2。 */
         fun sharePageReferer(surl: String): String = "https://pan.baidu.com/s/" + surl
 
