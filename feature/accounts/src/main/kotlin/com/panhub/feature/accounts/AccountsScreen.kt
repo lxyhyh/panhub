@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Login
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
+import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.QuotaBar
@@ -106,6 +108,8 @@ fun AccountsScreen(
     var pendingProvider by remember { mutableStateOf<ProviderDescriptor?>(null) }
     var pendingDelete by remember { mutableStateOf<AccountSummary?>(null) }
     var pendingAlias by remember { mutableStateOf<AccountSummary?>(null) }
+    // 筛选条默认收起：账号通常只有几个，多一行输入框反而把卡片往下挤。
+    var showFilter by remember { mutableStateOf(false) }
 
     state.message?.let { message ->
         LaunchedEffect(message) {
@@ -120,6 +124,14 @@ fun AccountsScreen(
             TopAppBar(
                 title = { Text("账号") },
                 actions = {
+                    IconButton(
+                        onClick = {
+                            if (showFilter) viewModel.clearQuery()
+                            showFilter = !showFilter
+                        },
+                    ) {
+                        Icon(Icons.Default.FilterList, contentDescription = "筛选账号")
+                    }
                     IconButton(onClick = onOpenSearch) {
                         Icon(Icons.Default.Search, contentDescription = "搜索全部网盘")
                     }
@@ -152,13 +164,23 @@ fun AccountsScreen(
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { inner ->
-        Box(modifier = Modifier.fillMaxSize().padding(inner)) {
+        Column(modifier = Modifier.fillMaxSize().padding(inner)) {
+            if (showFilter && state.accounts.isNotEmpty()) {
+                FilterBar(
+                    query = state.query,
+                    placeholder = "备注名或网盘名",
+                    summary = state.filterSummary,
+                    onQuery = viewModel::setQuery,
+                    onClear = viewModel::clearQuery,
+                )
+            }
+            Box(modifier = Modifier.fillMaxSize()) {
             when {
                 state.loading -> LoadingState()
-                state.accounts.isEmpty() -> EmptyState(
-                    icon = Icons.Default.CloudQueue,
-                    title = "还没有账号",
-                    message = "点右下角的加号，接入第一个网盘",
+                state.visible.isEmpty() -> EmptyState(
+                    icon = if (state.filtering) Icons.Default.FilterList else Icons.Default.CloudQueue,
+                    title = state.emptyTitle,
+                    message = state.emptyHint,
                 )
                 else -> LazyColumn(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -174,7 +196,7 @@ fun AccountsScreen(
                     state.quotaSummary?.let { summary ->
                         item(key = "quota-summary") { QuotaSummaryCard(summary) }
                     }
-                    items(state.accounts, key = { it.id.value }) { account ->
+                    items(state.visible, key = { it.id.value }) { account ->
                         AccountCard(
                             account = account,
                             quota = state.quotas[account.id.value],
@@ -190,6 +212,7 @@ fun AccountsScreen(
                         )
                     }
                 }
+            }
             }
         }
     }

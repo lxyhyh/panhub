@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.panhub.core.common.PanResult
 import com.panhub.core.common.getOrNull
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.AuthMethod
 import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.ProviderId
@@ -32,9 +33,39 @@ data class AccountsUiState(
     val busy: Boolean = false,
     /** 各账号的容量，按账号 id 索引。查不到（或不支持）的账号不会出现在这里。 */
     val quotas: Map<String, Quota> = emptyMap(),
+    /** 按名字筛账号的关键字，纯本地行为，不会重新登录或拉数据。 */
+    val query: String = "",
 ) {
     fun providerOf(providerId: ProviderId): ProviderDescriptor? =
         providers.firstOrNull { it.id == providerId }
+
+    /**
+     * 按关键字筛过之后的账号。
+     *
+     * 备注名、服务商给的显示名、网盘名都参与匹配：用户记得住的是
+     * 「那个叫工作号的坚果云」，三个字段随便哪个命中都算找到。
+     */
+    val visible: List<AccountSummary>
+        get() {
+            val keyword = query.trim()
+            if (keyword.isEmpty()) return accounts
+            return accounts.filter { account ->
+                NodeFilter.matches(account.label, keyword) ||
+                    NodeFilter.matches(account.displayName, keyword) ||
+                    NodeFilter.matches(account.providerName, keyword)
+            }
+        }
+
+    val filtering: Boolean get() = NodeFilter.active(query)
+
+    /** 筛掉了多少才说，全都看得见时这一行只是噪音。 */
+    val filterSummary: String? get() = NodeFilter.summary(visible.size, accounts.size, query)
+
+    val emptyTitle: String
+        get() = if (accounts.isEmpty()) "还没有账号" else NodeFilter.emptyMessage(query)
+
+    val emptyHint: String
+        get() = if (accounts.isEmpty()) "点右下角的加号，接入第一个网盘" else "换个关键字，或者点上面的清空"
 
     /**
      * 几个账号加起来的总账。
@@ -264,6 +295,10 @@ class AccountsViewModel(
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
+
+    fun setQuery(value: String) = _state.update { it.copy(query = value) }
+
+    fun clearQuery() = _state.update { it.copy(query = "") }
 
     /**
      * 重新校验一个账号。
