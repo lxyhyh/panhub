@@ -6,6 +6,7 @@ import com.panhub.core.common.Clock
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.RemoteNode
@@ -60,11 +61,34 @@ data class TrashUiState(
     val picker: RestorePickerState = RestorePickerState(),
     val error: PanError? = null,
     val message: String? = null,
+    /** 按名字筛选的关键字。纯本地行为：敲字不会重新拉一次回收站。 */
+    val query: String = "",
 ) {
     val hasMore: Boolean get() = nextCursor != null
     val selectedCount: Int get() = selected.size
-    val allSelected: Boolean get() = TrashLogic.allSelected(items, selected)
+
+    /** 界面上真正看得到的那些。 */
+    val visible: List<TrashNode> get() = NodeFilter.applyBy(items, query) { it.name }
+
+    val filtering: Boolean get() = NodeFilter.active(query)
+
+    val filterSummary: String? get() = NodeFilter.summary(visible.size, items.size, query)
+
+    /**
+     * 全选只选看得到的那些。
+     *
+     * 筛着的时候把看不见的东西一起选上，「彻底删除」那一刀就没人拦得住了。
+     */
+    val allSelected: Boolean get() = TrashLogic.allSelected(visible, selected)
+
     val canAct: Boolean get() = selected.isNotEmpty() && !busy
+
+    /** 「一件都没有」和「被关键字筛没了」是两件事，说法必须分开。 */
+    val emptyTitle: String
+        get() = if (items.isEmpty()) "回收站是空的" else NodeFilter.emptyMessage(query)
+
+    val emptyHint: String
+        get() = if (items.isEmpty()) "在文件页删除的东西会先放到这里" else "换个关键字，或者点上面的清空"
 }
 
 class TrashViewModel(
@@ -180,11 +204,23 @@ class TrashViewModel(
 
     fun toggleSelectAll() {
         _state.update {
-            it.copy(selected = if (TrashLogic.allSelected(it.items, it.selected)) emptySet() else it.items.map { n -> n.id.value }.toSet())
+            val visible = it.visible
+            it.copy(
+                selected = if (TrashLogic.allSelected(visible, it.selected)) {
+                    emptySet()
+                } else {
+                    visible.map { n -> n.id.value }.toSet()
+                },
+            )
         }
     }
 
     fun clearSelection() = _state.update { it.copy(selected = emptySet()) }
+
+    /** 只改一个字符串，不重新拉回收站：每敲一个字都发一次请求纯属浪费。 */
+    fun setQuery(value: String) = _state.update { it.copy(query = value) }
+
+    fun clearQuery() = _state.update { it.copy(query = "") }
 
     /** 还原到原位置；原目录没了服务端会单独报出来，见 provider 里的处理。 */
     fun restoreSelected() = restoreTo(null)

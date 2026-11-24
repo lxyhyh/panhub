@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
+import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
@@ -77,6 +79,8 @@ fun TrashScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var pendingPurge by remember { mutableStateOf(false) }
+    // 筛选条默认收起：回收站里通常只有几件东西。
+    var showFilter by remember { mutableStateOf(false) }
     var pendingEmpty by remember { mutableStateOf(false) }
     val now = viewModel.nowMillis()
 
@@ -104,6 +108,14 @@ fun TrashScreen(
                 },
                 actions = {
                     if (state.items.isNotEmpty()) {
+                        IconButton(
+                            onClick = {
+                                if (showFilter) viewModel.clearQuery()
+                                showFilter = !showFilter
+                            },
+                        ) {
+                            Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                        }
                         IconButton(
                             onClick = { viewModel.toggleSelectAll() },
                             enabled = !state.busy,
@@ -140,52 +152,68 @@ fun TrashScreen(
             }
         },
     ) { inner ->
-        Box(modifier = Modifier.fillMaxSize().padding(inner)) {
-            when {
-                !state.supported -> EmptyState(
-                    icon = Icons.Default.DeleteForever,
-                    title = "这个网盘没有回收站",
-                    message = "删掉的文件就真的没了，找不到这里来",
+        Column(modifier = Modifier.fillMaxSize().padding(inner)) {
+            if (showFilter && state.items.isNotEmpty()) {
+                FilterBar(
+                    query = state.query,
+                    summary = state.filterSummary,
+                    onQuery = viewModel::setQuery,
+                    onClear = viewModel::clearQuery,
+                    placeholder = "回收站里的文件名",
                 )
-                state.loading -> LoadingState()
-                state.error != null -> EmptyState(
-                    icon = Icons.Default.DeleteForever,
-                    title = "打不开回收站",
-                    message = state.error!!.message,
-                )
-                state.items.isEmpty() -> EmptyState(
-                    icon = Icons.Default.DeleteForever,
-                    title = "回收站是空的",
-                    message = "在文件页删除的东西会先放到这里",
-                )
-                else -> LazyColumn(
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = Spacing.lg,
-                        end = Spacing.lg,
-                        top = Spacing.sm,
-                        bottom = Spacing.xxl,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.md),
-                ) {
-                    if (state.refreshing) {
-                        item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
-                    }
-                    items(state.items, key = { it.id.value }) { node ->
-                        TrashCard(
-                            node = node,
-                            now = now,
-                            selected = node.id.value in state.selected,
-                            onClick = { viewModel.toggleSelect(node) },
-                        )
-                    }
-                    if (state.hasMore) {
-                        item {
-                            TextButton(
-                                onClick = { viewModel.loadMore() },
-                                enabled = !state.loadingMore,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(if (state.loadingMore) "正在加载…" else "加载更多")
+            }
+            Box(modifier = Modifier.fillMaxSize()) {
+                when {
+                    !state.supported -> EmptyState(
+                        icon = Icons.Default.DeleteForever,
+                        title = "这个网盘没有回收站",
+                        message = "删掉的文件就真的没了，找不到这里来",
+                    )
+                    state.loading -> LoadingState()
+                    state.error != null -> EmptyState(
+                        icon = Icons.Default.DeleteForever,
+                        title = "打不开回收站",
+                        message = state.error!!.message,
+                    )
+                    state.items.isEmpty() -> EmptyState(
+                        icon = Icons.Default.DeleteForever,
+                        title = "回收站是空的",
+                        message = "在文件页删除的东西会先放到这里",
+                    )
+                    state.visible.isEmpty() -> EmptyState(
+                        icon = Icons.Default.FilterList,
+                        title = state.emptyTitle,
+                        message = state.emptyHint,
+                    )
+                    else -> LazyColumn(
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            start = Spacing.lg,
+                            end = Spacing.lg,
+                            top = Spacing.sm,
+                            bottom = Spacing.xxl,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                    ) {
+                        if (state.refreshing) {
+                            item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+                        }
+                        items(state.visible, key = { it.id.value }) { node ->
+                            TrashCard(
+                                node = node,
+                                now = now,
+                                selected = node.id.value in state.selected,
+                                onClick = { viewModel.toggleSelect(node) },
+                            )
+                        }
+                        if (state.hasMore) {
+                            item {
+                                TextButton(
+                                    onClick = { viewModel.loadMore() },
+                                    enabled = !state.loadingMore,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(if (state.loadingMore) "正在加载…" else "加载更多")
+                                }
                             }
                         }
                     }
