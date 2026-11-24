@@ -31,6 +31,8 @@ dependencies {
     api(project(":core:preview"))
 
     implementation(libs.androidx.activity.compose)
+    // 缩略图：列表项直接用服务商返回的缩略图 URL，加载失败退回类型图标。
+    implementation(libs.coil.compose)
     // 选整个文件夹要遍历 document tree，File 读不到 content:// 下的子项。
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

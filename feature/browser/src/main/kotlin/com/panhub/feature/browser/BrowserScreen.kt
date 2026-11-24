@@ -2,6 +2,8 @@ package com.panhub.feature.browser
 
 import android.content.Intent
 import android.net.Uri
+
+import coil3.compose.SubcomposeAsyncImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -1105,29 +1107,71 @@ private fun NodeRow(
                 )
                 Spacer(Modifier.size(Spacing.md))
             }
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(Radius.card))
-                    .background(
-                        if (node.isDir) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        },
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = if (node.isDir) Icons.Default.Folder else Icons.Default.Description,
+            // 有缩略图就直接显示服务商给的图（图片/视频列表一秒认出来），
+            // 没有或加载失败都退回类型图标——失败是常态，不值得单独报错。
+            if (node.thumbnailUrl != null && !node.isDir) {
+                SubcomposeAsyncImage(
+                    model = node.thumbnailUrl,
                     contentDescription = null,
-                    tint = if (node.isDir) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(Radius.card)),
+                    loading = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Description,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     },
-                    modifier = Modifier.size(20.dp),
+                    error = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Description,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    },
                 )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(Radius.card))
+                        .background(
+                            if (node.isDir) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = if (node.isDir) Icons.Default.Folder else Icons.Default.Description,
+                        contentDescription = null,
+                        tint = if (node.isDir) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
             Column(
                 modifier = Modifier.weight(1f).padding(horizontal = Spacing.md),
