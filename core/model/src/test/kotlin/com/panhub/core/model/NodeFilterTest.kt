@@ -96,8 +96,8 @@ class NodeFilterTest {
     @Test
     fun `any list can be filtered by a name accessor`() {
         // 本机下载记录不是 RemoteNode，但筛选规则必须和网盘列表完全一致。
-        val names = listOf("报告.pdf", "照片.jpg", "小结.md")
-        assertEquals(listOf("报告.pdf", "小结.md"), NodeFilter.applyBy(names, "报", { it }))
+        val names = listOf("报告.pdf", "照片.jpg", "汇报.md")
+        assertEquals(listOf("报告.pdf", "汇报.md"), NodeFilter.applyBy(names, "报", { it }))
     }
 
     @Test
