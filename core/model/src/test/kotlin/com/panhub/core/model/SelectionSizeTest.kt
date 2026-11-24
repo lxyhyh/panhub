@@ -59,8 +59,9 @@ class SelectionSizeTest {
     @Test
     fun aPlainSelectionReadsAsJustTheTotal() {
         val size = SelectionSizes.of(listOf(file("a", 1024L), file("b", 1024L)))
-        assertEquals("2 KB", SelectionSizes.line(size) { it.toString() + " KB" })
+        // 没有文件夹也没有缺大小的时候，只写总数一句，不加任何后缀说明。
         assertEquals("2048", SelectionSizes.line(size) { it.toString() })
+        assertEquals("2 KB", SelectionSizes.line(size) { (it / 1024).toString() + " KB" })
     }
 
     @Test
