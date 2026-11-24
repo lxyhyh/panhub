@@ -22,6 +22,14 @@ android {
         buildConfig = true
     }
 
+    signingConfigs {
+        create("release") {
+            // 本项目不进应用商店：release 包直接用 debug 密钥签名，
+            // 装上就能用，不需要维护第二套密钥。CI 出的 APK 不再是 unsigned。
+            initWith(getByName("debug"))
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -30,6 +38,7 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
