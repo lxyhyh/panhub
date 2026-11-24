@@ -16,11 +16,14 @@ object NodeFilter {
      * 比较时忽略大小写——网盘里 `File` 与 `file` 混着存很常见，让用户
      * 自己去试哪种大小写匹配得上没有意义。
      */
-    fun matches(node: RemoteNode, query: String): Boolean {
+    fun matches(name: String, query: String): Boolean {
         val keyword = query.trim()
         if (keyword.isEmpty()) return true
-        return node.name.contains(keyword, ignoreCase = true)
+        return name.contains(keyword, ignoreCase = true)
     }
+
+    /** 节点版的 [matches]，取它的名字去比。 */
+    fun matches(node: RemoteNode, query: String): Boolean = matches(node.name, query)
 
     /**
      * 过滤一批节点。
@@ -30,6 +33,18 @@ object NodeFilter {
     fun apply(nodes: List<RemoteNode>, query: String): List<RemoteNode> {
         if (query.isBlank()) return nodes
         return nodes.filter { matches(it, query) }
+    }
+
+    /**
+     * 按名字过滤任意列表。
+     *
+     * 本机下载记录不是 [RemoteNode]（只有相对路径、大小和时间），但「输入即筛、
+     * 忽略大小写、空词全留」这些规则必须和网盘列表一模一样 —— 同一个手势在两页
+     * 表现不同会让人觉得是 bug。规则只留这一份，被筛的东西靠 [nameOf] 取名字。
+     */
+    fun <T> applyBy(items: List<T>, query: String, nameOf: (T) -> String): List<T> {
+        if (query.isBlank()) return items
+        return items.filter { matches(nameOf(it), query) }
     }
 
     /** 有没有在过滤。界面据此决定要不要显示「筛选中」这类说明。 */

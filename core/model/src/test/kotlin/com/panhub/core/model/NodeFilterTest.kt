@@ -92,4 +92,25 @@ class NodeFilterTest {
         assertEquals("这里还没有文件", NodeFilter.emptyMessage(""))
         assertEquals("没有名字包含「报表」的项目", NodeFilter.emptyMessage(" 报表 "))
     }
+
+    @Test
+    fun `any list can be filtered by a name accessor`() {
+        // 本机下载记录不是 RemoteNode，但筛选规则必须和网盘列表完全一致。
+        val names = listOf("报告.pdf", "照片.jpg", "小结.md")
+        assertEquals(listOf("报告.pdf", "小结.md"), NodeFilter.applyBy(names, "报", { it }))
+    }
+
+    @Test
+    fun `name accessor filtering keeps the original order and shape`() {
+        val rows = listOf(1 to "b.txt", 2 to "a.txt", 3 to "c.txt")
+        val kept = NodeFilter.applyBy(rows, "A", { it.second })
+        assertEquals(listOf(2 to "a.txt"), kept)
+    }
+
+    @Test
+    fun `a blank keyword returns the very same list instance`() {
+        // 空词时不复制列表：界面每次重组都会走一遍这个函数，能省就省。
+        val rows = listOf("a", "b")
+        assertTrue(NodeFilter.applyBy(rows, "  ", { it }) === rows)
+    }
 }

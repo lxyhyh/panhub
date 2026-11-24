@@ -15,9 +15,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,6 +29,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -52,6 +55,7 @@ import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.platform.LocalFileActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -86,6 +90,8 @@ fun LocalFilesScreen(
 
     // 另存到：系统对话框的回调只给 uri，所以「保存哪一个」要先记下来。
     var pendingExport by remember { mutableStateOf<File?>(null) }
+    // 筛选条默认收起：这一页通常只有几个到几十个文件，多数时候是来直接点开的。
+    var showFilter by remember { mutableStateOf(false) }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("*/*"),
     ) { uri ->
@@ -119,6 +125,16 @@ fun LocalFilesScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = {
+                            // 收起时顺手清掉关键字：只藏输入框却留着过滤，
+                            // 会让列表莫名其妙少东西，而用户找不到原因。
+                            if (showFilter) viewModel.clearFilter()
+                            showFilter = !showFilter
+                        },
+                    ) {
+                        Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                    }
                     if (state.canClear) {
                         TextButton(onClick = viewModel::askClear) { Text("清空") }
                     }
@@ -150,11 +166,27 @@ fun LocalFilesScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (showFilter && !state.empty) {
+                LocalFilterBar(
+                    query = state.filter,
+                    summary = state.filterSummary,
+                    onQuery = viewModel::setFilter,
+                    onClear = viewModel::clearFilter,
+                )
+            }
             if (state.empty) {
                 EmptyState(
                     icon = Icons.Default.DownloadDone,
                     title = "本机没有文件",
                     message = LocalFilesLogic.emptyMessage(),
+                )
+                return@Column
+            }
+            if (state.filteredOut) {
+                EmptyState(
+                    icon = Icons.Default.FilterList,
+                    title = NodeFilter.emptyMessage(state.filter),
+                    message = "换个关键字，或者点上面的清空",
                 )
                 return@Column
             }
@@ -168,7 +200,7 @@ fun LocalFilesScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
-                items(state.rows, key = { it.entry.relativePath }) { row ->
+                items(state.visibleRows, key = { it.entry.relativePath }) { row ->
                     LocalFileCard(
                         row = row,
                         busy = state.busy,
@@ -220,6 +252,52 @@ fun LocalFilesScreen(
                 TextButton(onClick = viewModel::cancelClear) { Text("取消") }
             },
         )
+    }
+}
+
+/**
+ * 按名字筛选本机文件。
+ *
+ * 与网盘浏览页的筛选条长得一样是有意的：同一个手势在两处应该有一致的反应。
+ * 这里筛的是已经盘点出来的那一份，不会重新遍历磁盘。
+ */
+@Composable
+private fun LocalFilterBar(
+    query: String,
+    summary: String?,
+    onQuery: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.lg, vertical = Spacing.xs),
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text("按名字筛选") },
+            placeholder = { Text("本机已下载的文件") },
+            trailingIcon = if (query.isNotEmpty()) {
+                {
+                    IconButton(onClick = onClear) {
+                        Icon(Icons.Default.Close, contentDescription = "清空筛选")
+                    }
+                }
+            } else {
+                null
+            },
+        )
+        if (summary != null) {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Spacing.sm, top = Spacing.xs),
+            )
+        }
     }
 }
 

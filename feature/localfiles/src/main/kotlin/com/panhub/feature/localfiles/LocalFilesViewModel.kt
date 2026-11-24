@@ -2,6 +2,7 @@ package com.panhub.feature.localfiles
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.transfer.DownloadedEntry
 import com.panhub.core.transfer.DownloadsSnapshot
 import com.panhub.core.transfer.LocalDownloads
@@ -24,10 +25,28 @@ data class LocalFilesUiState(
     /** 是否在问「清空全部」。 */
     val confirmingClear: Boolean = false,
     val message: String? = null,
+    /** 按名字筛选的关键字。纯本地行为，不重新扫盘。 */
+    val filter: String = "",
 ) {
     val rows: List<LocalFileRow> get() = LocalFilesLogic.rows(snapshot)
+
+    /** 真正画到列表上的那一份：与网盘浏览页共用同一套筛选规则。 */
+    val visibleRows: List<LocalFileRow>
+        get() = NodeFilter.applyBy(rows, filter) { it.entry.name }
+
+    /** 有没有在筛选。界面据此区分「没有文件」和「筛没了」两种空列表。 */
+    val filtering: Boolean get() = NodeFilter.active(filter)
+
     val summary: String get() = LocalFilesLogic.summaryOf(snapshot)
     val empty: Boolean get() = !loading && snapshot.isEmpty
+
+    /** 筛完一条不剩。这时磁盘上当然还有文件，只是名字都不匹配。 */
+    val filteredOut: Boolean get() = !loading && !empty && visibleRows.isEmpty()
+
+    /** 输入框下面那行小字，规则与浏览页相同。 */
+    val filterSummary: String?
+        get() = NodeFilter.summary(visibleRows.size, rows.size, filter)
+
     val canClear: Boolean get() = snapshot.entries.isNotEmpty() && !busy
 }
 
@@ -131,6 +150,16 @@ class LocalFilesViewModel(private val root: File) : ViewModel() {
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
+
+    /**
+     * 改筛选词。
+     *
+     * 只改一个字符串，不重扫目录：筛的是已经盘点出来的那一份，
+     * 每敲一个字都去遍历磁盘会让输入卡顿，而磁盘内容在打字期间不会变。
+     */
+    fun setFilter(value: String) = _state.update { it.copy(filter = value) }
+
+    fun clearFilter() = _state.update { it.copy(filter = "") }
 
     /**
      * 相对路径 → 真实文件。
