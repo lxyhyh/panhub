@@ -3,6 +3,8 @@ package com.panhub.feature.browser
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,18 +23,26 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.panhub.core.design.Radius
 import com.panhub.core.design.Spacing
 import com.panhub.core.preview.PreviewContent
 import com.panhub.core.preview.PreviewKind
+import com.panhub.core.preview.PreviewZoom
 
 /**
  * 就地预览。
@@ -170,14 +180,78 @@ private fun ImagePreview(content: PreviewContent) {
         Text("这张图片没法显示")
         return
     }
-    Image(
-        bitmap = bitmap,
-        contentDescription = "图片预览",
+    // 缩略图常常只有几百像素宽，原尺寸显示的话细节全糊在一起。
+    // 捏合放大与双击是看图的两个基本手势，缺一个都会让人觉得没做完。
+    val scale = remember(bytes) { mutableFloatStateOf(PreviewZoom.MIN_SCALE) }
+    val offsetX = remember(bytes) { mutableFloatStateOf(0f) }
+    val offsetY = remember(bytes) { mutableFloatStateOf(0f) }
+    val boxSize = remember(bytes) { mutableStateOf(IntSize.Zero) }
+
+    /** 把倍数与平移一起夹回去；缩小时顺带把已经被推到框外的位移收回来。 */
+    fun settle(newScale: Float) {
+        val bounded = PreviewZoom.clamp(newScale)
+        scale.value = bounded
+        val maxX = PreviewZoom.maxTranslation(bounded, boxSize.value.width.toFloat())
+        val maxY = PreviewZoom.maxTranslation(bounded, boxSize.value.height.toFloat())
+        offsetX.value = offsetX.value.coerceIn(-maxX, maxX)
+        offsetY.value = offsetY.value.coerceIn(-maxY, maxY)
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(max = 420.dp)
-            .clip(RoundedCornerShape(Radius.card)),
-    )
+            .clip(RoundedCornerShape(Radius.card))
+            .onSizeChanged { boxSize.value = it }
+            .pointerInput(bytes) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        // 双击在「放大看细节」和「看整张」之间切换，比每次捏合都准。
+                        settle(PreviewZoom.toggled(scale.value))
+                        if (scale.value == PreviewZoom.MIN_SCALE) {
+                            offsetX.value = 0f
+                            offsetY.value = 0f
+                        }
+                    },
+                )
+            }
+            .pointerInput(bytes) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    settle(PreviewZoom.nextScale(scale.value, zoom))
+                    if (scale.value > PreviewZoom.MIN_SCALE) {
+                        val maxX = PreviewZoom.maxTranslation(scale.value, boxSize.value.width.toFloat())
+                        val maxY = PreviewZoom.maxTranslation(scale.value, boxSize.value.height.toFloat())
+                        offsetX.value = (offsetX.value + pan.x).coerceIn(-maxX, maxX)
+                        offsetY.value = (offsetY.value + pan.y).coerceIn(-maxY, maxY)
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = "图片预览",
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = scale.value
+                    scaleY = scale.value
+                    translationX = offsetX.value
+                    translationY = offsetY.value
+                },
+            contentScale = ContentScale.Fit,
+        )
+    }
+    if (scale.value > PreviewZoom.MIN_SCALE) {
+        // 放大之后必须给一条退路：不是每个人都知道双击能还原。
+        TextButton(onClick = {
+            settle(PreviewZoom.MIN_SCALE)
+            offsetX.value = 0f
+            offsetY.value = 0f
+        }) {
+            Text("还原大小")
+        }
+    }
 }
 
 @Composable
