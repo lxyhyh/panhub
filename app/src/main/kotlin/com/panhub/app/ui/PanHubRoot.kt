@@ -41,6 +41,9 @@ import com.panhub.feature.starred.StarredScreen
 import com.panhub.feature.starred.StarredViewModel
 import com.panhub.core.model.NodeFocus
 import com.panhub.core.model.RemoteNode
+import com.panhub.feature.localfiles.LocalFilesScreen
+import com.panhub.feature.localfiles.LocalFilesViewModel
+import java.io.File
 
 /**
  * 导航图。
@@ -58,6 +61,7 @@ fun PanHubRoot(
     previews: PreviewLoader,
     settings: SettingsRepository,
     info: AppInfo,
+    downloadsRoot: File,
     share: SharedLink? = null,
     onShareConsumed: () -> Unit = {},
 ) {
@@ -93,6 +97,7 @@ fun PanHubRoot(
                 onOpenShareImport = { nav.navigate(Routes.SHARE_IMPORT) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenSearch = { nav.navigate(Routes.SEARCH) },
+                onOpenLocalFiles = { nav.navigate(Routes.LOCAL_FILES) },
             )
         }
         composable(
@@ -212,6 +217,12 @@ fun PanHubRoot(
                 },
             )
         }
+        composable(Routes.LOCAL_FILES) {
+            val vm: LocalFilesViewModel = viewModel(
+                factory = factoryOf { LocalFilesViewModel(downloadsRoot) },
+            )
+            LocalFilesScreen(viewModel = vm, onBack = { nav.popBackStack() })
+        }
         composable(Routes.SETTINGS) {
             val vm: SettingsViewModel = viewModel(
                 factory = factoryOf { SettingsViewModel(settings, info) },
@@ -233,6 +244,7 @@ private object Routes {
     const val SHARE_IMPORT = "share-import"
     const val SETTINGS = "settings"
     const val SEARCH = "search"
+    const val LOCAL_FILES = "local-files"
     const val ARG_ACCOUNT = "accountId"
     const val BROWSER = "browser/{$ARG_ACCOUNT}"
     const val SHARES = "shares/{$ARG_ACCOUNT}"

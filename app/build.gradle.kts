@@ -77,6 +77,7 @@ dependencies {
     implementation(project(":feature:trash"))
     implementation(project(":feature:offline"))
     implementation(project(":feature:starred"))
+    implementation(project(":feature:localfiles"))
     implementation(project(":core:transfer"))
     implementation(project(":core:kernel"))
     implementation(project(":core:preview"))

@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
                     previews = previews,
                     settings = settings,
                     info = info,
+                    downloadsRoot = File(filesDir, "downloads"),
                     share = sharedLink.value,
                     onShareConsumed = { sharedLink.value = null },
                 )

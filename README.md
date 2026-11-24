@@ -48,6 +48,7 @@
 | \`:feature:trash\` | 回收站：列出已删除的文件、还原（可换目录）、彻底删除、一键清空 |
 | \`:feature:offline\` | 离线下载：贴链接或磁力，先解析出文件清单再挑着存 |
 | \`:feature:starred\` | 收藏夹：跨目录列出收藏过的文件，点开回到它所在目录 |
+| \`:feature:localfiles\` | 本机文件：列出下载到手机的文件，可打开、分享、另存、删除、一键清空 |
 | \`:app\` | 组装、导航、依赖注入 |
 
 ## 已接入的网盘
@@ -197,6 +198,15 @@ id，再换一次链接接口才有能发出去的地址与提取码。有效期
 底部操作条最多能有六个动作，所以改成等分宽度：按内容撑开会把最后一个挤出屏幕。
 
 转存的目标目录默认是自己的网盘根目录，列表顶部那行「转存到 …」点开可以换。
+
+### 本机文件
+
+下载落在 App 私有目录里（不需要存储权限），传输列表清空之后这些文件仍然占着空间，
+所以账号页顶栏有一个文件夹图标，进去是本机文件的完整清单。
+它扫的是同一个目录，因此不会和传输页看到的对不上。
+每一项可以打开（交给系统里能处理它的应用）、分享、另存到手机的其他位置，或者删掉。
+删除只动本地这份副本，网盘上的原件不受影响；清空同理，只删文件不删目录本身。
+另存走的是系统的「新建文件」对话框，所以由用户自己挑位置和文件名。
 选目录用的是各家都有的普通文件列表接口（只看文件夹），所以三个支持转存的
 服务商共用同一套界面；换目录是浏览过程中的一个短暂动作，用对话框而不是新页面，
 取消之后还留在原来的分享目录里。
@@ -359,6 +369,6 @@ Cookie 是有时效的：过期之后不用删掉账号重新加一遍——账�
 
 - \`test\`：14 个纯 JVM 模块的单测
 - \`kernel\`：Rust 单测、clippy、交叉编译出 \`jniLibs\`
-- \`android\`：等前两个 job 通过后，跑需要 Android 平台的单测（\`:app\`、\`:core:platform\`、\`:feature:accounts\`、\`:feature:browser\`、\`:feature:settings\`、\`:feature:shares\`、\`:feature:shareimport\`、\`:feature:transfers\`、\`:feature:search\`、\`:feature:trash\`、\`:feature:offline\`、\`:feature:starred\`），再编译 debug APK
+- \`android\`：等前两个 job 通过后，跑需要 Android 平台的单测（\`:app\`、\`:core:platform\`、\`:feature:accounts\`、\`:feature:browser\`、\`:feature:settings\`、\`:feature:shares\`、\`:feature:shareimport\`、\`:feature:transfers\`、\`:feature:search\`、\`:feature:trash\`、\`:feature:offline\`、\`:feature:starred\`、\`:feature:localfiles\`），再编译 debug APK
 
 产物在 Actions 的 artifact 里（\`panhub-debug-apk\`）。

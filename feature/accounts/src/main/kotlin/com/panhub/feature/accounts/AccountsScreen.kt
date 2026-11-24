@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Refresh
@@ -94,6 +95,7 @@ fun AccountsScreen(
     onOpenShareImport: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
+    onOpenLocalFiles: () -> Unit = {},
     onOpenTrash: (AccountId) -> Unit = {},
     onOpenStarred: (AccountId) -> Unit = {},
 ) {
@@ -123,6 +125,9 @@ fun AccountsScreen(
                     }
                     IconButton(onClick = onOpenShareImport) {
                         Icon(Icons.Default.FileDownload, contentDescription = "打开分享转存")
+                    }
+                    IconButton(onClick = onOpenLocalFiles) {
+                        Icon(Icons.Default.Folder, contentDescription = "本机文件")
                     }
                     IconButton(onClick = onOpenTransfers) {
                         Icon(Icons.Default.SwapVert, contentDescription = "传输列表")
