@@ -270,3 +270,42 @@ Cookie 需要登录态（BDUSS+STOKEN）。
 - 界面只在进页面时拉一次列表，「刷新」手动重拉；
 - 「还原到指定目录」入口对百度不显示（契约方法会明确报不支持）；
 - 清空前确认。
+
+
+## 官方登录面（APK 取证，2026-11-24，未实现）
+
+来源：APKS 容器 base.apk 的 20 个 dex（未加固，可反编译）。
+百度账号 SDK 是 `com.baidu.sapi2`（1752 个类）+ `com.baidu.passport.sapi2.newlogin`。
+
+### 端点表（dex 字符串池原文）
+
+| 端点 | 用途 |
+|---|---|
+| `POST https://passport.baidu.com/v2/sapi/login` | 账号密码登录主端点 |
+| `POST https://passport.baidu.com/v3/login/api/login` | 新版登录 API |
+| `/v3/login/api/check` | 登录前检查（风控） |
+| `/v2/api/bdusslogin` | BDUSS 换登录态 |
+| `/v2/sapi/qrlogin?lp=` | 扫码登录 |
+| `/v2/sapi/bdussexchangeaccesstoken` | BDUSS 换 accessToken |
+| `/v3/api/login/eacexchangebduss` | EAC 换 BDUSS |
+| `/phoenix/account/ssologin` | SSO 登录 |
+| `/v3/api/device/app` + `/v3/api/device/getonlineapp` | 设备注册 |
+| `/v3/api/user/logout` | 登出 |
+
+### 参数（dex 命中）
+
+`client_id`、`client_type`、`apiver`、`logintype`（37 处）、`username`、`password`（RSA 加密）、
+`bduss`、`ptoken`、`stoken`。RSA/ECB 出现在 classes12.dex，密码用服务端公钥加密。
+
+### 为什么没实现
+
+1. 登录需要设备注册（`/v3/api/device/app`）与风控参数，请求形状复杂；
+2. `logintype` 的取值域与 RSA 公钥下发端点在 dex 里没有直接命中文本（可能在加密
+   的 resources 或 native 层）；
+3. 百度对第三方登录端点的风控极强，没有真机抓包验证前硬写会误封账号。
+
+### 建议路径
+
+百度官方 App 登录也是内嵌 H5（wappass.baidu.com/passport/*，tpl=netdisk_android）。
+与夸克/UC 同理：做内嵌 WebView 加载 `wappass.baidu.com/passport/login?tpl=netdisk_android`，
+登录完成取 BDUSS/STOKEN Cookie。这与官方 App 行为一致，且风控风险最小。
