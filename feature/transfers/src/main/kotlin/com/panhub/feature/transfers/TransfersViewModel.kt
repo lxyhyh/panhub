@@ -51,6 +51,9 @@ data class TransfersUiState(
     /** 失败的任务数。网络恢复后用户想一次把它们都排回去。 */
     val failedCount: Int get() = tasks.count { it.state == TransferState.FAILED }
 
+    /** 暂停中的任务数。「全部暂停 / 全部继续」按钮按它出现或消失。 */
+    val pausedCount: Int get() = tasks.count { it.state == TransferState.PAUSED }
+
     /** 正在跑的那个任务的速率，标题栏用。 */
     val runningSpeed: Long? get() = digest.running?.let { speeds[it.id] }
 }
@@ -138,6 +141,18 @@ class TransfersViewModel(
     }
 
     /** 网络恢复后一次把失败的任务都排回队列。 */
+
+    /** 暂停所有排队与进行中的任务；返回按下去的个数。 */
+    fun pauseAll() {
+        val n = engine.pauseAll()
+        // 界面靠 pausedCount/activeCount 反映变化，不需要额外提示。
+    }
+
+    /** 继续所有暂停的任务。 */
+    fun resumeAll() {
+        val n = engine.resumeAll()
+        // 界面靠 pausedCount/activeCount 反映变化，不需要额外提示。
+    }
     fun retryFailed() {
         engine.retryAllFailed()
     }

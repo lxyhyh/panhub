@@ -122,6 +122,13 @@ fun TransfersScreen(
                     }
                 },
                 actions = {
+                    // 「先停一下」很少只针对一个文件：全暂停把排队与在跑的一起按住，
+                    // 恢复时一个按钮全部放行。按钮按队列状态出现或消失。
+                    if (state.activeCount > 0) {
+                        TextButton(onClick = viewModel::pauseAll) { Text("全部暂停") }
+                    } else if (state.pausedCount > 0) {
+                        TextButton(onClick = viewModel::resumeAll) { Text("全部继续") }
+                    }
                     // 网络断了之后常常一次攒下好几个失败的任务，一个个点重试很烦。
                     if (state.failedCount > 0) {
                         TextButton(onClick = viewModel::retryFailed) { Text("重试失败") }

@@ -330,6 +330,41 @@ class TransferEngine(
     }
 
     /**
+     * 暂停所有排队与进行中的任务。
+     *
+     * 「先停一下，等 Wi-Fi 再传」很少只针对一个文件；逐个点暂停在几十个
+     * 任务面前不现实。退避等待中的任务同样会被按住（计时器一并取消）。
+     * 返回真正按下去的个数——已经暂停或已结束的不算。
+     */
+    fun pauseAll(): Int {
+        val now = clock.nowMillis()
+        val ids = _tasks.value
+            .filter { it.state == TransferState.QUEUED || it.state == TransferState.RUNNING }
+            .map { it.id }
+        ids.forEach { id ->
+            jobs.remove(id)?.cancel(TransferPause())
+            retries.remove(id)?.cancel()
+            waiting.remove(id)
+            update(id) { it.copy(state = TransferState.PAUSED, error = null, updatedAt = now) }
+        }
+        if (ids.isNotEmpty()) pump()
+        return ids.size
+    }
+
+    /** 继续所有暂停的任务。返回继续了的个数。 */
+    fun resumeAll(): Int {
+        val now = clock.nowMillis()
+        val ids = _tasks.value
+            .filter { it.state == TransferState.PAUSED }
+            .map { it.id }
+        ids.forEach { id ->
+            update(id) { it.copy(state = TransferState.QUEUED, attempt = 0, updatedAt = now) }
+        }
+        if (ids.isNotEmpty()) pump()
+        return ids.size
+    }
+
+    /**
      * 把排队中的任务挪到队首。
      *
      * 队列是串行且按加入顺序跑的，用户排了十个文件之后突然要某个先传，
