@@ -1414,7 +1414,6 @@ private fun NodeDetailsDialog(
 private fun formatTime(millis: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(millis))
 
-@Composable
 /**
  * 删除确认框。
  *
