@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
@@ -34,7 +35,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
+import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
@@ -65,6 +69,8 @@ fun StarredScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    // 筛选条默认收起：收藏夹通常只有几件东西。
+    var showFilter by remember { mutableStateOf(false) }
 
     state.message?.let { message ->
         LaunchedEffect(message) {
@@ -94,6 +100,14 @@ fun StarredScreen(
                 },
                 actions = {
                     if (state.supported) {
+                        IconButton(
+                            onClick = {
+                                if (showFilter) viewModel.clearQuery()
+                                showFilter = !showFilter
+                            },
+                        ) {
+                            Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                        }
                         IconButton(onClick = viewModel::refresh, enabled = !state.refreshing) {
                             Icon(Icons.Default.Refresh, contentDescription = "刷新")
                         }
@@ -106,52 +120,63 @@ fun StarredScreen(
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { inner ->
-        Box(modifier = Modifier.fillMaxSize().padding(inner)) {
-            when {
-                !state.supported -> EmptyState(
-                    icon = Icons.Outlined.StarBorder,
-                    title = "这个网盘没有收藏夹",
-                    message = "收藏是这个网盘没提供的功能",
+        Column(modifier = Modifier.fillMaxSize().padding(inner)) {
+            if (showFilter && state.items.isNotEmpty()) {
+                FilterBar(
+                    query = state.query,
+                    summary = state.filterSummary,
+                    onQuery = viewModel::setQuery,
+                    onClear = viewModel::clearQuery,
+                    placeholder = "收藏夹里的文件名",
                 )
-                state.loading -> LoadingState()
-                state.items.isEmpty() && state.error != null -> EmptyState(
-                    icon = Icons.Outlined.StarBorder,
-                    title = "打不开收藏夹",
-                    message = state.error?.message,
-                )
-                state.items.isEmpty() -> EmptyState(
-                    icon = Icons.Outlined.StarBorder,
-                    title = state.emptyText ?: "收藏夹是空的",
-                    message = "在文件页里点某个文件的「收藏」，它就会出现在这里",
-                )
-                else -> LazyColumn(
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = Spacing.lg,
-                        end = Spacing.lg,
-                        top = Spacing.sm,
-                        bottom = Spacing.xxl,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.md),
-                ) {
-                    if (state.refreshing) {
-                        item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
-                    }
-                    items(state.items, key = { it.id.value }) { node ->
-                        StarredCard(
-                            node = node,
-                            busy = state.busy,
-                            onClick = { onOpen(node) },
-                            onUnstar = { viewModel.unstar(node) },
-                        )
-                    }
-                    if (state.hasMore) {
-                        item {
-                            TextButton(
-                                onClick = viewModel::loadMore,
-                                enabled = !state.loadingMore,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(if (state.loadingMore) "正在加载…" else "加载更多")
+            }
+            Box(modifier = Modifier.fillMaxSize()) {
+                when {
+                    !state.supported -> EmptyState(
+                        icon = Icons.Outlined.StarBorder,
+                        title = "这个网盘没有收藏夹",
+                        message = "收藏是这个网盘没提供的功能",
+                    )
+                    state.loading -> LoadingState()
+                    state.items.isEmpty() && state.error != null -> EmptyState(
+                        icon = Icons.Outlined.StarBorder,
+                        title = "打不开收藏夹",
+                        message = state.error?.message,
+                    )
+                    state.visible.isEmpty() -> EmptyState(
+                        icon = if (state.filtering) Icons.Default.FilterList else Icons.Outlined.StarBorder,
+                        title = state.emptyTitle,
+                        message = state.emptyHint,
+                    )
+                    else -> LazyColumn(
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            start = Spacing.lg,
+                            end = Spacing.lg,
+                            top = Spacing.sm,
+                            bottom = Spacing.xxl,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                    ) {
+                        if (state.refreshing) {
+                            item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+                        }
+                        items(state.visible, key = { it.id.value }) { node ->
+                            StarredCard(
+                                node = node,
+                                busy = state.busy,
+                                onClick = { onOpen(node) },
+                                onUnstar = { viewModel.unstar(node) },
+                            )
+                        }
+                        if (state.hasMore) {
+                            item {
+                                TextButton(
+                                    onClick = viewModel::loadMore,
+                                    enabled = !state.loadingMore,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(if (state.loadingMore) "正在加载…" else "加载更多")
+                                }
                             }
                         }
                     }

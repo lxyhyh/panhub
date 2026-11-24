@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.RemoteNode
@@ -35,8 +36,24 @@ data class StarredUiState(
     val busy: Boolean = false,
     val error: PanError? = null,
     val message: String? = null,
+    /** 按名字筛选的关键字。纯本地行为：敲字不会重新拉一次收藏夹。 */
+    val query: String = "",
 ) {
     val hasMore: Boolean get() = nextCursor != null
+
+    /** 界面上真正看得到的那些。 */
+    val visible: List<RemoteNode> get() = NodeFilter.applyBy(items, query) { it.name }
+
+    val filtering: Boolean get() = NodeFilter.active(query)
+
+    val filterSummary: String? get() = NodeFilter.summary(visible.size, items.size, query)
+
+    /** 筛空了和真的空是两句话，说法必须分开。 */
+    val emptyTitle: String
+        get() = if (items.isEmpty()) emptyText ?: "收藏夹是空的" else NodeFilter.emptyMessage(query)
+
+    val emptyHint: String
+        get() = if (items.isEmpty()) "在文件页里点某个文件的「收藏」，它就会出现在这里" else "换个关键字，或者点上面的清空"
 
     /** 列表为空时给用户看的话；还在加载就什么都不说。 */
     val emptyText: String?
@@ -171,6 +188,11 @@ class StarredViewModel(
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
+
+    /** 只改一个字符串，不重新拉收藏夹：每敲一个字都发一次请求纯属浪费。 */
+    fun setQuery(value: String) = _state.update { it.copy(query = value) }
+
+    fun clearQuery() = _state.update { it.copy(query = "") }
 
     /** 从收藏夹点进一个文件夹后，需要它作为浏览页的起点。 */
     fun nodeOf(id: NodeId): RemoteNode? = _state.value.items.firstOrNull { it.id == id }
