@@ -3,6 +3,7 @@ package com.panhub.feature.browser
 import android.content.Intent
 import android.net.Uri
 
+import androidx.activity.compose.BackHandler
 import coil3.compose.SubcomposeAsyncImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -169,6 +170,25 @@ fun BrowserScreen(
     }
 
     LaunchedEffect(Unit) { viewModel.start() }
+
+    // 系统返回键先退这一页里的临时状态，最后才离开浏览页。
+    // 只有真有东西可退时才挂监听，否则会把系统默认的「退出」也截走。
+    val backAction = BrowserBack.action(
+        selectionMode = state.selectionMode,
+        filterVisible = showFilter,
+        canGoUp = state.canGoUp,
+    )
+    BackHandler(enabled = backAction != BrowserBackAction.LEAVE) {
+        when (backAction) {
+            BrowserBackAction.EXIT_SELECTION -> viewModel.clearSelection()
+            BrowserBackAction.CLOSE_FILTER -> {
+                viewModel.clearFilter()
+                showFilter = false
+            }
+            BrowserBackAction.GO_UP -> viewModel.goUp()
+            BrowserBackAction.LEAVE -> Unit
+        }
+    }
 
     state.message?.let { message ->
         LaunchedEffect(message) {
