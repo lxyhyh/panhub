@@ -14,6 +14,7 @@ import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SortOrder
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.SortSpec
 import com.panhub.core.model.sortedFor
 import com.panhub.core.preview.PreviewContent
@@ -79,6 +80,13 @@ data class BrowserUiState(
     val selected: Set<NodeId> = emptySet(),
     /** 列表排序。纯本地行为，与服务商无关，所以不需要能力门控。 */
     val sort: SortSpec = SortSpec(),
+    /**
+     * 目录内的名字过滤词。
+     *
+     * 只筛已经加载的这一批，不联网：目录里有几百项时，靠滚动找文件名是最费劲的一步，
+     * 而为了一个「临时找一下」再走一次跨目录搜索既慢又会被限流。
+     */
+    val filter: String = "",
 ) {
     val currentFolder: RemoteNode? get() = stack.lastOrNull()
 
@@ -87,8 +95,8 @@ data class BrowserUiState(
 
     val selectedCount: Int get() = selected.size
 
-    /** 当前已加载的项目是否全选。只在多选模式下有意义。 */
-    val allSelected: Boolean get() = nodes.isNotEmpty() && nodes.all { it.id in selected }
+    /** 看得见的项目是否全选。只在多选模式下有意义。 */
+    val allSelected: Boolean get() = visible.isNotEmpty() && visible.all { it.id in selected }
     val title: String get() = currentFolder?.name ?: accountName
     val canGoUp: Boolean get() = stack.isNotEmpty()
     val parentId: NodeId? get() = currentFolder?.id
@@ -98,6 +106,12 @@ data class BrowserUiState(
 
     /** 服务商返回的顺序各不相同，一律按用户选的规格重排后再显示。 */
     val sorted: List<RemoteNode> get() = nodes.sortedFor(sort)
+
+    /** 真正画到列表上的那一份：先按用户选的规格排，再按过滤词收窄。 */
+    val visible: List<RemoteNode> get() = NodeFilter.apply(sorted, filter)
+
+    /** 有没有在过滤。界面据此换掉「这里还没有文件」那句空列表说明。 */
+    val filtering: Boolean get() = NodeFilter.active(filter)
 }
 
 /**
@@ -513,9 +527,9 @@ class BrowserViewModel(
             node = node,
             kind = kind,
             loading = true,
-            // 用界面上看到的那份顺序（sorted），否则用户点「下一张」跳到的是
-            // 另一个排序下的下一个，看起来像是乱跳。
-            cursors = PreviewSiblings.of(_state.value.sorted, node, kind),
+            // 用界面上看到的那份（visible：已经排序并过滤过），否则用户点
+            // 「下一张」跳到的是另一个排序下、甚至已被筛掉的下一张，看起来像是乱跳。
+            cursors = PreviewSiblings.of(_state.value.visible, node, kind),
         )
         previewJob = viewModelScope.launch {
             val result = loader.load(accountId, node.id, kind, node.size.takeIf { it > 0 })
@@ -575,7 +589,9 @@ class BrowserViewModel(
 
     fun enter(folder: RemoteNode) {
         if (!folder.isDir) return
-        _state.update { it.copy(stack = it.stack + folder) }
+        // 进新目录要清掉过滤词：上一个目录里打的字几乎没有可能也适用于这一层，
+        // 留着它只会让人进目录后看到一片空白，还以为目录是空的。
+        _state.update { it.copy(stack = it.stack + folder, filter = "") }
         // 换目录必须清空旧列表：否则新目录加载期间会短暂显示上一级的文件，
         // 加载失败时更会一直停在那里，看起来像是进了错的目录。
         reloadFromScratch()
@@ -585,7 +601,7 @@ class BrowserViewModel(
     fun goUp(): Boolean {
         val stack = _state.value.stack
         if (stack.isEmpty()) return false
-        _state.update { it.copy(stack = stack.dropLast(1)) }
+        _state.update { it.copy(stack = stack.dropLast(1), filter = "") }
         reloadFromScratch()
         return true
     }
@@ -600,7 +616,7 @@ class BrowserViewModel(
         val stack = _state.value.stack
         val target = if (depth <= BrowserPath.ROOT_DEPTH) emptyList() else stack.take(depth + 1)
         if (target.size == stack.size) return false
-        _state.update { it.copy(stack = target) }
+        _state.update { it.copy(stack = target, filter = "") }
         reloadFromScratch()
         return true
     }
@@ -798,10 +814,16 @@ class BrowserViewModel(
         }
     }
 
-    /** 全选当前已加载的项目；已全选则清空（同一个入口来回切）。 */
+    /**
+     * 全选当前看到的项目；已全选则清空（同一个入口来回切）。
+     *
+     * 筛选中只选看得见的那几条：把被筛掉的项目一起选中，用户对这批文件
+     * 执行删除或移动时会连自己没看见的东西一起处理掉。
+     */
     fun toggleSelectAll() {
         _state.update {
-            it.copy(selected = if (it.allSelected) emptySet() else it.nodes.mapTo(mutableSetOf()) { n -> n.id })
+            val shown = it.visible
+            it.copy(selected = if (it.allSelected) emptySet() else shown.mapTo(mutableSetOf()) { n -> n.id })
         }
     }
 
@@ -828,6 +850,16 @@ class BrowserViewModel(
     fun toggleSortDirection() = _state.update {
         it.copy(sort = it.sort.copy(descending = !it.sort.descending))
     }
+
+    /**
+     * 改过滤词。
+     *
+     * 每敲一个字都在本地重筛一遍，不发请求也不需要防抖：几百项的 contains
+     * 比一次界面重组便宜得多，加防抖反而会让输入框看起来卡。
+     */
+    fun setFilter(value: String) = _state.update { it.copy(filter = value) }
+
+    fun clearFilter() = _state.update { it.copy(filter = "") }
 
     private fun selectedNodes(): List<RemoteNode> {
         val current = _state.value

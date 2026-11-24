@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DriveFolderUpload
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
@@ -99,6 +100,7 @@ import com.panhub.core.design.formatBytes
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.ShareLink
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.SortOrder
 import com.panhub.core.model.SortSpec
 import java.text.SimpleDateFormat
@@ -132,6 +134,8 @@ fun BrowserScreen(
     var actionNode by remember { mutableStateOf<RemoteNode?>(null) }
     var renameNode by remember { mutableStateOf<RemoteNode?>(null) }
     var showSort by remember { mutableStateOf(false) }
+    // 过滤条默认收起：多数时候用户是来翻目录的，不是来找某个名字。
+    var showFilter by remember { mutableStateOf(false) }
 
     // 选完文件先复制到缓存再入队：content:// 授权随进程结束失效，
     // 而上传是异步排队，可能在用户离开本页之后才开始。
@@ -214,6 +218,16 @@ fun BrowserScreen(
                                     Icon(Icons.Default.Search, contentDescription = "搜索")
                                 }
                             }
+                            IconButton(
+                                onClick = {
+                                    // 收起时顺手清掉关键字：只藏输入框却留着过滤，
+                                    // 列表会莫名其妙少东西又找不到原因。
+                                    if (showFilter) viewModel.clearFilter()
+                                    showFilter = !showFilter
+                                },
+                            ) {
+                                Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                            }
                             IconButton(onClick = { showSort = true }) {
                                 Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
                             }
@@ -231,6 +245,14 @@ fun BrowserScreen(
                         accountName = state.accountName,
                         stack = state.stack,
                         onJump = viewModel::jumpTo,
+                    )
+                }
+                if (showFilter && !state.selectionMode) {
+                    FilterBar(
+                        query = state.filter,
+                        summary = NodeFilter.summary(state.visible.size, state.nodes.size, state.filter),
+                        onQuery = viewModel::setFilter,
+                        onClear = viewModel::clearFilter,
                     )
                 }
                 state.quota?.let { quota ->
@@ -348,6 +370,12 @@ fun BrowserScreen(
                     title = "这里还没有文件",
                     message = if (state.canCreateFolder) "点右下角新建一个文件夹" else null,
                 )
+                // 目录里有东西但被过滤光了：说清楚是筛掉了，别让人以为文件没了。
+                state.visible.isEmpty() -> EmptyState(
+                    icon = Icons.Default.FilterList,
+                    title = NodeFilter.emptyMessage(state.filter),
+                    message = "换个关键字，或者点上面的清空",
+                )
                 else -> LazyColumn(
                     contentPadding = PaddingValues(
                         start = Spacing.lg,
@@ -357,7 +385,7 @@ fun BrowserScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
-                    items(state.sorted, key = { it.id.value }) { node ->
+                    items(state.visible, key = { it.id.value }) { node ->
                         NodeRow(
                             node = node,
                             selectionMode = state.selectionMode,
@@ -858,6 +886,43 @@ private fun CloudCopyDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+}
+
+@Composable
+private fun FilterBar(
+    query: String,
+    summary: String?,
+    onQuery: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.lg, bottom = Spacing.md)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            singleLine = true,
+            label = { Text("按名字筛选") },
+            placeholder = { Text("当前目录内") },
+            trailingIcon = if (query.isNotEmpty()) {
+                {
+                    IconButton(onClick = onClear) {
+                        Icon(Icons.Default.Close, contentDescription = "清空筛选")
+                    }
+                }
+            } else {
+                null
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        // 只在真的筛掉了一些东西时才报数：全都命中时说「10/10」只是噪音。
+        if (summary != null) {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Spacing.sm, top = Spacing.xs),
+            )
+        }
+    }
 }
 
 @Composable
