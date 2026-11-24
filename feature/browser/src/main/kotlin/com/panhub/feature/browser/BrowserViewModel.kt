@@ -58,6 +58,8 @@ data class BrowserUiState(
     val canUpload: Boolean = false,
     val canRename: Boolean = false,
     val canDelete: Boolean = false,
+    /** 删除会进回收站还是永久删掉。决定确认框里敢不敢承诺「能还原」。 */
+    val canTrash: Boolean = false,
     val canMove: Boolean = false,
     val canCopy: Boolean = false,
     val canDownload: Boolean = false,
@@ -229,6 +231,24 @@ data class ShareSheetState(
 }
 
 /**
+ * 删除确认框的状态。
+ *
+ * 删除是本页唯一的破坏性操作，所以它有自己的状态而不是「点一下就发请求」：
+ * 用户必须先看见这次要删什么、删掉之后还能不能捞回来。
+ */
+data class DeleteConfirmState(
+    val visible: Boolean = false,
+    val nodes: List<RemoteNode> = emptyList(),
+    /** 服务商声明的回收站能力，决定正文与按钮的措辞。 */
+    val toTrash: Boolean = false,
+    val busy: Boolean = false,
+) {
+    val title: String get() = DeleteConfirm.title(nodes)
+    val question: String get() = DeleteConfirm.question(nodes, toTrash)
+    val confirmLabel: String get() = DeleteConfirm.confirmLabel(toTrash)
+}
+
+/**
  * 文件详情面板的状态。
  *
  * 只用列表里已有的字段，不再单独查一次：详情面板是「多看一眼」的动作，
@@ -302,6 +322,9 @@ class BrowserViewModel(
 
     private val _preview = MutableStateFlow(PreviewState())
     val preview: StateFlow<PreviewState> = _preview.asStateFlow()
+
+    private val _delete = MutableStateFlow(DeleteConfirmState())
+    val delete: StateFlow<DeleteConfirmState> = _delete.asStateFlow()
 
     /** 当前打开的预览是否还有协程在跑，关闭时要取消掉。 */
     private var previewJob: Job? = null
@@ -662,19 +685,56 @@ class BrowserViewModel(
         }
     }
 
-    fun delete(node: RemoteNode) {
+    /**
+     * 点删除：先说明会发生什么，不直接动手。
+     *
+     * 删除是本页唯一不可撤销的动作，而各家网盘对它的语义并不一样：
+     * 百度与 123 云盘会放进回收站，其余的直接删掉。让用户在按下按钮之前
+     * 就知道能不能捞回来，比事后再解释划算得多。
+     */
+    fun openDelete(nodes: List<RemoteNode>) {
+        if (nodes.isEmpty()) return
+        _delete.value = DeleteConfirmState(
+            visible = true,
+            nodes = nodes,
+            toTrash = _state.value.canTrash,
+        )
+    }
+
+    fun cancelDelete() {
+        _delete.value = DeleteConfirmState()
+    }
+
+    /** 确认删除：逐项下发并统计结果。没有批量接口的网盘也一样走这条路。 */
+    fun confirmDelete() {
+        val pending = _delete.value
+        if (!pending.visible || pending.busy) return
         val provider = scoped ?: return
-        _state.update { it.copy(busy = true) }
+        val nodes = pending.nodes
+        if (nodes.isEmpty()) return
+        _delete.update { it.copy(busy = true) }
         viewModelScope.launch {
-            when (val result = provider.delete(node.id)) {
-                is PanResult.Success -> {
-                    _state.update { it.copy(busy = false, message = "已删除 ${node.name}") }
-                    load(refresh = true)
-                }
-                is PanResult.Failure -> _state.update {
-                    it.copy(busy = false, message = it.errorText(result.error))
+            var done = 0
+            var firstError: String? = null
+            for (node in nodes) {
+                when (val result = provider.delete(node.id)) {
+                    is PanResult.Success -> done++
+                    is PanResult.Failure -> if (firstError == null) firstError = result.error.message
                 }
             }
+            _delete.value = DeleteConfirmState()
+            _state.update {
+                it.copy(
+                    busy = false,
+                    selected = emptySet(),
+                    message = when {
+                        done == nodes.size -> DeleteConfirm.doneMessage(done, pending.toTrash)
+                        done == 0 -> firstError ?: "删除失败"
+                        else -> "已删除 " + done + "/" + nodes.size + " 项"
+                    },
+                )
+            }
+            load(refresh = true)
         }
     }
 
@@ -791,34 +851,9 @@ class BrowserViewModel(
         }
     }
 
-    /** 批量删除。没有批量接口，逐个删并统计结果。 */
+    /** 批量删除：同样是先问一句，再走 [confirmDelete]。 */
     fun deleteSelected() {
-        val provider = scoped ?: return
-        val nodes = selectedNodes()
-        if (nodes.isEmpty()) return
-        _state.update { it.copy(busy = true) }
-        viewModelScope.launch {
-            var done = 0
-            var firstError: String? = null
-            for (node in nodes) {
-                when (val result = provider.delete(node.id)) {
-                    is PanResult.Success -> done++
-                    is PanResult.Failure -> if (firstError == null) firstError = result.error.message
-                }
-            }
-            _state.update {
-                it.copy(
-                    busy = false,
-                    selected = emptySet(),
-                    message = when {
-                        done == nodes.size -> "已删除 " + done + " 项"
-                        done == 0 -> firstError ?: "删除失败"
-                        else -> "已删除 " + done + "/" + nodes.size + " 项"
-                    },
-                )
-            }
-            load(refresh = true)
-        }
+        openDelete(selectedNodes())
     }
 
     /** 打开分享对话框。 */
@@ -1143,6 +1178,7 @@ class BrowserViewModel(
                             canUpload = descriptor.capabilities.upload,
                             canRename = descriptor.capabilities.rename,
                             canDelete = descriptor.capabilities.delete,
+                            canTrash = descriptor.capabilities.trash,
                             canMove = descriptor.capabilities.move,
                             canCopy = descriptor.capabilities.copy,
                             canDownload = descriptor.capabilities.download,

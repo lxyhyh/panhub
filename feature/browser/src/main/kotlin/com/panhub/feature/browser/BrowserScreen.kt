@@ -125,6 +125,7 @@ fun BrowserScreen(
     val copy by viewModel.copy.collectAsStateWithLifecycle()
     val details by viewModel.details.collectAsStateWithLifecycle()
     val preview by viewModel.preview.collectAsStateWithLifecycle()
+    val deleting by viewModel.delete.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -410,7 +411,7 @@ fun BrowserScreen(
             },
             onDelete = {
                 actionNode = null
-                viewModel.delete(node)
+                viewModel.openDelete(listOf(node))
             },
             onDownload = {
                 actionNode = null
@@ -464,6 +465,14 @@ fun BrowserScreen(
                 showNewFolder = false
                 viewModel.createFolder(name)
             },
+        )
+    }
+
+    if (deleting.visible) {
+        DeleteConfirmDialog(
+            state = deleting,
+            onDismiss = viewModel::cancelDelete,
+            onConfirm = viewModel::confirmDelete,
         )
     }
 
@@ -1406,6 +1415,62 @@ private fun formatTime(millis: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(millis))
 
 @Composable
+/**
+ * 删除确认框。
+ *
+ * 正文随服务商是否回收站而变：只有它真会放进回收站时才写「可以还原」，
+ * 否则必须说清「删掉找不回来」——这句话不是免责声明，是用户唯一能依据的信息。
+ */
+@Composable
+private fun DeleteConfirmDialog(
+    state: DeleteConfirmState,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!state.busy) onDismiss() },
+        title = { Text(state.title) },
+        text = {
+            Column {
+                Text(
+                    text = state.question,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (state.busy) {
+                    Row(
+                        modifier = Modifier.padding(top = Spacing.md),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Text(
+                            text = "正在删除…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = Spacing.sm),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !state.busy) {
+                Text(
+                    text = state.confirmLabel,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !state.busy) { Text("取消") }
+        },
+    )
+}
+
+
 private fun NameDialog(
     title: String,
     initial: String,
