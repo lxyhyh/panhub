@@ -3,6 +3,7 @@ package com.panhub.feature.transfers
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.panhub.core.common.Clock
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.session.SessionManager
 import com.panhub.core.transfer.TransferDigest
 import com.panhub.core.transfer.TransferEngine
@@ -22,6 +23,13 @@ enum class TransferFilter { ALL, ACTIVE, FINISHED }
 
 data class TransfersUiState(
     val filter: TransferFilter = TransferFilter.ALL,
+    /**
+     * 按名字筛选的关键字。纯本地行为，不发请求也不改队列。
+     *
+     * 和标签筛选是两件事：标签管「要看哪一类」，关键字管「找那一条」。
+     * 队列跑上一整天会有几十条任务，删不掉也翻不完，靠滚动找名字最费劲。
+     */
+    val query: String = "",
     val tasks: List<TransferTask> = emptyList(),
     /** 每个正在跑的任务的速率（字节/秒）。测不出来的任务不会出现在这里。 */
     val speeds: Map<String, Long> = emptyMap(),
@@ -38,11 +46,46 @@ data class TransfersUiState(
     /** 标题栏要显示的汇总；每帧重算一次，任务数是几十条量级，不值得缓存。 */
     val digest: TransferDigest get() = TransferDigest.of(tasks)
 
-    val visible: List<TransferTask>
+    /** 只按标签筛过的那一批。空状态提示要区分「标签下没有」和「关键字下没有」。 */
+    val byChip: List<TransferTask>
         get() = when (filter) {
             TransferFilter.ALL -> tasks
             TransferFilter.ACTIVE -> tasks.filter { it.state.isActive || it.state.isPaused }
             TransferFilter.FINISHED -> tasks.filter { it.state.isFinished }
+        }
+
+    /** 标签筛完再按名字筛。列表画的就是这一份。 */
+    val visible: List<TransferTask>
+        get() = NodeFilter.applyBy(byChip, query) { it.name }
+
+    val filtering: Boolean get() = NodeFilter.active(query)
+
+    /** 关键字筛掉了东西才显示「筛选中 N/M 项」，否则那行小字只是噪音。 */
+    val filterSummary: String? get() = NodeFilter.summary(visible.size, byChip.size, query)
+
+    /**
+     * 列表空着时的标题。
+     *
+     * 三种空是不同的事：队列本来就空、这个标签下没有、关键字筛没了。
+     * 一律说「还没有传输任务」会让明明有五个失败任务的用户以为记录丢了。
+     */
+    val emptyTitle: String
+        get() = when {
+            tasks.isEmpty() -> "还没有传输任务"
+            byChip.isEmpty() -> when (filter) {
+                TransferFilter.ACTIVE -> "进行中没有任务"
+                TransferFilter.FINISHED -> "还没有结束的任务"
+                TransferFilter.ALL -> "还没有传输任务"
+            }
+            else -> NodeFilter.emptyMessage(query)
+        }
+
+    /** 空状态的补充说明；没什么可说的时候给 null，界面不画第二行。 */
+    val emptyHint: String?
+        get() = when {
+            tasks.isEmpty() -> "在文件列表里长按文件即可开始下载"
+            byChip.isEmpty() -> "切到别的标签看看"
+            else -> "换个关键字，或者点上面的清空"
         }
 
     val activeCount: Int get() = tasks.count { it.state.isActive }
@@ -112,6 +155,15 @@ class TransfersViewModel(
     }
 
     fun setFilter(filter: TransferFilter) = _state.update { it.copy(filter = filter) }
+
+    /**
+     * 按名字找任务。
+     *
+     * 不防抖：每条任务的名字早就装在内存里了，比一次界面重组便宜得多。
+     */
+    fun setQuery(value: String) = _state.update { it.copy(query = value) }
+
+    fun clearQuery() = _state.update { it.copy(query = "") }
 
     fun cancel(id: String) {
         engine.cancel(id)

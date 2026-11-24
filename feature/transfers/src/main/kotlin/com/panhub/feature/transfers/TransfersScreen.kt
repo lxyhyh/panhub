@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -31,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -54,6 +57,7 @@ import com.panhub.core.design.EmptyState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.transfer.TransferDirection
 import com.panhub.core.transfer.TransferEstimate
 import com.panhub.core.design.formatBytes
@@ -77,6 +81,8 @@ fun TransfersScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // 筛选条默认收起：多数时候用户是来看进度的，不是来找名字的。
+    var showFilter by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -122,6 +128,14 @@ fun TransfersScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        // 收起搜索框时顺手清掉关键字：只藏输入框却留着筛选，
+                        // 列表会莫名其妙少东西。
+                        if (showFilter) viewModel.clearQuery()
+                        showFilter = !showFilter
+                    }) {
+                        Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                    }
                     // 「先停一下」很少只针对一个文件：全暂停把排队与在跑的一起按住，
                     // 恢复时一个按钮全部放行。按钮按队列状态出现或消失。
                     if (state.activeCount > 0) {
@@ -174,12 +188,21 @@ fun TransfersScreen(
                 )
             }
 
+            if (showFilter && state.tasks.isNotEmpty()) {
+                TransferFilterBar(
+                    query = state.query,
+                    summary = state.filterSummary,
+                    onQuery = viewModel::setQuery,
+                    onClear = viewModel::clearQuery,
+                )
+            }
+
             val visible = state.visible
             if (visible.isEmpty()) {
                 EmptyState(
-                    icon = Icons.Default.Download,
-                    title = "还没有传输任务",
-                    message = "在文件列表里长按文件即可开始下载",
+                    icon = if (state.filtering) Icons.Default.FilterList else Icons.Default.Download,
+                    title = state.emptyTitle,
+                    message = state.emptyHint,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -219,6 +242,52 @@ fun TransfersScreen(
                     item { Spacer(Modifier.height(Spacing.xl)) }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 按名字找任务。
+ *
+ * 规则与浏览页、本机文件页共用 [NodeFilter]：同一个手势在三页表现不同，
+ * 用户会当成 bug 报上来。
+ */
+@Composable
+private fun TransferFilterBar(
+    query: String,
+    summary: String?,
+    onQuery: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.lg, vertical = Spacing.xs),
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            singleLine = true,
+            label = { Text("按名字筛选") },
+            placeholder = { Text("这个队列里的任务") },
+            trailingIcon = if (query.isNotEmpty()) {
+                {
+                    IconButton(onClick = onClear) {
+                        Icon(Icons.Default.Close, contentDescription = "清空筛选")
+                    }
+                }
+            } else {
+                null
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (summary != null) {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Spacing.sm, top = Spacing.xs),
+            )
         }
     }
 }
