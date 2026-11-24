@@ -49,12 +49,25 @@ internal fun PreviewDialog(
     onDismiss: () -> Unit,
     onRetry: () -> Unit,
     onDownload: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
 ) {
     val node = state.node ?: return
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(text = node.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Column {
+                Text(text = node.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                // 序号只在确实有一串同类文件时才显示。单独一个文件写「1 / 1」纯属噪音。
+                val position = state.cursors.position
+                if (position != null) {
+                    Text(
+                        text = position,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -86,6 +99,18 @@ internal fun PreviewDialog(
                         modifier = Modifier.padding(top = Spacing.sm),
                     )
                 }
+                if (state.cursors.canBrowse) {
+                    // 照片说「张」，文档说「份」——同一句「上一张」用在文本上很别扭。
+                    val unit = if (state.kind == PreviewKind.IMAGE) "张" else "份"
+                    PreviewPager(
+                        hasPrevious = state.cursors.previous != null,
+                        hasNext = state.cursors.next != null,
+                        previousLabel = "上一" + unit,
+                        nextLabel = "下一" + unit,
+                        onPrevious = onPrevious,
+                        onNext = onNext,
+                    )
+                }
             }
         },
         confirmButton = {
@@ -97,6 +122,31 @@ internal fun PreviewDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
     )
+}
+
+/**
+ * 翻页那一行。
+ *
+ * 到底了就把按钮禁用而不是藏起来：按钮忽然消失会让整行左右跳动，
+ * 而「不能往前了」本身也是有用的信息。
+ */
+@Composable
+private fun PreviewPager(
+    hasPrevious: Boolean,
+    hasNext: Boolean,
+    previousLabel: String,
+    nextLabel: String,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = onPrevious, enabled = hasPrevious) { Text(previousLabel) }
+        TextButton(onClick = onNext, enabled = hasNext) { Text(nextLabel) }
+    }
 }
 
 @Composable

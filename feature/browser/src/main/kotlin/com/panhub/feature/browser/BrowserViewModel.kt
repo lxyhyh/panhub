@@ -19,7 +19,9 @@ import com.panhub.core.model.sortedFor
 import com.panhub.core.preview.PreviewContent
 import com.panhub.core.preview.PreviewKind
 import com.panhub.core.preview.PreviewKinds
+import com.panhub.core.preview.PreviewCursors
 import com.panhub.core.preview.PreviewLoader
+import com.panhub.core.preview.PreviewSiblings
 import com.panhub.core.session.AccountSummary
 import com.panhub.core.session.SessionManager
 import com.panhub.core.transfer.CloudCopyLauncher
@@ -272,6 +274,13 @@ data class PreviewState(
     val loading: Boolean = false,
     val content: PreviewContent? = null,
     val error: PanError? = null,
+    /**
+     * 同目录里前后还有哪些能看的。
+     *
+     * 放在预览状态里而不是让界面自己算：界面只有当前节点，拿不到整份列表；
+     * 而且「能不能翻」和「翻到哪」本来就是同一件事的两个侧面。
+     */
+    val cursors: PreviewCursors = PreviewCursors.None,
 ) {
     val canRetry: Boolean get() = error != null && node != null
 }
@@ -504,6 +513,9 @@ class BrowserViewModel(
             node = node,
             kind = kind,
             loading = true,
+            // 用界面上看到的那份顺序（sorted），否则用户点「下一张」跳到的是
+            // 另一个排序下的下一个，看起来像是乱跳。
+            cursors = PreviewSiblings.of(_state.value.sorted, node, kind),
         )
         previewJob = viewModelScope.launch {
             val result = loader.load(accountId, node.id, kind, node.size.takeIf { it > 0 })
@@ -531,6 +543,24 @@ class BrowserViewModel(
     fun retryPreview() {
         val node = _preview.value.node ?: return
         openPreview(node)
+    }
+
+    /**
+     * 预览里往后翻一个。
+     *
+     * 走同一个 [openPreview]，所以加载态、失败重试、防竞态都不用再写一遍；
+     * 翻不过去（已经是最后一个或者根本没有邻居）时什么都不做，
+     * 界面那边按钮本来就只在有邻居时才画出来。
+     */
+    fun previewNext() {
+        val next = _preview.value.cursors.next ?: return
+        openPreview(next)
+    }
+
+    /** 预览里往前翻一个。 */
+    fun previewPrevious() {
+        val previous = _preview.value.cursors.previous ?: return
+        openPreview(previous)
     }
 
     fun closePreview() {

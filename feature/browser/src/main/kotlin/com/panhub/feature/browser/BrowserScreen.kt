@@ -543,6 +543,8 @@ fun BrowserScreen(
                     viewModel.download(node)
                 }
             },
+            onPrevious = viewModel::previewPrevious,
+            onNext = viewModel::previewNext,
         )
     }
 
