@@ -1469,7 +1469,7 @@ private fun DeleteConfirmDialog(
     )
 }
 
-
+@Composable
 private fun NameDialog(
     title: String,
     initial: String,
