@@ -123,7 +123,11 @@ class Pan123Api(
     fun encodeLogin(request: LoginRequest): String = json.encodeToString(request)
 
     companion object {
-        const val BASE_URL = "https://api.123278.com"
+        // interface_config.json 里有四个域名：apiDomain=api.123278.com、
+// baseDomain=yun.123pan.cn、backupDomain=apigate.123295.com / apigate.123773.com。
+// apiDomain 与两个 backupDomain 的 TLS 从常见移动网络直接被掐断（SSL EOF），
+// baseDomain 是官方 App 的主域名且路由同形（错误码形状逐字一致），走它。
+const val BASE_URL = "https://yun.123pan.cn"
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
         // 路径常量：全部来自 APK 内 interface_config.json，已确认。
