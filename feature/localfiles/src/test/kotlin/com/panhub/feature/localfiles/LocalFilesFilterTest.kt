@@ -1,5 +1,7 @@
 package com.panhub.feature.localfiles
 
+import com.panhub.core.model.SortOrder
+import com.panhub.core.model.SortSpec
 import com.panhub.core.transfer.DownloadedEntry
 import com.panhub.core.transfer.DownloadsSnapshot
 import org.junit.Assert.assertEquals
@@ -84,6 +86,34 @@ class LocalFilesFilterTest {
         // 顶部那行讲的是磁盘占用，不该跟着筛选变：筛一半显示一半的容量会让人以为少下了东西。
         val s = state("a.txt", "b.txt", filter = "a.txt")
         assertEquals("2 个文件 · 2.0 KB", s.summary)
+    }
+
+    @Test
+    fun sortingPutsTheNewestFirstByDefault() {
+        // 与本机文件一直以来的顺序一致：刚下完的在最上面。
+        val older = DownloadedEntry(relativePath = "older.txt", name = "older.txt", size = 1, modifiedAt = 100L)
+        val newer = DownloadedEntry(relativePath = "newer.txt", name = "newer.txt", size = 1, modifiedAt = 300L)
+        val s = LocalFilesUiState(
+            loading = false,
+            snapshot = DownloadsSnapshot(entries = listOf(older, newer), totalBytes = 2),
+        )
+        assertEquals(listOf("newer.txt", "older.txt"), s.visibleRows.map { it.entry.name })
+    }
+
+    @Test
+    fun sortingThenFilteringUsesTheChosenOrder() {
+        val entries = listOf(
+            entry("报告-小.pdf", size = 10),
+            entry("报告-大.pdf", size = 900),
+            entry("别的.txt", size = 500),
+        )
+        val s = LocalFilesUiState(
+            loading = false,
+            snapshot = DownloadsSnapshot(entries = entries, totalBytes = 1410),
+            filter = "报告",
+            sort = SortSpec(SortOrder.SIZE, descending = true),
+        )
+        assertEquals(listOf("报告-大.pdf", "报告-小.pdf"), s.visibleRows.map { it.entry.name })
     }
 
     @Test

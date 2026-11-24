@@ -96,6 +96,7 @@ import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.QuotaBar
 import com.panhub.core.design.Radius
+import com.panhub.core.design.SortDialog
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
 import com.panhub.core.model.AccountId
@@ -598,8 +599,10 @@ fun BrowserScreen(
 
     if (showSort) {
         SortDialog(
-            spec = state.sort,
-            onOrder = viewModel::setSortOrder,
+            options = SortOrder.entries.map { it.label },
+            selectedIndex = SortOrder.entries.indexOf(state.sort.order),
+            descending = state.sort.descending,
+            onSelect = { viewModel.setSortOrder(SortOrder.entries[it]) },
             onToggleDirection = viewModel::toggleSortDirection,
             onDismiss = { showSort = false },
         )
@@ -943,67 +946,6 @@ private fun FilterBar(
             )
         }
     }
-}
-
-@Composable
-private fun SortDialog(
-    spec: SortSpec,
-    onOrder: (SortOrder) -> Unit,
-    onToggleDirection: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("排序方式") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                SortOrder.entries.forEach { order ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(Radius.card))
-                            .clickable { onOrder(order) }
-                            .padding(vertical = Spacing.md, horizontal = Spacing.sm),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = if (spec.order == order) Icons.Default.CheckCircle else Icons.Outlined.Circle,
-                            contentDescription = null,
-                            tint = if (spec.order == order) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.outline
-                            },
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.size(Spacing.md))
-                        Text(text = order.label, style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(Radius.card))
-                        .clickable(onClick = onToggleDirection)
-                        .padding(vertical = Spacing.md, horizontal = Spacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Sort,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.size(Spacing.md))
-                    Text(
-                        text = if (spec.descending) "反向：降序" else "反向：升序",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("完成") } },
-    )
 }
 
 /**

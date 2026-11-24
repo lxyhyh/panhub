@@ -1,8 +1,10 @@
 package com.panhub.feature.localfiles
 
 import com.panhub.core.design.formatBytes
+import com.panhub.core.model.SortSpec
 import com.panhub.core.transfer.DownloadedEntry
 import com.panhub.core.transfer.DownloadsSnapshot
+import com.panhub.core.transfer.sortedFor
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -76,5 +78,19 @@ object LocalFilesLogic {
     fun clearedMessage(count: Int, freedBytes: Long): String =
         if (count <= 0) "本机没有需要清理的文件"
         else "已清理 " + count + " 个文件 · " + formatBytes(freedBytes)
+}
+
+/**
+ * 在行上排序。
+ *
+ * 规则本身在 [com.panhub.core.transfer.sortedFor]：本机文件的排序和网盘列表共用
+ * 同一套 [SortSpec]，但排序细节（文件夹是否在前、没有时间戳的排哪里）不同，
+ * 所以各留一份，界面上看到的标签与方向仍然是同一套。
+ */
+fun List<LocalFileRow>.sortedRows(spec: SortSpec): List<LocalFileRow> {
+    if (size < 2) return this
+    // relativePath 在一个下载根目录里唯一，所以按它把排好的条目映射回行是安全的。
+    val rowsByPath = associateBy { it.entry.relativePath }
+    return map { it.entry }.sortedFor(spec).map { rowsByPath.getValue(it.relativePath) }
 }
 

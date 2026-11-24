@@ -3,6 +3,8 @@ package com.panhub.feature.localfiles
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.panhub.core.model.NodeFilter
+import com.panhub.core.model.SortOrder
+import com.panhub.core.model.SortSpec
 import com.panhub.core.transfer.DownloadedEntry
 import com.panhub.core.transfer.DownloadsSnapshot
 import com.panhub.core.transfer.LocalDownloads
@@ -27,12 +29,17 @@ data class LocalFilesUiState(
     val message: String? = null,
     /** 按名字筛选的关键字。纯本地行为，不重新扫盘。 */
     val filter: String = "",
+    /**
+     * 排序规格。默认「修改时间从新到旧」，与本机文件一直以来的顺序一致：
+     * 用户来找的多半是刚下完的那个，换成按名字排会让刚下载完的文件沉到列表中间。
+     */
+    val sort: SortSpec = SortSpec(order = SortOrder.TIME, descending = true),
 ) {
     val rows: List<LocalFileRow> get() = LocalFilesLogic.rows(snapshot)
 
-    /** 真正画到列表上的那一份：与网盘浏览页共用同一套筛选规则。 */
+    /** 排序之后再筛，与浏览页同一个顺序：先按用户选的规格重排，再按关键字收窄。 */
     val visibleRows: List<LocalFileRow>
-        get() = NodeFilter.applyBy(rows, filter) { it.entry.name }
+        get() = NodeFilter.applyBy(rows.sortedRows(sort), filter) { it.entry.name }
 
     /** 有没有在筛选。界面据此区分「没有文件」和「筛没了」两种空列表。 */
     val filtering: Boolean get() = NodeFilter.active(filter)
@@ -160,6 +167,29 @@ class LocalFilesViewModel(private val root: File) : ViewModel() {
     fun setFilter(value: String) = _state.update { it.copy(filter = value) }
 
     fun clearFilter() = _state.update { it.copy(filter = "") }
+
+    /**
+     * 换排序依据。
+     *
+     * 再次点同一个依据时反转方向：界面上只有一个列表项列表，再加一个「反向」开关
+     * 会让这个对话框变成两个小控件，而用户想做的事只有「反过来看看」。
+     * 第一次选到某个依据时用它自己的默认方向——按名字是从 A 往下看，
+     * 按时间和大小是先看最新最大的。
+     */
+    fun setSortOrder(order: SortOrder) = _state.update {
+        val same = it.sort.order == order
+        it.copy(
+            sort = SortSpec(
+                order = order,
+                descending = if (same) !it.sort.descending else order.defaultDescending,
+            ),
+        )
+    }
+
+    /** 反转当前排序方向。 */
+    fun toggleSortDirection() = _state.update {
+        it.copy(sort = it.sort.copy(descending = !it.sort.descending))
+    }
 
     /**
      * 相对路径 → 真实文件。
