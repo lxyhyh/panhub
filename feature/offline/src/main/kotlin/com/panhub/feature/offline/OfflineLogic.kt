@@ -89,5 +89,18 @@ object OfflineLogic {
         return parts.joinToString(" · ")
     }
 
+    /**
+     * 还有没有在服务端跑着的任务。
+     *
+     * 判据是「没完成」而不是「等于下载中」：我们只确认了 0 与 2 两个取值，
+     * 其余数字（暂停、失败、排队）都还没取证到，把它们当成「还在跑」
+     * 至少不会让一条其实还在下的任务从界面上消失。
+     */
+    fun hasRunning(tasks: List<OfflineTaskView>): Boolean = tasks.any { !isFinished(it) }
+
+    /** 一条任务是不是已经有结果了：完成（或进度打满）才算。 */
+    fun isFinished(task: OfflineTaskView): Boolean =
+        task.status == STATUS_DONE || task.progress >= 100f
+
     internal const val STATUS_DONE = 2
 }

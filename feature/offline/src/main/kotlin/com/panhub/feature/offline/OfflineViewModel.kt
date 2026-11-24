@@ -12,6 +12,8 @@ import com.panhub.core.model.OfflineTaskView
 import com.panhub.core.session.SessionManager
 import com.panhub.provider.api.ScopedPanProvider
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +74,7 @@ class OfflineViewModel(
     private var scoped: ScopedPanProvider? = null
     private var started = false
     private var resolveJob: Job? = null
+    private var watchJob: Job? = null
 
     fun start() {
         if (started) return
@@ -162,14 +165,18 @@ class OfflineViewModel(
                 is PanResult.Failure -> _state.update {
                     it.copy(submitting = false, error = result.error)
                 }
-                is PanResult.Success -> _state.update {
-                    it.copy(
-                        submitting = false,
-                        link = "",
-                        resource = null,
-                        selected = emptySet(),
-                        message = OfflineLogic.submittedMessage(resource, chosen.toSet()),
-                    )
+                is PanResult.Success -> {
+                    _state.update {
+                        it.copy(
+                            submitting = false,
+                            link = "",
+                            resource = null,
+                            selected = emptySet(),
+                            message = OfflineLogic.submittedMessage(resource, chosen.toSet()),
+                        )
+                    }
+                    // 刚提交的任务立刻拉一遍，列表里能看见它，自动刷新也才有对象可跟。
+                    refreshTasks()
                 }
             }
         }
@@ -178,8 +185,8 @@ class OfflineViewModel(
     /**
      * 拉一遍离线任务列表。
      *
-     * 只拉一次不轮询：界面停留时间短，进度条差十几秒没人盯着看；
-     * 下拉刷新交给重新进页面的 load，别在这里长驻协程。
+     * 拉完顺手看一眼还有没有在跑的任务：有就开一个定时重拉，
+     * 没有就什么都不留。
      */
     fun refreshTasks() {
         val target = scoped ?: return
@@ -190,9 +197,37 @@ class OfflineViewModel(
                 is PanResult.Failure -> _state.update {
                     it.copy(tasksLoading = false, tasksSupported = false, tasks = emptyList())
                 }
-                is PanResult.Success -> _state.update {
-                    it.copy(tasksLoading = false, tasksSupported = true, tasks = result.value)
+                is PanResult.Success -> {
+                    _state.update {
+                        it.copy(tasksLoading = false, tasksSupported = true, tasks = result.value)
+                    }
+                    watchRunningTasks()
                 }
+            }
+        }
+    }
+
+    /**
+     * 有任务在跑时隔一会儿自己拉一次进度。
+     *
+     * 只在「真的有东西在下载」时才开：离线任务是网盘替我们下，
+     * 一屏之内进度通常只动一两个百分点，一直在轮询只是白白发请求。
+     * 一旦没有在跑的任务就整个停掉，下次点「刷新」或新提交的任务再把它叫起来。
+     *
+     * 服务商不支持查看任务时也不开：那只会每隔几秒弹一次同样的失败。
+     */
+    private fun watchRunningTasks() {
+        if (watchJob?.isActive == true) return
+        val current = _state.value
+        if (!current.tasksSupported) return
+        if (!OfflineLogic.hasRunning(current.tasks)) return
+        watchJob = viewModelScope.launch {
+            while (isActive) {
+                delay(WATCH_INTERVAL_MILLIS)
+                val latest = _state.value
+                if (!latest.tasksSupported) return@launch
+                if (!OfflineLogic.hasRunning(latest.tasks)) return@launch
+                refreshTasks()
             }
         }
     }
@@ -224,5 +259,8 @@ class OfflineViewModel(
 
     private companion object {
         const val NOT_A_LINK = "这不像一个下载链接，只认 http(s) 网址和磁力链接"
+
+        /** 有任务在跑时的重拉间隔：离线下完一个文件就是几秒到几十秒的量级。 */
+        const val WATCH_INTERVAL_MILLIS = 5_000L
     }
 }

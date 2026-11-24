@@ -96,7 +96,7 @@ fun OfflineScreen(viewModel: OfflineViewModel, onBack: () -> Unit) {
                 .padding(padding)
                 .padding(horizontal = Spacing.lg),
         ) {
-            // 已经在跑的离线任务：只显示一次加载结果，删一条摘一条。
+            // 已经在跑的离线任务：有任务在下载时列表会自己重拉，删一条摘一条。
             if (state.tasks.isNotEmpty() || state.tasksLoading) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -107,6 +107,15 @@ fun OfflineScreen(viewModel: OfflineViewModel, onBack: () -> Unit) {
                     if (!state.tasksLoading) {
                         TextButton(onClick = viewModel::refreshTasks) { Text("刷新") }
                     }
+                }
+                if (OfflineLogic.hasRunning(state.tasks)) {
+                    // 有任务在跑时列表会自己重拉，说一声免得用户以为按钮没反应。
+                    Text(
+                        text = "有任务在下载，进度会自己刷新",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.size(Spacing.xs))
                 }
                 state.tasks.forEach { task ->
                     OfflineTaskRow(

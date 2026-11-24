@@ -160,6 +160,34 @@ class OfflineLogicTest {
     }
 
     @Test
+    fun aTaskWithoutATerminalStatusCountsAsRunning() {
+        // 只取证到 0（下载中）与 2（完成）两个取值，其余数字一律按还在跑处理，
+        // 免得一条其实还在下的任务从界面上消失。
+        assertTrue(OfflineLogic.hasRunning(listOf(OfflineTaskView(id = "1", name = "a", status = 0))))
+        assertTrue(OfflineLogic.hasRunning(listOf(OfflineTaskView(id = "1", name = "a", status = 5))))
+    }
+
+    @Test
+    fun fullProgressAloneMeansFinished() {
+        assertFalse(OfflineLogic.hasRunning(listOf(OfflineTaskView(id = "1", name = "a", progress = 100f))))
+        assertTrue(OfflineLogic.isFinished(OfflineTaskView(id = "1", name = "a", status = 2)))
+    }
+
+    @Test
+    fun anEmptyTaskListHasNothingRunning() {
+        assertFalse(OfflineLogic.hasRunning(emptyList()))
+    }
+
+    @Test
+    fun oneRunningTaskIsEnoughToKeepWatching() {
+        val tasks = listOf(
+            OfflineTaskView(id = "1", name = "done", status = 2, progress = 100f),
+            OfflineTaskView(id = "2", name = "running", status = 0, progress = 10f),
+        )
+        assertTrue(OfflineLogic.hasRunning(tasks))
+    }
+
+    @Test
     fun blankTaskNameFallsBackOnScreenSide() {
         // 名字兜底在 UI 层（task.name.ifBlank），逻辑层不改写。
         assertEquals("", OfflineTaskView(id = "1", name = "").name)
