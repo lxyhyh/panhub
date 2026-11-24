@@ -106,13 +106,13 @@ class BrowserSortPreferenceTest {
             session: ProviderSession,
             parentId: NodeId?,
             name: String,
-        ): PanResult<NodeId> = PanResult.Failure(PanError.notSupported("不支持"))
+        ): PanResult<RemoteNode> = PanResult.Failure(PanError.notSupported("不支持"))
 
         override suspend fun rename(
             session: ProviderSession,
             nodeId: NodeId,
             newName: String,
-        ): PanResult<Unit> = PanResult.Failure(PanError.notSupported("不支持"))
+        ): PanResult<RemoteNode> = PanResult.Failure(PanError.notSupported("不支持"))
 
         override suspend fun move(
             session: ProviderSession,
