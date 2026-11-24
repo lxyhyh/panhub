@@ -21,7 +21,7 @@
 
 | 模块 | 职责 |
 |---|---|
-| \`:core:model\` | 纯数据模型：RemoteNode / Quota / ShareLink / ProviderCapabilities / AuthMethod，以及列表排序与按名字筛选 |
+| \`:core:model\` | 纯数据模型：RemoteNode / Quota / ShareLink / ProviderCapabilities / AuthMethod，以及列表排序、按名字筛选与多选体积 |
 | \`:core:common\` | PanResult / PanError / DispatcherProvider / Clock / FileDigest |
 | \`:core:network\` | OkHttp 封装、Cookie 存储、流式请求体，唯一的 HTTP 出口 |
 | \`:core:design\` | 蓝云风格 Compose 主题、间距规范与公共组件（含排序对话框、筛选条） |
@@ -39,7 +39,7 @@
 | \`:provider:quark\` | 夸克网盘（含 OSS 预签名分片上传与秒传、异步分享） |
 | \`:provider:baidu\` | 百度网盘（含 4MiB 分片上传与秒传、分享转存） |
 | \`:feature:accounts\` | 账号列表与登录、备注名、更新登录凭据、各网盘容量与总量汇总 |
-| \`:feature:browser\` | 文件浏览与操作（含目录内筛选、上传前同名确认） |
+| \`:feature:browser\` | 文件浏览与操作（含目录内筛选、多选体积、上传前同名确认） |
 | \`:feature:transfers\` | 传输队列界面（含标签与按名字筛选） |
 | \`:feature:shares\` | 我的分享：按账号列出已创建的分享链接（含按标题筛选） |
 | \`:feature:shareimport\` | 打开别人的分享、挑文件转存到自己网盘的任意目录 |
@@ -148,6 +148,10 @@ id，再换一次链接接口才有能发出去的地址与提取码。有效期
 对这批文件执行删除或移动时会连没看见的东西一起处理掉。
 预览的「上一张 / 下一张」也跟着筛后的顺序走，否则翻着翻着会跳到一张已经被筛掉的照片上。
 
+勾选之后顶栏标题下面会写这一批一共多大，例如「已选 3 项 / 1.2 GB · 含 1 个文件夹」。
+文件夹不带内容大小（要知道得递归下去翻一遍），所以只把文件加起来、文件夹单独提一句，
+免得把文件夹当 0 混进总和、让人以为「这些加起来就这点」。服务商一个大小都没报时不写这一行，
+写「0 B」会让人以为选中的东西是空的。
 系统返回键按「最临时 → 最持久」的顺序退：先退出多选，再收起筛选条，再返回上一级
 目录，都没有了才离开浏览页。顺序反过来会让人以为选中的东西还在——
 先退位置再退选择，屏幕上就只剩一个还亮着的选择状态，而选中的文件已经不在眼前了。

@@ -11,6 +11,8 @@ import com.panhub.core.model.NodeKind
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
+import com.panhub.core.model.SelectionSize
+import com.panhub.core.model.SelectionSizes
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SortOrder
@@ -112,6 +114,14 @@ data class BrowserUiState(
 
     /** 有没有在过滤。界面据此换掉「这里还没有文件」那句空列表说明。 */
     val filtering: Boolean get() = NodeFilter.active(filter)
+
+    /**
+     * 已选项目的数量与体积。
+     *
+     * 只认当前已经加载出来的这一批：勾选本来就只可能发生在看得见的行上，
+     * 为了报一个体积去把整个目录翻完不值得。
+     */
+    val selectionSize: SelectionSize get() = SelectionSizes.of(nodes.filter { it.id in selected })
 }
 
 /**

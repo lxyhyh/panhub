@@ -102,6 +102,7 @@ import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.RemoteNode
+import com.panhub.core.model.SelectionSizes
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.SortOrder
@@ -220,15 +221,33 @@ fun BrowserScreen(
                         }
                     },
                     title = {
-                        Text(
-                            text = if (state.selectionMode) {
-                                "已选择 " + state.selectedCount + " 项"
-                            } else {
-                                state.title
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        // 多选时标题下面再挂一行已选体积：选中几个大文件之后，
+                        // 「这几项加起来多大」是决定要不要一起下载或转存的关键信息。
+                        val sizeLine = if (state.selectionMode) {
+                            SelectionSizes.line(state.selectionSize, ::formatBytes)
+                        } else {
+                            null
+                        }
+                        Column {
+                            Text(
+                                text = if (state.selectionMode) {
+                                    "已选择 " + state.selectedCount + " 项"
+                                } else {
+                                    state.title
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (sizeLine != null) {
+                                Text(
+                                    text = sizeLine,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     },
                     actions = {
                         if (state.selectionMode) {
