@@ -93,6 +93,17 @@ jobs:
           sed -i "s/^versionName=.*/versionName=${{ github.event.inputs.versionName }}/" app/build.gradle.kts
           grep -n "versionName" app/build.gradle.kts
 
+      # runner 上不存在 debug.keystore（它只在开发者本机首次构建时生成）。
+      # release 用 debug 密钥签名，所以先在 AGP 期望的路径生成一个。
+      - name: Generate signing keystore
+        run: |
+          mkdir -p "$HOME/.config/.android"
+          keytool -genkeypair -v \
+            -keystore "$HOME/.config/.android/debug.keystore" \
+            -storepass android -alias androiddebugkey -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 10000
+
       - name: Assemble release APK
         run: ./gradlew --stacktrace :app:assembleRelease
 
