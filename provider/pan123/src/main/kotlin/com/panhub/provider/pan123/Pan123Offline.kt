@@ -8,6 +8,7 @@ import com.panhub.core.model.OfflineFile
 import com.panhub.core.model.OfflineKind
 import com.panhub.core.model.OfflineLink
 import com.panhub.core.model.OfflineResource
+import com.panhub.core.model.OfflineTaskView
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -85,6 +86,69 @@ internal class Pan123Offline(
                 json.decodeFromString(ApiEnvelope.serializer(JsonElement.serializer()), raw)
             },
         ).map { }
+    }
+
+    /**
+     * 任务列表。
+ *
+     * 请求体 {current_page, page_size, status_arr:[0,1,2,3]} 与响应字段
+     * （task_id/name/status/size/downloaded/progress/speed）来自 OpenList
+     * drivers/123 的 offlineTask；这些键名在 APK 的 libapp.so 里也有
+     * （current_page/page_size/status_arr/task_ids 各 1 处），两边互证。
+     */
+    suspend fun tasks(token: String?): PanResult<List<OfflineTaskView>> {
+        val body = buildJsonObject {
+            put("current_page", 1)
+            put("page_size", 100)
+            put("status_arr", buildJsonArray { listOf(0, 1, 2, 3).forEach { add(JsonPrimitive(it)) } })
+        }
+        return when (
+            val result = api.post(
+                path = Pan123Api.PATH_OFFLINE_LIST,
+                token = token,
+                body = body.toString(),
+                decode = { raw ->
+                    json.decodeFromString(
+                        ApiEnvelope.serializer(OfflineTaskListData.serializer()),
+                        raw,
+                    )
+                },
+            )
+        ) {
+            is PanResult.Failure -> result
+            is PanResult.Success -> PanResult.Success(
+                result.value.list.orEmpty().mapNotNull { it.toView() },
+            )
+        }
+    }
+
+    /** 删除任务：服务端按 task_ids 批量收。 */
+    suspend fun delete(token: String?, taskIds: List<String>): PanResult<Unit> {
+        if (taskIds.isEmpty()) return PanResult.Success(Unit)
+        val body = buildJsonObject {
+            put("task_ids", buildJsonArray { taskIds.forEach { add(JsonPrimitive(it.toLongOrNull() ?: 0L)) } })
+        }
+        return api.post(
+            path = Pan123Api.PATH_OFFLINE_DELETE,
+            token = token,
+            body = body.toString(),
+            decode = { raw ->
+                json.decodeFromString(ApiEnvelope.serializer(JsonElement.serializer()), raw)
+            },
+        ).map { }
+    }
+
+    private fun OfflineTaskDto.toView(): OfflineTaskView? {
+        val id = taskId?.textOrNull() ?: return null
+        return OfflineTaskView(
+            id = id,
+            name = name.orEmpty(),
+            status = status ?: 0,
+            progress = progress?.toFloat() ?: 0f,
+            downloaded = downloaded ?: 0L,
+            size = size ?: 0L,
+            speed = speed ?: 0L,
+        )
     }
 
     /**

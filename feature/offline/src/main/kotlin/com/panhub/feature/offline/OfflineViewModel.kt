@@ -8,6 +8,7 @@ import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.OfflineLinks
 import com.panhub.core.model.OfflineResource
+import com.panhub.core.model.OfflineTaskView
 import com.panhub.core.session.SessionManager
 import com.panhub.provider.api.ScopedPanProvider
 import kotlinx.coroutines.Job
@@ -35,6 +36,10 @@ data class OfflineUiState(
     val parentName: String? = null,
     val error: PanError? = null,
     val message: String? = null,
+    val tasks: List<OfflineTaskView> = emptyList(),
+    val tasksLoading: Boolean = false,
+    val tasksSupported: Boolean = true,
+    val deletingTaskIds: Set<String> = emptySet(),
 ) {
     val busy: Boolean get() = resolving || submitting
 
@@ -80,7 +85,10 @@ class OfflineViewModel(
             _state.update { it.copy(accountName = account.label) }
             when (val result = session.connect(accountId)) {
                 is PanResult.Failure -> _state.update { it.copy(error = result.error) }
-                is PanResult.Success -> scoped = result.value
+                is PanResult.Success -> {
+                    scoped = result.value
+                    refreshTasks()
+                }
             }
         }
     }
@@ -161,6 +169,49 @@ class OfflineViewModel(
                         resource = null,
                         selected = emptySet(),
                         message = OfflineLogic.submittedMessage(resource, chosen.toSet()),
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * 拉一遍离线任务列表。
+     *
+     * 只拉一次不轮询：界面停留时间短，进度条差十几秒没人盯着看；
+     * 下拉刷新交给重新进页面的 load，别在这里长驻协程。
+     */
+    fun refreshTasks() {
+        val target = scoped ?: return
+        if (_state.value.tasksLoading) return
+        _state.update { it.copy(tasksLoading = true) }
+        viewModelScope.launch {
+            when (val result = target.listOfflineTasks()) {
+                is PanResult.Failure -> _state.update {
+                    it.copy(tasksLoading = false, tasksSupported = false, tasks = emptyList())
+                }
+                is PanResult.Success -> _state.update {
+                    it.copy(tasksLoading = false, tasksSupported = true, tasks = result.value)
+                }
+            }
+        }
+    }
+
+    /** 删除一条离线任务。失败保持原样让用户重试，成功从本地摘掉。 */
+    fun deleteTask(id: String) {
+        val target = scoped ?: return
+        if (id in _state.value.deletingTaskIds) return
+        _state.update { it.copy(deletingTaskIds = it.deletingTaskIds + id) }
+        viewModelScope.launch {
+            when (val result = target.deleteOfflineTasks(listOf(id))) {
+                is PanResult.Failure -> _state.update {
+                    it.copy(deletingTaskIds = it.deletingTaskIds - id, error = result.error)
+                }
+                is PanResult.Success -> _state.update {
+                    it.copy(
+                        deletingTaskIds = it.deletingTaskIds - id,
+                        tasks = it.tasks.filterNot { task -> task.id == id },
+                        message = "已删除离线任务",
                     )
                 }
             }

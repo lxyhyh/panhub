@@ -50,6 +50,7 @@ import com.panhub.core.design.PanCard
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
 import com.panhub.core.model.OfflineFile
+import com.panhub.core.model.OfflineTaskView
 
 /**
  * 离线下载页。
@@ -95,6 +96,27 @@ fun OfflineScreen(viewModel: OfflineViewModel, onBack: () -> Unit) {
                 .padding(padding)
                 .padding(horizontal = Spacing.lg),
         ) {
+            // 已经在跑的离线任务：只显示一次加载结果，删一条摘一条。
+            if (state.tasks.isNotEmpty() || state.tasksLoading) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (state.tasksLoading) "正在读取离线任务…" else "离线任务（" + state.tasks.size + "）",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (!state.tasksLoading) {
+                        TextButton(onClick = viewModel::refreshTasks) { Text("刷新") }
+                    }
+                }
+                state.tasks.forEach { task ->
+                    OfflineTaskRow(
+                        task = task,
+                        deleting = task.id in state.deletingTaskIds,
+                        onDelete = { viewModel.deleteTask(task.id) },
+                    )
+                }
+                Spacer(Modifier.size(Spacing.sm))
+            }
             Text(
                 text = "保存到「" + state.parentLabel + "」",
                 style = MaterialTheme.typography.labelMedium,
@@ -201,6 +223,32 @@ fun OfflineScreen(viewModel: OfflineViewModel, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
             ) {
                 Text(if (state.submitting) "提交中…" else "开始下载 " + state.selected.size + " 项")
+            }
+        }
+    }
+}
+
+@Composable
+private fun OfflineTaskRow(task: OfflineTaskView, deleting: Boolean, onDelete: () -> Unit) {
+    PanCard(modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xs)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = task.name.ifBlank { "离线任务" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = OfflineLogic.taskSubtitle(task, ::formatBytes),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (deleting) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                TextButton(onClick = onDelete) { Text("删除") }
             }
         }
     }

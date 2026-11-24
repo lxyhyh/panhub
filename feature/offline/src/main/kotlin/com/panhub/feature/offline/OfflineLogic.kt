@@ -2,6 +2,7 @@ package com.panhub.feature.offline
 
 import com.panhub.core.model.OfflineFile
 import com.panhub.core.model.OfflineResource
+import com.panhub.core.model.OfflineTaskView
 
 /**
  * 离线下载界面的纯逻辑。
@@ -64,4 +65,29 @@ object OfflineLogic {
     /** 解析失败时给用户的提示：空消息要有兜底，否则界面会出现一块空白。 */
     fun failureMessage(message: String?): String =
         message?.takeIf { it.isNotBlank() } ?: "这个链接没能解析出内容"
+
+    /**
+     * 任务状态的中文说法。
+ *
+     * 123 的 status：0 下载中、1 暂停？（文档没有写死）、2 完成、3 失败。
+     * OpenList 只区分「下载中/完成/失败」，数字语义以它的 GetOfflineTask
+     * 检查逻辑为准：非 2 一律按「进行中」处理，只有确定完成才显示完成。
+     */
+    fun taskStatus(task: OfflineTaskView): String = when {
+        task.status == STATUS_DONE -> "已完成"
+        task.progress >= 100f -> "已完成"
+        else -> "下载中"
+    }
+
+    /** 一行任务说明：进度 + 速度。速度为 0（已完成或刚排队）就不重复说。 */
+    fun taskSubtitle(task: OfflineTaskView, formatBytes: (Long) -> String): String {
+        val parts = mutableListOf<String>()
+        parts.add(task.progress.toInt().toString() + "%")
+        if (task.speed > 0L && task.status != STATUS_DONE) {
+            parts.add(formatBytes(task.speed) + "/s")
+        }
+        return parts.joinToString(" · ")
+    }
+
+    internal const val STATUS_DONE = 2
 }

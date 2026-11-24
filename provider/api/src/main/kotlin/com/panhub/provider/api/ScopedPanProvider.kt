@@ -5,6 +5,7 @@ import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodePage
 import com.panhub.core.model.OfflineLink
 import com.panhub.core.model.OfflineResource
+import com.panhub.core.model.OfflineTaskView
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.Quota
 import com.panhub.core.model.RemoteNode
@@ -112,4 +113,10 @@ class ScopedPanProvider(
 
     suspend fun listStarred(page: PageRequest = PageRequest()): PanResult<NodePage> =
         provider.listStarred(session, page)
+
+    suspend fun listOfflineTasks(): PanResult<List<OfflineTaskView>> =
+        provider.listOfflineTasks(session)
+
+    suspend fun deleteOfflineTasks(taskIds: List<String>): PanResult<Unit> =
+        provider.deleteOfflineTasks(session, taskIds)
 }

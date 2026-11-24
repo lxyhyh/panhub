@@ -3,6 +3,7 @@ package com.panhub.feature.offline
 import com.panhub.core.model.OfflineFile
 import com.panhub.core.model.OfflineKind
 import com.panhub.core.model.OfflineResource
+import com.panhub.core.model.OfflineTaskView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -109,5 +110,58 @@ class OfflineLogicTest {
         assertEquals("这个链接没能解析出内容", OfflineLogic.failureMessage(null))
         assertEquals("这个链接没能解析出内容", OfflineLogic.failureMessage("   "))
         assertEquals("链接已失效", OfflineLogic.failureMessage("链接已失效"))
+    }
+    @Test
+    fun doneStatusReadsAsFinished() {
+        assertEquals(
+            "已完成",
+            OfflineLogic.taskStatus(OfflineTaskView(id = "1", name = "a", status = 2)),
+        )
+    }
+
+    @Test
+    fun fullProgressAlsoReadsAsFinished() {
+        assertEquals(
+            "已完成",
+            OfflineLogic.taskStatus(
+                OfflineTaskView(id = "1", name = "a", status = 0, progress = 100f),
+            ),
+        )
+    }
+
+    @Test
+    fun anythingElseIsStillRunning() {
+        assertEquals(
+            "下载中",
+            OfflineLogic.taskStatus(OfflineTaskView(id = "1", name = "a", status = 0, progress = 40f)),
+        )
+    }
+
+    @Test
+    fun subtitleShowsProgressAndSpeedWhileRunning() {
+        assertEquals(
+            "40% · 1048576 B/s",
+            OfflineLogic.taskSubtitle(
+                OfflineTaskView(id = "1", name = "a", status = 0, progress = 40f, speed = 1024L * 1024L),
+                { b -> b.toString() + " B" },
+            ),
+        )
+    }
+
+    @Test
+    fun finishedTaskHasNoSpeedPart() {
+        assertEquals(
+            "100%",
+            OfflineLogic.taskSubtitle(
+                OfflineTaskView(id = "1", name = "a", status = 2, progress = 100f, speed = 999L),
+                { b -> b.toString() + " B" },
+            ),
+        )
+    }
+
+    @Test
+    fun blankTaskNameFallsBackOnScreenSide() {
+        // 名字兜底在 UI 层（task.name.ifBlank），逻辑层不改写。
+        assertEquals("", OfflineTaskView(id = "1", name = "").name)
     }
 }

@@ -7,6 +7,7 @@ import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodePage
 import com.panhub.core.model.OfflineLink
 import com.panhub.core.model.OfflineResource
+import com.panhub.core.model.OfflineTaskView
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.Quota
@@ -236,6 +237,19 @@ interface PanProvider {
         fileIds: List<String>,
         parentId: NodeId? = null,
     ): PanResult<Unit> = PanResult.Failure(PanError.notSupported("该网盘不支持离线下载"))
+
+    /**
+     * 已经在跑的离线任务列表（进度、速度、状态）。
+     *
+     * 离线任务是服务商服务器替用户下载，跟本机传输队列无关；
+     * 想看进度只能问服务商要这份列表。
+     */
+    suspend fun listOfflineTasks(session: ProviderSession): PanResult<List<OfflineTaskView>> =
+        PanResult.Failure(PanError.notSupported("该网盘不支持查看离线任务"))
+
+    /** 删除离线任务：只删任务记录，不删已经存进网盘的文件。 */
+    suspend fun deleteOfflineTasks(session: ProviderSession, taskIds: List<String>): PanResult<Unit> =
+        PanResult.Failure(PanError.notSupported("该网盘不支持删除离线任务"))
 
     /**
      * 把文件加进收藏夹，或者从收藏夹里移除。

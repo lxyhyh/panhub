@@ -83,3 +83,21 @@ data class OfflineResource(
 
     val totalBytes: Long get() = files.filterNot { it.isDir }.sumOf { it.size }
 }
+
+
+/**
+ * 一条已经在跑的离线任务。
+ *
+ * 列表是给「贴了链接之后想看看它到底下完没有」用的：进度、速度和已下载
+ * 字节是服务端算好的，客户端只展示。状态原样存数字，解释权在 provider——
+ * 各家对 0/1/2/3 的含义并不一致。
+ */
+data class OfflineTaskView(
+    val id: String,
+    val name: String,
+    val status: Int = 0,
+    val progress: Float = 0f,
+    val downloaded: Long = 0L,
+    val size: Long = 0L,
+    val speed: Long = 0L,
+)

@@ -11,6 +11,7 @@ import com.panhub.core.model.NodeKind
 import com.panhub.core.model.NodePage
 import com.panhub.core.model.OfflineLink
 import com.panhub.core.model.OfflineResource
+import com.panhub.core.model.OfflineTaskView
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.ProviderCapabilities
 import com.panhub.core.model.ProviderDescriptor
@@ -314,6 +315,12 @@ class Pan123Provider(
         fileIds: List<String>,
         parentId: NodeId?,
     ): PanResult<Unit> = offline.create(tokenOf(session), resource, fileIds, parentId)
+
+    override suspend fun listOfflineTasks(session: ProviderSession): PanResult<List<OfflineTaskView>> =
+        offline.tasks(tokenOf(session))
+
+    override suspend fun deleteOfflineTasks(session: ProviderSession, taskIds: List<String>): PanResult<Unit> =
+        offline.delete(tokenOf(session), taskIds)
 
     private suspend fun fetchTrashPage(
         session: ProviderSession,

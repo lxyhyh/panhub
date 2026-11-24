@@ -158,5 +158,7 @@ class Pan123Api(
         // 离线下载：路径来自 interface_config.json，已探测端点存在（未登录回 401 JSON）。
         const val PATH_OFFLINE_RESOLVE = "/api/v2/offline_download/task/resolve"
         const val PATH_OFFLINE_SUBMIT = "/api/v2/offline_download/task/submit"
+        const val PATH_OFFLINE_LIST = "/api/offline_download/task/list"
+        const val PATH_OFFLINE_DELETE = "/api/offline_download/task/delete"
     }
 }

@@ -187,4 +187,41 @@ class Pan123OfflineTest {
         val result = ready.provider.createOffline(session, resource, listOf("1"), null)
         assertTrue(result is PanResult.Failure)
     }
+
+    @Test
+    fun taskListSendsPagingAndStatuses() = runTest {
+        val ready = ready(
+            """{"code":0,"data":{"list":[{"task_id":7,"name":"影片.mkv","status":0,"size":1000,"downloaded":400,"progress":40.0,"speed":12345}],"total":1}}""",
+        )
+        val result = ready.provider.listOfflineTasks(session)
+        assertTrue(result is PanResult.Success)
+        val tasks = (result as PanResult.Success).value
+        assertEquals(1, tasks.size)
+        assertEquals("7", tasks[0].id)
+        assertEquals("影片.mkv", tasks[0].name)
+        assertEquals(40f, tasks[0].progress)
+        // 请求体带分页与全部四种状态。
+        val body = ready.server.bodies.last()
+        assertTrue(body.contains("\"current_page\":1"))
+        assertTrue(body.contains("\"page_size\":100"))
+        assertTrue(body.contains("\"status_arr\":[0,1,2,3]"))
+        assertEquals("/api/offline_download/task/list", ready.server.paths.last())
+    }
+
+    @Test
+    fun deletingTasksSendsNumericIds() = runTest {
+        val ready = ready("""{"code":0,"data":{}}""")
+        val result = ready.provider.deleteOfflineTasks(session, listOf("7", "8"))
+        assertTrue(result is PanResult.Success)
+        assertEquals("/api/offline_download/task/delete", ready.server.paths.last())
+        assertTrue(ready.server.bodies.last().contains("\"task_ids\":[7,8]"))
+    }
+
+    @Test
+    fun deletingNothingNeverTouchesTheNetwork() = runTest {
+        val ready = ready("""{"code":0,"data":{}}""")
+        val result = ready.provider.deleteOfflineTasks(session, emptyList())
+        assertTrue(result is PanResult.Success)
+        assertTrue(ready.server.paths.isEmpty())
+    }
 }

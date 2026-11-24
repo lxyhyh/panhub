@@ -48,3 +48,26 @@ internal data class OfflineFileDto(
     val category: JsonElement? = null,
     val format: String? = null,
 )
+
+
+/** 任务列表的外壳：data.list + data.total。 */
+@Serializable
+internal data class OfflineTaskListData(
+    @SerialName("list") val list: List<OfflineTaskDto>? = null,
+    @SerialName("total") val total: Int? = null,
+)
+
+/**
+ * 一条离线任务。字段名小写驼峰来自 OpenList drivers/123 的 offlineTask；
+ * progress 服务端已经算成 0..100 的浮点。
+ */
+@Serializable
+internal data class OfflineTaskDto(
+    @SerialName("task_id") val taskId: JsonElement? = null,
+    @SerialName("name") val name: String? = null,
+    @SerialName("status") val status: Int? = null,
+    @SerialName("size") val size: Long? = null,
+    @SerialName("downloaded") val downloaded: Long? = null,
+    @SerialName("progress") val progress: Double? = null,
+    @SerialName("speed") val speed: Long? = null,
+)
