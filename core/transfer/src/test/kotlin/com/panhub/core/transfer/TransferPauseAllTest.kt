@@ -11,7 +11,6 @@ import com.panhub.core.model.ProviderCapabilities
 import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.ProviderId
 import com.panhub.core.model.Quota
-import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.provider.api.DownloadTarget
 import com.panhub.provider.api.PanProvider
@@ -21,28 +20,32 @@ import com.panhub.provider.api.ScopedPanProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.junit.rules.Timeout
 import java.io.File
 
 /**
- * 「全部暂停 / 全部继续」的批量版。
+ * 「全部暂停 / 全部继续」的批量开关。
  *
- * 单个 pause/resume 的行为已有专门测试，这里只钉住批量版特有的部分：
- * 一次按住整条队列、返回值是真实个数、已结束的任务不被动、恢复后按
- * 原来的顺序继续跑。
+ * 这里刻意不用 advanceUntilIdle：假下载器用 CompletableDeferred 卡住当前任务，
+ * 用 advanceUntilIdle 会一直等一个永远不会静止的调度器。改为 runCurrent 逐步
+ * 推进，并且每个用例结束时都把建出来的 gate 全部放行，不留悬空协程。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TransferPauseAllTest {
 
     @get:Rule
     val temp = TemporaryFolder()
+
+    /** 挂死时让 JUnit 自己报错并给出栈，而不是让 CI 一直等下去。 */
+    @get:Rule
+    val timeout: Timeout = Timeout.seconds(60)
 
     private val account = AccountId("acc")
 
@@ -67,9 +70,7 @@ class TransferPauseAllTest {
         }
     }
 
-    private class FakeProvider(
-        private val target: PanResult<DownloadTarget>,
-    ) : PanProvider {
+    private class FakeProvider : PanProvider {
         override val descriptor = ProviderDescriptor(
             id = ProviderId("fake"),
             displayName = "Fake",
@@ -101,7 +102,8 @@ class TransferPauseAllTest {
         override suspend fun delete(session: ProviderSession, nodeId: NodeId) =
             PanResult.Failure(PanError.notSupported())
 
-        override suspend fun downloadUrl(session: ProviderSession, nodeId: NodeId) = target
+        override suspend fun downloadUrl(session: ProviderSession, nodeId: NodeId) =
+            PanResult.Success(DownloadTarget("https://x/y", size = 10L))
 
         override suspend fun createShare(
             session: ProviderSession,
@@ -116,22 +118,25 @@ class TransferPauseAllTest {
             PanResult.Failure(PanError.notSupported())
     }
 
-    private fun engine(
-        scope: TestScope,
-        downloader: FileDownloader,
-    ): TransferEngine {
+    private fun engine(scope: TestScope, downloader: FileDownloader): TransferEngine {
         val session = ProviderSession(
             accountId = account,
             credentials = ProviderCredentials.Token("t"),
         )
-        val provider = FakeProvider(PanResult.Success(DownloadTarget("https://x/y", size = 10L)))
         return TransferEngine(
             scope = scope,
-            sessionProvider = { PanResult.Success(ScopedPanProvider(provider, session)) },
+            sessionProvider = { PanResult.Success(ScopedPanProvider(FakeProvider(), session)) },
             downloader = downloader,
             sink = DirectorySink(temp.newFolder("out")),
             clock = Clock { 1_000L },
         )
+    }
+
+    private fun TestScope.release(downloader: ReportingDownloader) {
+        if (downloader.gates.isNotEmpty() && !downloader.gates.last().isCompleted) {
+            downloader.gates.last().complete(Unit)
+        }
+        runCurrent()
     }
 
     @Test
@@ -139,25 +144,29 @@ class TransferPauseAllTest {
         val downloader = ReportingDownloader()
         val engine = engine(this, downloader)
 
-        val first = engine.enqueue(account, NodeId("n1"), "a.bin", 10L)
-        advanceUntilIdle()
-        val second = engine.enqueue(account, NodeId("n2"), "b.bin", 10L)
-        val third = engine.enqueue(account, NodeId("n3"), "c.bin", 10L)
-        advanceUntilIdle()
+        engine.enqueue(account, NodeId("n1"), "a.bin", 10L)
+        runCurrent()
+        engine.enqueue(account, NodeId("n2"), "b.bin", 10L)
+        engine.enqueue(account, NodeId("n3"), "c.bin", 10L)
+        runCurrent()
 
         // 第一个卡在 gate（RUNNING），后两个还在排队。
         assertEquals(3, engine.pauseAll())
+        runCurrent()
         assertEquals(3, engine.tasks.value.count { it.state == TransferState.PAUSED })
         assertEquals(1, downloader.calls.size)
 
-        // 已经结束的任务不算「按住」的对象。
-        engine.resumeAll()
-        advanceUntilIdle()
-        downloader.gates.first().complete(Unit)
-        advanceUntilIdle()
-        downloader.gates.last().complete(Unit)
-        advanceUntilIdle()
+        // 继续之后串行跑完三个。
+        assertEquals(3, engine.resumeAll())
+        runCurrent()
+        assertEquals(TransferState.RUNNING, engine.tasks.value.first { it.name == "a.bin" }.state)
+
+        release(downloader)
+        release(downloader)
+        release(downloader)
+
         assertEquals(3, engine.tasks.value.count { it.state == TransferState.COMPLETED })
+        // 全部结束之后没什么可按住的了。
         assertEquals(0, engine.pauseAll())
     }
 
@@ -167,22 +176,21 @@ class TransferPauseAllTest {
         val engine = engine(this, downloader)
 
         engine.enqueue(account, NodeId("n1"), "a.bin", 10L)
-        advanceUntilIdle()
+        runCurrent()
         engine.enqueue(account, NodeId("n2"), "b.bin", 10L)
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(2, engine.pauseAll())
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(2, engine.resumeAll())
+        runCurrent()
 
         // 串行队列按恢复后的顺序放行：第一个先跑。
-        advanceUntilIdle()
         assertEquals("a.bin", downloader.calls.first())
 
-        downloader.gates.first().complete(Unit)
-        advanceUntilIdle()
-        downloader.gates.last().complete(Unit)
-        advanceUntilIdle()
+        release(downloader)
+        release(downloader)
+
         assertEquals(2, engine.tasks.value.count { it.state == TransferState.COMPLETED })
     }
 
