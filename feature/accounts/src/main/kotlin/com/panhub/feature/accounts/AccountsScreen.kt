@@ -169,6 +169,11 @@ fun AccountsScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(Spacing.md),
                 ) {
+                    // 接了第二个网盘之后才出现：只有一个账号时，卡片上的容量条
+                    // 已经说得很清楚，再在上面加一行总账只是把同一件事说两遍。
+                    state.quotaSummary?.let { summary ->
+                        item(key = "quota-summary") { QuotaSummaryCard(summary) }
+                    }
                     items(state.accounts, key = { it.id.value }) { account ->
                         AccountCard(
                             account = account,
@@ -449,6 +454,31 @@ private fun AccountCard(
                     modifier = Modifier.padding(start = Spacing.xs),
                 )
             }
+        }
+    }
+}
+
+/**
+ * 所有账号的容量总账。
+ *
+ * 不做汇总条图：各家的「总量」含义并不统一（有的含回收站、有的算上家庭空间），
+ * 把它们的比例叠在一起画会暗示一种并不存在的可比性。只报数字。
+ */
+@Composable
+private fun QuotaSummaryCard(summary: AccountsLogic.QuotaSummary) {
+    PanCard {
+        Column {
+            Text(
+                text = "全部网盘",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = AccountsLogic.summaryLine(summary),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = Spacing.xs),
+            )
         }
     }
 }

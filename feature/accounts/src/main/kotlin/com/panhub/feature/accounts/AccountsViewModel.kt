@@ -35,6 +35,19 @@ data class AccountsUiState(
 ) {
     fun providerOf(providerId: ProviderId): ProviderDescriptor? =
         providers.firstOrNull { it.id == providerId }
+
+    /**
+     * 几个账号加起来的总账。
+     *
+     * 只算还在的账号：账号被移除后 [quotas] 里那一项还躺着，
+     * 留着它会让总数比屏幕上看到的账号还多。
+     */
+    val quotaSummary: AccountsLogic.QuotaSummary?
+        get() {
+            if (accounts.size < 2) return null
+            val alive = accounts.mapTo(mutableSetOf()) { it.id.value }
+            return AccountsLogic.quotaSummary(quotas.filterKeys { it in alive }.values)
+        }
 }
 
 /**
