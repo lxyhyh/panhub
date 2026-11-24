@@ -91,6 +91,10 @@ class LocalDownloads(private val root: File) {
     /** 把相对路径解析成下载目录里的文件；越界或非法路径返回 null。 */
     private fun resolve(relativePath: String): File? {
         if (relativePath.isBlank()) return null
+        // 绝对路径必须当场拒绝：File(parent, "/a/b") 在 Unix 上会把开头的斜杠
+        // 当成普通分隔符拼在 parent 后面，得到 "<root>/a/b"——它看起来在根目录内，
+        // 于是 startsWith 校验通过了，而调用方原本指的是另一个地方的 /a/b。
+        if (File(relativePath).isAbsolute) return null
         val base = canonicalOf(root) ?: return null
         val target = runCatching { File(base, relativePath).canonicalFile }.getOrNull() ?: return null
         val prefix = base.path + File.separator

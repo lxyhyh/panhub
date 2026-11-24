@@ -98,9 +98,12 @@ class LocalDownloadsTest {
 
     @Test
     fun absolutePathIsNeverARelativeEntry() {
+        // File(parent, "/a/b") 在 Unix 上会把斜杠当分隔符拼进 parent，
+        // 结果看着仍「在根目录内」，所以绝对路径要单独拦一道。
         val outside = temp.newFile("abs.txt")
         outside.writeBytes(ByteArray(3))
         val downloads = LocalDownloads(root())
+        assertFalse(downloads.contains(outside.absolutePath))
         assertFalse(downloads.delete(outside.absolutePath))
         assertTrue(outside.exists())
     }
