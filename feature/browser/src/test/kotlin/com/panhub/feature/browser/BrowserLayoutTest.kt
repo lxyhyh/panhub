@@ -8,6 +8,7 @@ import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.NodePage
 import com.panhub.core.model.PageRequest
+import com.panhub.core.model.Quota
 import com.panhub.core.model.ProviderCapabilities
 import com.panhub.core.model.ProviderDescriptor
 import com.panhub.core.model.ProviderId
@@ -89,6 +90,9 @@ class BrowserLayoutTest {
         ): PanResult<NodePage> = PanResult.Success(NodePage(nodes, null))
 
         override suspend fun stat(session: ProviderSession, nodeId: NodeId): PanResult<RemoteNode> =
+            PanResult.Failure(PanError.notSupported("不支持"))
+
+        override suspend fun quota(session: ProviderSession): PanResult<Quota> =
             PanResult.Failure(PanError.notSupported("不支持"))
 
 
