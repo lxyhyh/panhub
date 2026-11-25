@@ -66,6 +66,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Icon
@@ -109,10 +110,11 @@ import com.panhub.core.design.SortDialog
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.FileKind
+import com.panhub.core.model.FileKinds
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.SelectionSizes
 import com.panhub.core.model.ShareLink
-import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.SortOrder
 import com.panhub.core.model.SortSpec
 import java.text.SimpleDateFormat
@@ -195,6 +197,7 @@ fun BrowserScreen(
             BrowserBackAction.EXIT_SELECTION -> viewModel.clearSelection()
             BrowserBackAction.CLOSE_FILTER -> {
                 viewModel.clearFilter()
+                viewModel.clearKind()
                 showFilter = false
             }
             BrowserBackAction.GO_UP -> viewModel.goUp()
@@ -270,9 +273,12 @@ fun BrowserScreen(
                             }
                             IconButton(
                                 onClick = {
-                                    // 收起时顺手清掉关键字：只藏输入框却留着过滤，
+                                    // 收起时顺手把筛选条件清掉：只藏控件却留着过滤，
                                     // 列表会莫名其妙少东西又找不到原因。
-                                    if (showFilter) viewModel.clearFilter()
+                                    if (showFilter) {
+                                        viewModel.clearFilter()
+                                        viewModel.clearKind()
+                                    }
                                     showFilter = !showFilter
                                 },
                             ) {
@@ -315,10 +321,19 @@ fun BrowserScreen(
                     )
                 }
                 if (showFilter && !state.selectionMode) {
+                    KindChips(
+                        selected = state.kind,
+                        onSelect = viewModel::toggleKind,
+                    )
                     FilterBar(
                         query = state.filter,
                         placeholder = "当前目录内",
-                        summary = NodeFilter.summary(state.visible.size, state.nodes.size, state.filter),
+                        summary = FileKinds.summary(
+                            shown = state.visible.size,
+                            total = state.nodes.size,
+                            query = state.filter,
+                            kind = state.kind,
+                        ),
                         onQuery = viewModel::setFilter,
                         onClear = viewModel::clearFilter,
                     )
@@ -441,8 +456,8 @@ fun BrowserScreen(
                 // 目录里有东西但被过滤光了：说清楚是筛掉了，别让人以为文件没了。
                 state.visible.isEmpty() -> EmptyState(
                     icon = Icons.Default.FilterList,
-                    title = NodeFilter.emptyMessage(state.filter),
-                    message = "换个关键字，或者点上面的清空",
+                    title = FileKinds.emptyMessage(state.filter, state.kind),
+                    message = "换个条件，或者点上面的清空",
                 )
                 state.layout == FileLayout.GRID -> LazyVerticalGrid(
                     columns = GridCells.Fixed(FileLayout.GRID_COLUMNS),
@@ -1355,6 +1370,35 @@ private fun NodeRow(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+/**
+ * 类型筛选那一排 chip。
+ *
+ * 只放用户真的会拿来筛的几类：找照片、找视频、找文档、找压缩包、找音频。
+ * 不做「其它」和「文件夹」两项：前者点下去是「哪些我认不出来」，没人这么找东西；
+ * 后者在类型筛选里本来就被保留着，单列一项等于点了也没变化。
+ *
+ * 再点一次同一个 chip 就取消。用 FilterChip 而不是下拉菜单，是想让「现在按什么
+ * 在筛」一直摆在脸上——下拉菜单关起来之后，筛过的列表看起来和没筛一样。
+ */
+@Composable
+private fun KindChips(selected: FileKind?, onSelect: (FileKind) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = Spacing.lg),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        for (kind in FileKinds.filterable) {
+            FilterChip(
+                selected = kind == selected,
+                onClick = { onSelect(kind) },
+                label = { Text(kind.label) },
+            )
         }
     }
 }

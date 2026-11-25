@@ -16,6 +16,8 @@ import com.panhub.core.model.SelectionSizes
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.ShareOptions
 import com.panhub.core.model.SortOrder
+import com.panhub.core.model.FileKind
+import com.panhub.core.model.FileKinds
 import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.SortSpec
 import com.panhub.core.model.sortedFor
@@ -96,6 +98,14 @@ data class BrowserUiState(
      * 纯本地显示偏好，与服务商无关，所以不需要能力门控。
      */
     val layout: FileLayout = FileLayout.LIST,
+    /**
+     * 按类型筛：null 表示不筛。
+     *
+     * 与 [filter] 并存而不是合并成一个「筛选条件」对象：名字是连续输入框，类型是
+     * 几个固定选项，两者可以同时生效（筛「图片」里名字含「旅行」的），
+     * 合并以后界面还得再把它们拆开。
+     */
+    val kind: FileKind? = null,
 ) {
     val currentFolder: RemoteNode? get() = stack.lastOrNull()
 
@@ -116,11 +126,11 @@ data class BrowserUiState(
     /** 服务商返回的顺序各不相同，一律按用户选的规格重排后再显示。 */
     val sorted: List<RemoteNode> get() = nodes.sortedFor(sort)
 
-    /** 真正画到列表上的那一份：先按用户选的规格排，再按过滤词收窄。 */
-    val visible: List<RemoteNode> get() = NodeFilter.apply(sorted, filter)
+    /** 真正画到列表上的那一份：先按用户选的规格排，再按类型、按过滤词收窄。 */
+    val visible: List<RemoteNode> get() = NodeFilter.apply(FileKinds.apply(sorted, kind), filter)
 
-    /** 有没有在过滤。界面据此换掉「这里还没有文件」那句空列表说明。 */
-    val filtering: Boolean get() = NodeFilter.active(filter)
+    /** 有没有在过滤（名字或类型任一生效）。界面据此换掉空列表说明。 */
+    val filtering: Boolean get() = NodeFilter.active(filter) || FileKinds.active(kind)
 
     /**
      * 已选项目的数量与体积。
@@ -637,7 +647,7 @@ class BrowserViewModel(
         if (!folder.isDir) return
         // 进新目录要清掉过滤词：上一个目录里打的字几乎没有可能也适用于这一层，
         // 留着它只会让人进目录后看到一片空白，还以为目录是空的。
-        _state.update { it.copy(stack = it.stack + folder, filter = "") }
+        _state.update { it.copy(stack = it.stack + folder, filter = "", kind = null) }
         // 换目录必须清空旧列表：否则新目录加载期间会短暂显示上一级的文件，
         // 加载失败时更会一直停在那里，看起来像是进了错的目录。
         reloadFromScratch()
@@ -647,7 +657,7 @@ class BrowserViewModel(
     fun goUp(): Boolean {
         val stack = _state.value.stack
         if (stack.isEmpty()) return false
-        _state.update { it.copy(stack = stack.dropLast(1), filter = "") }
+        _state.update { it.copy(stack = stack.dropLast(1), filter = "", kind = null) }
         reloadFromScratch()
         return true
     }
@@ -662,7 +672,7 @@ class BrowserViewModel(
         val stack = _state.value.stack
         val target = if (depth <= BrowserPath.ROOT_DEPTH) emptyList() else stack.take(depth + 1)
         if (target.size == stack.size) return false
-        _state.update { it.copy(stack = target, filter = "") }
+        _state.update { it.copy(stack = target, filter = "", kind = null) }
         reloadFromScratch()
         return true
     }
@@ -942,6 +952,14 @@ class BrowserViewModel(
      * 比一次界面重组便宜得多，加防抖反而会让输入框看起来卡。
      */
     fun setFilter(value: String) = _state.update { it.copy(filter = value) }
+
+    /** 选一个类型去筛，再点同一个就取消（界面上是个 FilterChip，按一次开按一次关）。 */
+    fun toggleKind(value: FileKind) {
+        _state.update { it.copy(kind = if (it.kind == value) null else value) }
+    }
+
+    /** 清掉类型筛，只留名字筛。 */
+    fun clearKind() = _state.update { it.copy(kind = null) }
 
     fun clearFilter() = _state.update { it.copy(filter = "") }
 
