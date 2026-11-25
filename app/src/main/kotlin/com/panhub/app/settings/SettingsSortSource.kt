@@ -2,16 +2,19 @@ package com.panhub.app.settings
 
 import com.panhub.core.model.SortOrder
 import com.panhub.core.model.SortSpec
+import com.panhub.core.platform.LayoutName
 import com.panhub.core.platform.SettingsRepository
 import com.panhub.core.platform.SortOrderName
+import com.panhub.feature.browser.FileLayout
 import com.panhub.feature.browser.SortSettingsSource
 
 /**
- * 把设置仓库接到浏览页的排序偏好上。
+ * 把设置仓库接到浏览页的显示偏好上。
  *
- * 这层适配器只能放在装配处：设置层用的枚举是 SortOrderName（它不认识 core:model），
- * 浏览页用的是 SortSpec。让两边任何一侧去认识对方的类型，都会把「设置」和
- * 「文件」两个概念绑在一起，以后加一种排序要改两处枚举。
+ * 这层适配器只能放在装配处：设置层用的枚举是 [SortOrderName] / [LayoutName]
+ * （它不认识 core:model，更不认识界面模块），浏览页用的是 SortSpec / FileLayout。
+ * 让两边任何一侧去认识对方的类型，都会把「设置」和「文件」两个概念绑在一起，
+ * 以后加一种排序或一种摆法要改两处枚举。
  */
 class SettingsSortSource(
     private val settings: SettingsRepository,
@@ -32,6 +35,25 @@ class SettingsSortSource(
 
     override suspend fun rememberSort(spec: SortSpec) {
         settings.setSort(nameOf(spec.order), spec.descending)
+    }
+
+    /**
+     * 从没切过布局时返回 null。
+     *
+     * 与排序同理：默认列表不是「用户选过列表」，界面上都不该显示成已记住。
+     */
+    override fun rememberedLayout(): FileLayout? = when (settings.settings.value.layout) {
+        LayoutName.LIST -> null
+        LayoutName.GRID -> FileLayout.GRID
+    }
+
+    override suspend fun rememberLayout(layout: FileLayout) {
+        settings.setLayout(
+            when (layout) {
+                FileLayout.LIST -> LayoutName.LIST
+                FileLayout.GRID -> LayoutName.GRID
+            },
+        )
     }
 
     private fun orderOf(name: SortOrderName): SortOrder = when (name) {

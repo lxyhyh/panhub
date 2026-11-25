@@ -89,6 +89,13 @@ data class BrowserUiState(
      * 而为了一个「临时找一下」再走一次跨目录搜索既慢又会被限流。
      */
     val filter: String = "",
+    /**
+     * 列表还是格子。
+     *
+     * 网格用大缩略图，翻照片和截图时比列表好认；名单、文档还是列表清楚。
+     * 纯本地显示偏好，与服务商无关，所以不需要能力门控。
+     */
+    val layout: FileLayout = FileLayout.LIST,
 ) {
     val currentFolder: RemoteNode? get() = stack.lastOrNull()
 
@@ -888,6 +895,29 @@ class BrowserViewModel(
         rememberSort()
     }
 
+    /**
+     * 在列表和格子之间切换。
+     *
+     * 多选态下不允许切：网格里每格能显示的信息更少，勾选时容易点错，
+     * 而切换本身也不是批量操作的一部分。
+     */
+    fun toggleLayout() {
+        if (_state.value.selectionMode) return
+        _state.update { it.copy(layout = it.layout.toggled()) }
+        rememberLayout()
+    }
+
+    /** 把当前布局写回设置。写盘失败不该影响这一次浏览，所以吞掉异常。 */
+    private fun rememberLayout() {
+        val source = sortSettings ?: return
+        val layout = _state.value.layout
+        viewModelScope.launch {
+            runCatching {
+                source.rememberLayout(layout)
+            }
+        }
+    }
+
     /** 反转当前排序方向。 */
     fun toggleSortDirection() {
         _state.update { it.copy(sort = it.sort.copy(descending = !it.sort.descending)) }
@@ -1311,6 +1341,11 @@ class BrowserViewModel(
             // 用户会看到一屏文件先按名称排、再跳成按时间排。
             sortSettings?.rememberedSort()?.let { remembered ->
                 _state.update { it.copy(sort = remembered) }
+            }
+            // 布局同理：先进来看一眼是列表、点一下切成格子之后又跳回列表，
+            // 会让人以为自己没点中。
+            sortSettings?.rememberedLayout()?.let { remembered ->
+                _state.update { it.copy(layout = remembered) }
             }
 
             when (val result = session.connect(accountId)) {

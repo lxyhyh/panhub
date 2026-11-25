@@ -233,4 +233,60 @@ class AppSettingsTest {
         assertEquals(SortOrderName.TIME, stored.sortOrder)
         assertTrue(stored.sortDescending)
     }
+
+    // ---- LayoutName ----
+
+    @Test
+    fun listIsTheDefaultLayout() {
+        assertEquals(LayoutName.LIST, AppSettings().layout)
+    }
+
+    @Test
+    fun parseAcceptsEveryStoredLayoutName() {
+        for (name in LayoutName.entries) {
+            assertEquals(name, LayoutName.parse(name.name));
+        }
+        assertEquals(LayoutName.GRID, LayoutName.parse("grid"))
+    }
+
+    @Test
+    fun anUnknownLayoutFallsBackToList() {
+        assertEquals(LayoutName.LIST, LayoutName.parse(null))
+        assertEquals(LayoutName.LIST, LayoutName.parse("mosaic"))
+    }
+
+    @Test
+    fun savedLayoutComesBackAfterRestart() = runTest {
+        val file = File(temp.newFolder("layout"), "settings.json")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+
+        JsonSettingsStore(file, dispatcher).save(AppSettings(layout = LayoutName.GRID))
+
+        assertEquals(LayoutName.GRID, JsonSettingsStore(file, dispatcher).load().layout)
+    }
+
+    @Test
+    fun anOldFileWithoutALayoutKeyStillLoads() = runTest {
+        // 加这个键之前的存档里没有它，读出来必须是列表而不是崩溃。
+        val file = File(temp.newFolder("legacyLayout"), "settings.json")
+        file.writeText("{\"theme\":\"DARK\",\"wifiOnly\":\"true\"}")
+        val loaded = JsonSettingsStore(file, StandardTestDispatcher(testScheduler)).load()
+        assertEquals(LayoutName.LIST, loaded.layout)
+        assertEquals(ThemeMode.DARK, loaded.theme)
+    }
+
+    @Test
+    fun settingTheLayoutLeavesTheSortAlone() = runTest {
+        val file = File(temp.newFolder("layoutKeep"), "settings.json")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = SettingsRepository(JsonSettingsStore(file, dispatcher))
+        repository.setSort(SortOrderName.SIZE, descending = true)
+
+        repository.setLayout(LayoutName.GRID)
+
+        val stored = JsonSettingsStore(file, dispatcher).load()
+        assertEquals(SortOrderName.SIZE, stored.sortOrder)
+        assertTrue(stored.sortDescending)
+        assertEquals(LayoutName.GRID, stored.layout)
+    }
 }

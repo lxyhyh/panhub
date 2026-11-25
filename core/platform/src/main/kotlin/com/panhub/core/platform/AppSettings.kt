@@ -61,6 +61,13 @@ data class AppSettings(
     val sortOrder: SortOrderName = SortOrderName.NAME,
     /** 排序方向：true = 从大到小 / 从新到旧 / 从 Z 到 A。 */
     val sortDescending: Boolean = false,
+    /**
+     * 文件列表怎么摆。
+     *
+     * 默认还是列表：它是能一眼看清名字、大小、修改时间的那一种，
+     * 网格更适合翻照片，而多数时候用户在找的不是照片。
+     */
+    val layout: LayoutName = LayoutName.LIST,
 ) {
     /** 记住的这组排序是否还是默认值。界面据此决定要不要显示「用默认排序」。 */
     val hasCustomSort: Boolean
@@ -84,6 +91,24 @@ enum class SortOrderName {
         /** 认不出就回退到名称：旧版本写的值或手改坏的值不该让列表排不出来。 */
         fun parse(raw: String?): SortOrderName =
             entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: NAME
+    }
+}
+
+/**
+ * 文件列表的摆放方式。
+ *
+ * 与界面层的 FileLayout 一一对应，但同样刻意不复用：设置层不认识界面模块，
+ * 界面模块也不该为了存一个偏好去依赖整个设置层，中间那一步翻译放在装配处。
+ */
+enum class LayoutName {
+    LIST,
+    GRID,
+    ;
+
+    companion object {
+        /** 认不出就回退到列表：旧存档或手改坏的值不该让文件打不开。 */
+        fun parse(raw: String?): LayoutName =
+            entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: LIST
     }
 }
 
@@ -126,6 +151,7 @@ class JsonSettingsStore(
                     sortOrder = SortOrderName.parse(obj["sortOrder"]?.jsonPrimitive?.contentOrNull),
                     sortDescending = obj["sortDescending"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
                         ?: false,
+                    layout = LayoutName.parse(obj["layout"]?.jsonPrimitive?.contentOrNull),
                 )
             }.getOrElse { AppSettings() }
         }
@@ -138,6 +164,7 @@ class JsonSettingsStore(
                 put("wifiOnly", settings.wifiOnly.toString())
                 put("sortOrder", settings.sortOrder.name)
                 put("sortDescending", settings.sortDescending.toString())
+                put("layout", settings.layout.name)
             }.toString()
             file.parentFile?.mkdirs()
             // 先写临时文件再改名，闪存写到一半掉电不能留下半个 JSON。
@@ -195,6 +222,19 @@ class SettingsRepository(
      */
     suspend fun setSort(order: SortOrderName, descending: Boolean) {
         val next = state.value.copy(sortOrder = order, sortDescending = descending)
+        if (next == state.value) return
+        state.value = next
+        store.save(next)
+    }
+
+    /**
+     * 记住文件列表是列表还是格子。
+     *
+     * 和排序一样立刻落盘：切一次视图是一件明确的选择，
+     * 下次进另一个网盘又跳回列表会让人以为自己点错了。
+     */
+    suspend fun setLayout(layout: LayoutName) {
+        val next = state.value.copy(layout = layout)
         if (next == state.value) return
         state.value = next
         store.save(next)

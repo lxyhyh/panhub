@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,6 +23,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -42,6 +47,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DriveFolderUpload
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -51,6 +57,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.outlined.Circle
@@ -87,6 +94,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
@@ -270,6 +278,23 @@ fun BrowserScreen(
                             ) {
                                 Icon(Icons.Default.FilterList, contentDescription = "筛选")
                             }
+                            IconButton(onClick = viewModel::toggleLayout) {
+                                Icon(
+                                    imageVector = if (state.layout == FileLayout.GRID) {
+                                        Icons.Default.ViewList
+                                    } else {
+                                        Icons.Default.GridView
+                                    },
+                                    // 图标画的是「点下去会变成什么」，不是当前状态：
+                                    // 一个显示着格子的按钮含义会有两种读法，而
+                                    // 显示列表就表示按了会把东西摆成列表。
+                                    contentDescription = if (state.layout == FileLayout.GRID) {
+                                        "切换成列表"
+                                    } else {
+                                        "切换成网格"
+                                    },
+                                )
+                            }
                             IconButton(onClick = { showSort = true }) {
                                 Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
                             }
@@ -419,6 +444,40 @@ fun BrowserScreen(
                     title = NodeFilter.emptyMessage(state.filter),
                     message = "换个关键字，或者点上面的清空",
                 )
+                state.layout == FileLayout.GRID -> LazyVerticalGrid(
+                    columns = GridCells.Fixed(FileLayout.GRID_COLUMNS),
+                    contentPadding = PaddingValues(
+                        start = Spacing.lg,
+                        end = Spacing.lg,
+                        top = Spacing.sm,
+                        bottom = Spacing.xxl + Spacing.xxl,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    // 网格的滚动位置与列表互不影响：两套布局的 item 高度差得远，
+                    // 共享一个滚动状态会在切换时跳到一个用户没看过的位置。
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(state.visible, key = { it.id.value }) { node ->
+                        NodeTile(
+                            node = node,
+                            selected = node.id in state.selected,
+                            onClick = {
+                                if (state.selectionMode) viewModel.toggleSelect(node) else viewModel.open(node)
+                            },
+                            onLongClick = { viewModel.toggleSelect(node) },
+                            onMore = { actionNode = node },
+                        )
+                    }
+                    if (state.hasMore) {
+                        item(key = "__more__", span = { GridItemSpan(maxLineSpan) }) {
+                            LoadMoreRow(
+                                loading = state.loadingMore,
+                                onClick = viewModel::loadMore,
+                            )
+                        }
+                    }
+                }
                 else -> LazyColumn(
                     contentPadding = PaddingValues(
                         start = Spacing.lg,
@@ -1109,6 +1168,124 @@ private fun FolderPickerDialog(
     )
 }
 
+/**
+ * 左边那块方图：有缩略图就显示服务商给的图，没有或加载失败都退回类型图标。
+ *
+ * 失败是常态（地址过期、需要鉴权、机型限制），不值得单独报错；
+ * 抽成一个组件是因为列表和网格都要它，抄两份迟早只改对一处。
+ */
+@Composable
+private fun NodeArtwork(node: RemoteNode, modifier: Modifier, iconSize: Dp) {
+    if (node.thumbnailUrl != null && !node.isDir) {
+        SubcomposeAsyncImage(
+            model = node.thumbnailUrl,
+            contentDescription = null,
+            modifier = modifier.clip(RoundedCornerShape(Radius.card)),
+            loading = { FallbackArtwork(node = node, iconSize = iconSize) },
+            error = { FallbackArtwork(node = node, iconSize = iconSize) },
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(Radius.card))
+                .background(
+                    if (node.isDir) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (node.isDir) Icons.Default.Folder else Icons.Default.Description,
+                contentDescription = null,
+                tint = if (node.isDir) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(iconSize),
+            )
+        }
+    }
+}
+
+/** 缩略图还没来或者来不了时垫在后面的那层底。 */
+@Composable
+private fun FallbackArtwork(node: RemoteNode, iconSize: Dp) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (node.isDir) Icons.Default.Folder else Icons.Default.Description,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(iconSize),
+        )
+    }
+}
+
+/**
+ * 网格里的一格。
+ *
+ * 与 [NodeRow] 的取舍不同：网格每格只有图和名字，大小、时间这些小字放不下，
+ * 硬塞会把图片压成一条。要这些信息就切回列表——两种摆法各司其职，
+ * 而不是让一种摆法把所有信息都显示出来。
+ */
+@Composable
+private fun NodeTile(
+    node: RemoteNode,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onMore: () -> Unit,
+) {
+    PanCard(onClick = onClick, onLongClick = onLongClick, modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                NodeArtwork(
+                    node = node,
+                    modifier = Modifier.fillMaxSize().padding(Spacing.sm),
+                    iconSize = 40.dp,
+                )
+                if (selected) {
+                    // 勾选标记压在图上而不是占一行：网格里的空间全给了图，
+                    // 加一行会让同一行的所有格子都变矮。
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(Spacing.xs).size(20.dp),
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = node.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onMore, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "更多操作",
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+    }
+}
 @Composable
 private fun NodeRow(
     node: RemoteNode,
@@ -1139,72 +1316,7 @@ private fun NodeRow(
                 )
                 Spacer(Modifier.size(Spacing.md))
             }
-            // 有缩略图就直接显示服务商给的图（图片/视频列表一秒认出来），
-            // 没有或加载失败都退回类型图标——失败是常态，不值得单独报错。
-            if (node.thumbnailUrl != null && !node.isDir) {
-                SubcomposeAsyncImage(
-                    model = node.thumbnailUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(Radius.card)),
-                    loading = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Description,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    },
-                    error = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Description,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    },
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(Radius.card))
-                        .background(
-                            if (node.isDir) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = if (node.isDir) Icons.Default.Folder else Icons.Default.Description,
-                        contentDescription = null,
-                        tint = if (node.isDir) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
+            NodeArtwork(node = node, modifier = Modifier.size(40.dp), iconSize = 20.dp)
             Column(
                 modifier = Modifier.weight(1f).padding(horizontal = Spacing.md),
             ) {

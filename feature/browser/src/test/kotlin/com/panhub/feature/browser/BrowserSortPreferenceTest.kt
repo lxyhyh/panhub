@@ -62,9 +62,11 @@ class BrowserSortPreferenceTest {
     private class RecordingSort(
         private var remembered: SortSpec? = null,
         private val failing: Boolean = false,
+        private var rememberedLayout: FileLayout? = null,
     ) : SortSettingsSource {
 
         val saved = mutableListOf<SortSpec>()
+        val savedLayouts = mutableListOf<FileLayout>()
 
         override fun rememberedSort(): SortSpec? = remembered
 
@@ -72,6 +74,14 @@ class BrowserSortPreferenceTest {
             if (failing) error("写盘失败")
             saved += spec
             remembered = spec
+        }
+
+        override fun rememberedLayout(): FileLayout? = rememberedLayout
+
+        override suspend fun rememberLayout(layout: FileLayout) {
+            if (failing) error("写盘失败")
+            savedLayouts += layout
+            rememberedLayout = layout
         }
     }
 
