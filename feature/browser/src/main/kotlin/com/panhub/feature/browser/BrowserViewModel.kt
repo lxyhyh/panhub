@@ -221,6 +221,8 @@ data class FolderPickerState(
     val folders: List<RemoteNode> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
+    /** 正在这个目录里新建文件夹（按钮置灰用）。 */
+    val creating: Boolean = false,
 ) {
     val current: RemoteNode? get() = stack.lastOrNull()
 
@@ -453,6 +455,39 @@ class BrowserViewModel(
         val next = stack.dropLast(1)
         _picker.update { it.copy(stack = next, loading = true, error = null) }
         loadPicker(provider, next.lastOrNull()?.id)
+    }
+
+    /**
+     * 在选择器当前目录里新建一个文件夹。
+     *
+     * 为什么要有这个入口：「复制到」和「移动到」的目标目录，常常是用户
+     * 发现当前没有合适位置时才想起来的。没有这一步，他得退出对话框、
+     * 回浏览页建好目录、再重新选一遍被移动的文件——多选中途还会丢。
+     */
+    fun createPickerFolder(name: String) {
+        val provider = scoped ?: return
+        val snapshot = _picker.value
+        if (!snapshot.visible || snapshot.creating) return
+        val trimmed = NodeNames.accept(name)
+        if (trimmed == null) {
+            _picker.update { it.copy(error = NodeNames.problem(name)) }
+            return
+        }
+        val parentId = snapshot.targetId
+        _picker.update { it.copy(creating = true, error = null) }
+        viewModelScope.launch {
+            when (val result = provider.createFolder(parentId, trimmed)) {
+                is PanResult.Success -> {
+                    _picker.update { it.copy(creating = false) }
+                    // 建完停在这一层刷新，而不是自动钻进去：用户可能还要再建一个，
+                    // 也可能只是想确认它确实出现了。
+                    loadPicker(provider, parentId)
+                }
+                is PanResult.Failure -> _picker.update {
+                    it.copy(creating = false, error = result.error.message)
+                }
+            }
+        }
     }
 
     /** 确认在当前目录里移动或复制。 */

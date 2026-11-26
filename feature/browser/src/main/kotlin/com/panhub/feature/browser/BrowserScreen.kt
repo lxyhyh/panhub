@@ -640,6 +640,7 @@ fun BrowserScreen(
             onDismiss = viewModel::closeFolderPicker,
             onEnter = viewModel::enterPickerFolder,
             onUp = viewModel::leavePickerFolder,
+            onCreate = viewModel::createPickerFolder,
             onConfirm = viewModel::confirmPicker,
         )
     }
@@ -1091,8 +1092,10 @@ private fun FolderPickerDialog(
     onDismiss: () -> Unit,
     onEnter: (RemoteNode) -> Unit,
     onUp: () -> Unit,
+    onCreate: (String) -> Unit,
     onConfirm: () -> Unit,
 ) {
+    var creating by remember(picker.visible) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -1177,6 +1180,21 @@ private fun FolderPickerDialog(
                         }
                     }
                 }
+                Spacer(Modifier.height(Spacing.sm))
+                // 目标目录常常是走到这儿才发现没有合适的：把新建入口放在列表下方，
+                // 而不是另开一层弹窗，用户建完立刻就能在同一个位置选中它。
+                TextButton(
+                    onClick = { creating = true },
+                    enabled = !picker.creating && !picker.loading,
+                ) {
+                    Icon(
+                        Icons.Default.CreateNewFolder,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.size(Spacing.xs))
+                    Text("在这里新建文件夹")
+                }
             }
         },
         confirmButton = {
@@ -1186,6 +1204,17 @@ private fun FolderPickerDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+    if (creating) {
+        NameDialog(
+            title = "新建文件夹",
+            initial = "",
+            onDismiss = { creating = false },
+            onConfirm = { name ->
+                creating = false
+                onCreate(name)
+            },
+        )
+    }
 }
 
 /**
