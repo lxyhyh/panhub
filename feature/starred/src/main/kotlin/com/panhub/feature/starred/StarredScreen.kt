@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.panhub.core.design.ChipRow
 import com.panhub.core.design.EmptyState
 import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
@@ -51,6 +52,7 @@ import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
+import com.panhub.core.model.FileKinds
 import com.panhub.core.model.RemoteNode
 
 /**
@@ -102,7 +104,10 @@ fun StarredScreen(
                     if (state.supported) {
                         IconButton(
                             onClick = {
-                                if (showFilter) viewModel.clearQuery()
+                                if (showFilter) {
+                                    viewModel.clearQuery()
+                                    viewModel.clearKind()
+                                }
                                 showFilter = !showFilter
                             },
                         ) {
@@ -122,11 +127,21 @@ fun StarredScreen(
     ) { inner ->
         Column(modifier = Modifier.fillMaxSize().padding(inner)) {
             if (showFilter && state.items.isNotEmpty()) {
+                ChipRow(
+                    options = FileKinds.filterable.map { it.label },
+                    selectedIndex = FileKinds.indexOf(state.kind),
+                    onSelect = { viewModel.toggleKind(FileKinds.filterable[it]) },
+                )
                 FilterBar(
                     query = state.query,
                     summary = state.filterSummary,
                     onQuery = viewModel::setQuery,
-                    onClear = viewModel::clearQuery,
+                    // 「清空」把类型一起清掉：留着一个看不见的类型条件，
+                    // 用户会以为筛选条已经关了，列表却仍然少东西。
+                    onClear = {
+                        viewModel.clearQuery()
+                        viewModel.clearKind()
+                    },
                     placeholder = "收藏夹里的文件名",
                 )
             }
