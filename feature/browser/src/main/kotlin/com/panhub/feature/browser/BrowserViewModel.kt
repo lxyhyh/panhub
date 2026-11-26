@@ -19,6 +19,7 @@ import com.panhub.core.model.SortOrder
 import com.panhub.core.model.FileKind
 import com.panhub.core.model.FileKinds
 import com.panhub.core.model.NodeFilter
+import com.panhub.core.model.NodeNames
 import com.panhub.core.model.SortSpec
 import com.panhub.core.model.sortedFor
 import com.panhub.core.preview.PreviewContent
@@ -681,8 +682,13 @@ class BrowserViewModel(
 
     fun createFolder(name: String) {
         val provider = scoped ?: return
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
+        // 先过一遍名字检查：能在这里拦下的问题，没必要发一次注定失败的请求，
+        // 用户也不用等一个来回才知道名字里不能有斜杠。
+        val trimmed = NodeNames.accept(name)
+        if (trimmed == null) {
+            _state.update { it.copy(message = NodeNames.problem(name)) }
+            return
+        }
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
             when (val result = provider.createFolder(_state.value.parentId, trimmed)) {
@@ -699,8 +705,12 @@ class BrowserViewModel(
 
     fun rename(node: RemoteNode, newName: String) {
         val provider = scoped ?: return
-        val trimmed = newName.trim()
-        if (trimmed.isEmpty() || trimmed == node.name) return
+        val trimmed = NodeNames.accept(newName)
+        if (trimmed == null) {
+            _state.update { it.copy(message = NodeNames.problem(newName)) }
+            return
+        }
+        if (trimmed == node.name) return
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
             when (val result = provider.rename(node.id, trimmed)) {

@@ -112,6 +112,7 @@ import com.panhub.core.design.formatBytes
 import com.panhub.core.model.AccountId
 import com.panhub.core.model.FileKind
 import com.panhub.core.model.FileKinds
+import com.panhub.core.model.NodeNames
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.SelectionSizes
 import com.panhub.core.model.ShareLink
@@ -1658,6 +1659,11 @@ private fun NameDialog(
     onConfirm: (String) -> Unit,
 ) {
     var value by remember { mutableStateOf(initial) }
+    // 名字不合法时把理由写在输入框下面，而不是等点了确定再弹一句转瞬即逝的提示：
+    // 用户正在改的就是这个名字，理由应当跟它待在一起。
+    // 名字没动过时不挑刺：有的文件本来就叫「a:b」，一打开对话框就红一片，
+    // 想改别的部分反而先被这条旧毛病挡住视线。
+    val problem = if (value.isBlank() || value == initial) null else NodeNames.problem(value)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -1666,14 +1672,16 @@ private fun NameDialog(
                 value = value,
                 onValueChange = { value = it },
                 singleLine = true,
+                isError = problem != null,
                 label = { Text("名称") },
+                supportingText = { if (problem != null) Text(problem) },
                 modifier = Modifier.fillMaxWidth(),
             )
         },
         confirmButton = {
             TextButton(
                 onClick = { onConfirm(value) },
-                enabled = value.isNotBlank(),
+                enabled = value.isNotBlank() && problem == null,
             ) { Text("确定") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
