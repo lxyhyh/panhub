@@ -2,6 +2,7 @@ package com.panhub.feature.localfiles
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +22,9 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -120,6 +123,16 @@ fun LocalFilesScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            if (state.selectionMode) {
+                SelectionBar(
+                    summary = state.selectedSummary,
+                    busy = state.busy,
+                    onDelete = viewModel::askDeleteSelected,
+                    onClear = viewModel::clearSelection,
+                )
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text("本机文件") },
@@ -129,24 +142,38 @@ fun LocalFilesScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            // 收起时顺手清掉关键字：只藏输入框却留着过滤，
-                            // 会让列表莫名其妙少东西，而用户找不到原因。
-                            if (showFilter) {
-                                viewModel.clearFilter()
-                                viewModel.clearKind()
-                            }
-                            showFilter = !showFilter
-                        },
-                    ) {
-                        Icon(Icons.Default.FilterList, contentDescription = "筛选")
-                    }
-                    IconButton(onClick = { showSort = true }) {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
-                    }
-                    if (state.canClear) {
-                        TextButton(onClick = viewModel::askClear) { Text("清空") }
+                    // 选择态下只留「全选 / 删除」：这时候再露出筛选和排序，
+                    // 会让底下那排按钮挤成一团，也容易误触。
+                    if (state.selectionMode) {
+                        IconButton(onClick = viewModel::toggleSelectAll) {
+                            Icon(
+                                Icons.Default.SelectAll,
+                                contentDescription = if (state.allSelected) "取消全选" else "全选",
+                            )
+                        }
+                        TextButton(onClick = viewModel::askDeleteSelected, enabled = !state.busy) {
+                            Text("删除")
+                        }
+                    } else {
+                        IconButton(
+                            onClick = {
+                                // 收起时顺手清掉关键字：只藏输入框却留着过滤，
+                                // 会让列表莫名其妙少东西，而用户找不到原因。
+                                if (showFilter) {
+                                    viewModel.clearFilter()
+                                    viewModel.clearKind()
+                                }
+                                showFilter = !showFilter
+                            },
+                        ) {
+                            Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                        }
+                        IconButton(onClick = { showSort = true }) {
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
+                        }
+                        if (state.canClear) {
+                            TextButton(onClick = viewModel::askClear) { Text("清空") }
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -222,6 +249,9 @@ fun LocalFilesScreen(
                     LocalFileCard(
                         row = row,
                         busy = state.busy,
+                        selecting = state.selectionMode,
+                        selected = row.entry.relativePath in state.selected,
+                        onToggleSelect = { viewModel.toggleSelect(row.entry) },
                         onOpen = {
                             val file = viewModel.fileOf(row.entry)
                             if (file == null || !LocalFileActions.open(context, file)) {
@@ -244,11 +274,12 @@ fun LocalFilesScreen(
         }
     }
 
-    state.confirming?.let { entry ->
+    if (state.confirming.isNotEmpty()) {
+        val entries = state.confirming
         AlertDialog(
             onDismissRequest = viewModel::cancelDelete,
-            title = { Text("删除这个文件？") },
-            text = { Text(LocalFilesLogic.deleteQuestion(entry)) },
+            title = { Text(LocalFilesLogic.deleteTitle(entries.size)) },
+            text = { Text(LocalFilesLogic.deleteQuestion(entries)) },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmDelete) { Text("删除") }
             },
@@ -290,14 +321,29 @@ fun LocalFilesScreen(
 private fun LocalFileCard(
     row: LocalFileRow,
     busy: Boolean,
+    selecting: Boolean,
+    selected: Boolean,
+    onToggleSelect: () -> Unit,
     onOpen: () -> Unit,
     onShare: () -> Unit,
     onSaveAs: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    PanCard(onClick = if (busy) null else onOpen) {
+    // 选择态下点卡片是勾选，不是打开：一进去就播放/打开文件会把人吓一跳。
+    // 不在选择态时长按卡片也能进入勾选，和浏览页的手势一致。
+    PanCard(
+        onClick = when {
+            busy -> null
+            selecting -> onToggleSelect
+            else -> onOpen
+        },
+        onLongClick = if (busy || selecting) null else onToggleSelect,
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (selecting) {
+                Checkbox(checked = selected, onCheckedChange = { onToggleSelect() })
+            }
             Icon(
                 imageVector = Icons.Default.Description,
                 contentDescription = null,
@@ -346,6 +392,38 @@ private fun LocalFileCard(
                 )
             }
         }
+    }
+}
+
+/**
+ * 选择态下的底栏。
+ *
+ * 删除放在右下角而不是顶栏也有，是因为这里手指落点最近；
+ * 但真正动手前仍然要走确认框，底栏这一下只是「我决定了」。
+ */
+@Composable
+private fun SelectionBar(
+    summary: String,
+    busy: Boolean,
+    onDelete: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        TextButton(onClick = onClear, enabled = !busy) { Text("取消") }
+        Text(
+            text = summary,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onDelete, enabled = !busy) { Text("删除") }
     }
 }
 

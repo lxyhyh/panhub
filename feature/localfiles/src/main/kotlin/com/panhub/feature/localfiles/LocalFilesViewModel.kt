@@ -2,6 +2,7 @@ package com.panhub.feature.localfiles
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.panhub.core.design.formatBytes
 import com.panhub.core.model.FileKind
 import com.panhub.core.model.FileKinds
 import com.panhub.core.model.NodeFilter
@@ -24,11 +25,13 @@ data class LocalFilesUiState(
     val loading: Boolean = true,
     val busy: Boolean = false,
     val snapshot: DownloadsSnapshot = DownloadsSnapshot(),
-    /** 等待用户确认删除的那一个；null 表示没有弹窗。 */
-    val confirming: DownloadedEntry? = null,
+    /** 等待用户确认删除的那一批；空表示没有弹窗。 */
+    val confirming: List<DownloadedEntry> = emptyList(),
     /** 是否在问「清空全部」。 */
     val confirmingClear: Boolean = false,
     val message: String? = null,
+    /** 多选中的相对路径。空表示不在选择态。 */
+    val selected: Set<String> = emptySet(),
     /** 按名字筛选的关键字。纯本地行为，不重新扫盘。 */
     val filter: String = "",
     /** 按类型筛选。null 表示不筛；与浏览页共用同一套 [FileKinds] 判断。 */
@@ -70,6 +73,19 @@ data class LocalFilesUiState(
     val emptyFilterMessage: String get() = FileKinds.emptyMessage(filter, kind)
 
     val canClear: Boolean get() = snapshot.entries.isNotEmpty() && !busy
+
+    val selectionMode: Boolean get() = selected.isNotEmpty()
+
+    val selectedCount: Int get() = selected.size
+
+    val allSelected: Boolean get() = LocalFilesLogic.allSelected(visibleRows, selected)
+
+    /** 底栏那行「已选 N 项 · 多少 MB」。没有选中时不给这段字。 */
+    val selectedSummary: String
+        get() {
+            val bytes = LocalFilesLogic.selectedBytes(snapshot.entries, selected)
+            return "已选 " + selected.size + " 项 · " + formatBytes(bytes)
+        }
 }
 
 /**
@@ -103,30 +119,74 @@ class LocalFilesViewModel(private val root: File) : ViewModel() {
         }
     }
 
-    /** 点删除：先弹确认，不直接动手。删文件是不可撤销的。 */
+    /**
+     * 点删除：先弹确认，不直接动手。删文件是不可撤销的。
+     *
+     * 只给一个文件时是单个删除；从选择态进来时是整批。
+     */
     fun askDelete(entry: DownloadedEntry) {
         if (_state.value.busy) return
-        _state.update { it.copy(confirming = entry) }
+        _state.update { it.copy(confirming = listOf(entry)) }
     }
 
     fun cancelDelete() {
-        _state.update { it.copy(confirming = null) }
+        _state.update { it.copy(confirming = emptyList()) }
     }
 
     fun confirmDelete() {
-        val entry = _state.value.confirming ?: return
-        _state.update { it.copy(confirming = null, busy = true) }
+        val entries = _state.value.confirming
+        if (entries.isEmpty()) return
+        _state.update { it.copy(confirming = emptyList(), busy = true, selected = emptySet()) }
         viewModelScope.launch {
-            val ok = withContext(Dispatchers.IO) { downloads.delete(entry.relativePath) }
+            // 逐个删再统计真正删掉的条数：中途某个文件被系统锁住时，
+            // 一句「已删除」会让用户以为整个批量都成功了。
+            val removed = withContext(Dispatchers.IO) {
+                entries.count { downloads.delete(it.relativePath) }
+            }
             val snapshot = withContext(Dispatchers.IO) { downloads.scan() }
             _state.update {
                 it.copy(
                     busy = false,
                     snapshot = snapshot,
-                    message = LocalFilesLogic.deletedMessage(entry, ok),
+                    message = LocalFilesLogic.deletedMessage(entries, removed),
                 )
             }
         }
+    }
+
+    // ---- 多选 ----
+
+    /**
+     * 勾选/取消一个文件。
+     *
+     * 点一下就进入选择态，不需要先按「多选」：这一页最常见的手势是「我要删掉这几个」，
+     * 多一个开关只是多一次点击。取消到最后一个时自动退出选择态。
+     */
+    fun toggleSelect(entry: DownloadedEntry) {
+        _state.update {
+            val next = it.selected.toMutableSet()
+            if (!next.add(entry.relativePath)) next.remove(entry.relativePath)
+            it.copy(selected = next)
+        }
+    }
+
+    fun toggleSelectAll() = _state.update {
+        it.copy(selected = LocalFilesLogic.toggleAll(it.visibleRows, it.selected))
+    }
+
+    fun clearSelection() = _state.update { it.copy(selected = emptySet()) }
+
+    /** 删除选中的那几项；一个都没选时什么也不做。 */
+    fun askDeleteSelected() {
+        val snapshot = _state.value
+        if (snapshot.selected.isEmpty() || snapshot.busy) return
+        // 只认还在磁盘上的那些：列表可能刚被刷新过，选择集里还留着已删掉的路径。
+        val entries = snapshot.snapshot.entries.filter { it.relativePath in snapshot.selected }
+        if (entries.isEmpty()) {
+            _state.update { it.copy(selected = emptySet()) }
+            return
+        }
+        _state.update { it.copy(confirming = entries) }
     }
 
     fun askClear() {

@@ -61,18 +61,63 @@ object LocalFilesLogic {
         "下载完成之后会出现在这里。清空传输列表不会动这些文件，" +
             "它们一直占着应用私有空间，直到你在这里删掉或者卸载 App。"
 
-    /** 删除前的确认问句。逐字带上文件名，避免用户点错还以为是别的东西。 */
-    fun deleteQuestion(entry: DownloadedEntry): String =
-        "「" + entry.name + "」会从本机删掉（" + formatBytes(entry.size) + "）。网盘上的原件不受影响。"
+    /**
+     * 删除前的确认问句。
+     *
+     * 只删一个时逐字带上文件名，避免用户点错还以为是别的东西；
+     * 删一批时报个数与总量，逐个列名字会把确认框塞满到看不清按钮。
+     */
+    fun deleteQuestion(entries: List<DownloadedEntry>): String {
+        if (entries.isEmpty()) return "没有选中任何文件。"
+        if (entries.size == 1) {
+            val entry = entries.first()
+            return "「" + entry.name + "」会从本机删掉（" + formatBytes(entry.size) + "）。网盘上的原件不受影响。"
+        }
+        val total = entries.sumOf { it.size }
+        return "本机上的 " + entries.size + " 个文件会一起删掉，共 " +
+            formatBytes(total) + "。网盘上的原件不受影响。"
+    }
+
+    /** 删除确认框的标题。 */
+    fun deleteTitle(count: Int): String =
+        if (count <= 1) "删除这个文件？" else "删除这 " + count + " 个文件？"
 
     /** 清空全部之前的确认问句。 */
     fun clearQuestion(snapshot: DownloadsSnapshot): String =
         "本机上的 " + snapshot.entries.size + " 个文件会一起删掉，共 " +
             formatBytes(snapshot.totalBytes) + "。网盘上的原件不受影响。"
 
-    /** 删除之后给用户看的一句话。 */
-    fun deletedMessage(entry: DownloadedEntry, ok: Boolean): String =
-        if (ok) "已删除 " + entry.name else "没能删掉 " + entry.name
+    /** 删除之后给用户看的一句话。单个报名字，一批报条数。 */
+    fun deletedMessage(entries: List<DownloadedEntry>, removed: Int): String {
+        if (entries.size == 1) {
+            val entry = entries.first()
+            return if (removed > 0) "已删除 " + entry.name else "没能删掉 " + entry.name
+        }
+        if (removed <= 0) return "一个都没能删掉"
+        if (removed >= entries.size) return "已删除 " + removed + " 个文件"
+        return "已删除 " + removed + "/" + entries.size + " 个文件"
+    }
+
+    /**
+     * 全选/取消全选的判据。
+     *
+     * 只看看得见的那几项：筛着的时候把被筛掉的也一起选中，
+     * 用户按一下「删除 3 项」，磁盘上却少了十几个文件——这条路径上最伤人的错。
+     */
+    fun allSelected(visible: List<LocalFileRow>, selected: Set<String>): Boolean =
+        visible.isNotEmpty() && visible.all { it.entry.relativePath in selected }
+
+    /** 点「全选」之后下一次的选择集。 */
+    fun toggleAll(visible: List<LocalFileRow>, selected: Set<String>): Set<String> =
+        if (allSelected(visible, selected)) {
+            emptySet()
+        } else {
+            selected + visible.map { it.entry.relativePath }
+        }
+
+    /** 选中项的总大小，用于底栏那行字。 */
+    fun selectedBytes(entries: List<DownloadedEntry>, selected: Set<String>): Long =
+        entries.sumOf { entry -> if (entry.relativePath in selected) entry.size else 0L }
 
     /** 清空之后给用户看的一句话。 */
     fun clearedMessage(count: Int, freedBytes: Long): String =

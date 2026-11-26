@@ -70,7 +70,7 @@ class LocalFilesLogicTest {
 
     @Test
     fun deleteQuestionNamesTheFileAndPromisesCloudIsSafe() {
-        val text = LocalFilesLogic.deleteQuestion(entry(name = "报告.pdf", size = 2048))
+        val text = LocalFilesLogic.deleteQuestion(listOf(entry(name = "报告.pdf", size = 2048)))
         assertTrue(text.contains("报告.pdf"))
         assertTrue(text.contains("2.0 KB"))
         assertTrue(text.contains("原件不受影响"))
@@ -89,8 +89,9 @@ class LocalFilesLogicTest {
 
     @Test
     fun deletedMessageSaysWhetherItWorked() {
-        assertEquals("已删除 a.txt", LocalFilesLogic.deletedMessage(entry(name = "a.txt"), true))
-        assertEquals("没能删掉 a.txt", LocalFilesLogic.deletedMessage(entry(name = "a.txt"), false))
+        val one = listOf(entry(name = "a.txt"))
+        assertEquals("已删除 a.txt", LocalFilesLogic.deletedMessage(one, 1))
+        assertEquals("没能删掉 a.txt", LocalFilesLogic.deletedMessage(one, 0))
     }
 
     @Test
@@ -102,5 +103,74 @@ class LocalFilesLogicTest {
     fun clearingNothingIsNotAnAchievement() {
         assertEquals("本机没有需要清理的文件", LocalFilesLogic.clearedMessage(0, 0))
     }
+
+    // ---- 批量删除与全选 ----
+
+    @Test
+    fun batchDeleteQuestionCountsFilesInsteadOfListingNames() {
+        val entries = listOf(
+            entry(name = "a.bin", size = 1024),
+            entry(name = "b.bin", size = 2048),
+            entry(name = "c.bin", size = 3072),
+        )
+        val text = LocalFilesLogic.deleteQuestion(entries)
+        assertTrue(text.contains("3 个文件"))
+        assertTrue(text.contains("6.0 KB"))
+        // 逐个列名字会把确认框塞满到看不清按钮，所以这里只报个数。
+        assertFalse(text.contains("a.bin"))
+    }
+
+    @Test
+    fun deleteTitleSwitchesBetweenOneAndMany() {
+        assertEquals("删除这个文件？", LocalFilesLogic.deleteTitle(1))
+        assertEquals("删除这 3 个文件？", LocalFilesLogic.deleteTitle(3))
+    }
+
+    @Test
+    fun batchDeleteMessageReportsHowManyWentThrough() {
+        val entries = listOf(entry(name = "a"), entry(name = "b"), entry(name = "c"))
+        assertEquals("已删除 3 个文件", LocalFilesLogic.deletedMessage(entries, 3))
+        assertEquals("已删除 1/3 个文件", LocalFilesLogic.deletedMessage(entries, 1))
+        assertEquals("一个都没能删掉", LocalFilesLogic.deletedMessage(entries, 0))
+    }
+
+    @Test
+    fun selectAllOnlyCountsWhatIsOnScreen() {
+        val visible = listOf(row("a.txt"), row("b.txt"))
+        assertTrue(LocalFilesLogic.allSelected(visible, setOf("a.txt", "b.txt")))
+        // 隐藏的 b.txt 没被选中时不能算「全都选了」。
+        assertFalse(LocalFilesLogic.allSelected(visible, setOf("a.txt")))
+        // 空列表上「全选」没有意义，不能返回 true，否则按钮状态会乱跳。
+        assertFalse(LocalFilesLogic.allSelected(emptyList(), emptySet()))
+    }
+
+    @Test
+    fun togglingAllFillsTheVisibleOnesAndClearsAgain() {
+        val visible = listOf(row("a.txt"), row("b.txt"))
+        assertEquals(setOf("a.txt", "b.txt"), LocalFilesLogic.toggleAll(visible, emptySet()))
+        assertEquals(emptySet<String>(), LocalFilesLogic.toggleAll(visible, setOf("a.txt", "b.txt")))
+    }
+
+    @Test
+    fun togglingAllKeepsSelectionOutsideTheCurrentFilter() {
+        // 先勾了 c.txt，再把关键字改成只看到 a/b；这时点全选不该把 c 弄丢。
+        val visible = listOf(row("a.txt"), row("b.txt"))
+        assertEquals(
+            setOf("c.txt", "a.txt", "b.txt"),
+            LocalFilesLogic.toggleAll(visible, setOf("c.txt")),
+        )
+    }
+
+    @Test
+    fun selectedBytesOnlyCountsThePickedOnes() {
+        val entries = listOf(
+            entry(name = "a", size = 1024),
+            entry(name = "b", size = 2048),
+        )
+        assertEquals(2048L, LocalFilesLogic.selectedBytes(entries, setOf("b")))
+        assertEquals(0L, LocalFilesLogic.selectedBytes(entries, emptySet()))
+    }
+
+    private fun row(name: String): LocalFileRow = LocalFileRow(entry = entry(name = name), subtitle = "")
 }
 
