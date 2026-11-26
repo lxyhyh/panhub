@@ -88,6 +88,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -118,6 +119,9 @@ import com.panhub.core.model.SelectionSizes
 import com.panhub.core.model.ShareLink
 import com.panhub.core.model.SortOrder
 import com.panhub.core.model.SortSpec
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -146,6 +150,8 @@ fun BrowserScreen(
     val uploading by viewModel.uploadConfirm.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    // 选完文件要先把内容复制进缓存；这一步是纯磁盘 IO，不能压在合成线程上。
+    val scope = rememberCoroutineScope()
     var showNewFolder by remember { mutableStateOf(false) }
     var actionNode by remember { mutableStateOf<RemoteNode?>(null) }
     var renameNode by remember { mutableStateOf<RemoteNode?>(null) }
@@ -160,13 +166,16 @@ fun BrowserScreen(
     ) { uris ->
         if (uris.isNullOrEmpty()) return@rememberLauncherForActivityResult
         // 单个文件走同一条路径：多选一次只选一个时不该有第二套行为。
-        val copied = LocalFilePicker.copyAllToCache(context, uris)
-        if (copied.isEmpty()) {
-            viewModel.showMessage("读取文件失败")
-        } else {
-            viewModel.uploadAll(copied)
-            if (copied.size < uris.size) {
-                viewModel.showMessage("有 " + (uris.size - copied.size) + " 个文件读取失败，已跳过")
+        // 复制是磁盘 IO，放到 IO 线程上：选一个几百 MB 的文件时压在合成线程上会卡住整页。
+        scope.launch {
+            val copied = withContext(Dispatchers.IO) { LocalFilePicker.copyAllToCache(context, uris) }
+            if (copied.isEmpty()) {
+                viewModel.showMessage("读取文件失败")
+            } else {
+                viewModel.uploadAll(copied)
+                if (copied.size < uris.size) {
+                    viewModel.showMessage("有 " + (uris.size - copied.size) + " 个文件读取失败，已跳过")
+                }
             }
         }
     }
@@ -176,11 +185,14 @@ fun BrowserScreen(
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val copied = LocalFilePicker.copyTreeToCache(context, uri)
-        if (copied == null) {
-            viewModel.showMessage("读取文件夹失败")
-        } else {
-            viewModel.uploadFolder(copied)
+        // 整棵目录树可能要复制几十个文件，同样必须在 IO 线程上做。
+        scope.launch {
+            val copied = withContext(Dispatchers.IO) { LocalFilePicker.copyTreeToCache(context, uri) }
+            if (copied == null) {
+                viewModel.showMessage("读取文件夹失败")
+            } else {
+                viewModel.uploadFolder(copied)
+            }
         }
     }
 

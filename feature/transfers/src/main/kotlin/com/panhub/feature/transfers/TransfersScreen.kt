@@ -230,8 +230,11 @@ fun TransfersScreen(
                             onShare = { path -> context.shareDownloaded(path) },
                             onSaveAs = startExport,
                             onDeleteLocal = {
-                                val done = viewModel.deleteLocalFile(task.id)
+                                // 删文件是磁盘 IO：放在主线程上删几十 MB 的副本会让这一帧卡住。
                                 scope.launch {
+                                    val done = withContext(Dispatchers.IO) {
+                                        viewModel.deleteLocalFile(task.id)
+                                    }
                                     snackbar.showSnackbar(
                                         if (done) "已删除本地文件" else "没能删掉这个文件",
                                     )
