@@ -279,18 +279,21 @@ class BrowserUploadRefreshTest {
     }
 
     @Test
-    fun everyFinishedFileRefreshesOnce() = runTest(dispatcher) {
+    fun backToBackUploadsShareOneRefresh() = runTest(dispatcher) {
         val provider = FakeProvider(listOf(file("old.txt")))
         val uploader = FakeUploader()
         val vm = viewModel(provider, uploader)
         vm.start()
         advanceUntilIdle()
+        assertEquals(1, provider.listCalls)
 
         uploader.announce(UploadedFile(account, null, "a.txt"))
         uploader.announce(UploadedFile(account, null, "b.txt"))
         advanceUntilIdle()
 
-        // 不合并：跳过任意一条都可能让最后传完的那个文件不出现。
-        assertEquals(3, provider.listCalls)
+        // 两次事件挨得足够近时，后一次会把前一次还没回来的请求取消掉，
+        // 真正发出去的只有一次。这不影响正确性：列表是一份完整快照，
+        // b.txt 传完的那一刻 a.txt 早就在里面了。
+        assertEquals(2, provider.listCalls)
     }
 }
