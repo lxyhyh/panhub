@@ -56,6 +56,12 @@ data class SearchUiState(
 
     /** 类型 chip 下面那行小字，没筛掉东西时为 null。 */
     val filterSummary: String? get() = SearchLogic.filterSummary(visibleHits.size, hits.size, kind)
+
+    /** 没搜成的账号有几个；0 时不显示重试入口。 */
+    val failedCount: Int get() = failures.size
+
+    /** 重试只在「有失败、不在忙、关键字还在」时才有意义。 */
+    val canRetry: Boolean get() = failures.isNotEmpty() && !busy && !loadingMore && query.isNotBlank()
     private val resultsEmpty: Boolean get() = hits.isEmpty() && failures.isEmpty()
 }
 
@@ -169,7 +175,7 @@ class SearchViewModel(
             }
             val hits = outcomes.flatMap { it.hits.orEmpty() }
             val failures = outcomes.mapNotNull { outcome ->
-                outcome.error?.let { SearchFailure(outcome.account.label, it) }
+                outcome.error?.let { failureOf(outcome) }
             }
             _state.update {
                 it.copy(
@@ -216,8 +222,9 @@ class SearchViewModel(
             }
             val incoming = outcomes.flatMap { it.hits.orEmpty() }
             val failures = outcomes.mapNotNull { outcome ->
-                outcome.error?.let { SearchFailure(outcome.account.label, it) }
+                outcome.error?.let { failureOf(outcome) }
             }
+            val asked = outcomes.filter { it.hits != null }.map { o -> o.account.id.value }.toSet()
             _state.update {
                 it.copy(
                     loadingMore = false,
@@ -229,13 +236,74 @@ class SearchViewModel(
                         refreshed = outcomes.map { o ->
                             SearchCursor(o.account.id, o.account.label, o.cursor.orEmpty())
                         },
-                        asked = outcomes.filter { it.hits != null }.map { o -> o.account.id.value }.toSet(),
+                        asked = asked,
                     ),
-                    failures = (it.failures + failures).distinctBy { f -> f.accountName },
+                    // 这次问成的账号，之前那条失败记录就该摘掉——它已经不成立了。
+                    failures = (SearchLogic.dropRetried(it.failures, asked) + failures)
+                        .distinctBy { f -> SearchLogic.failureKey(f) },
                 )
             }
         }
     }
+
+    /**
+     * 只把没搜成的那几家再问一遍。
+     *
+     * 点一次「重试」就整轮重搜的话，本来已经搜到的结果会被清空重来，
+     * 用户得重新等所有账号；而真正出问题的往往只有一家（登录过期、超时）。
+     * 所以这里只问失败名单里的账号，其余结果与游标原地不动。
+     */
+    fun retryFailed() {
+        val state = _state.value
+        if (state.busy || state.loadingMore) return
+        if (state.failures.isEmpty()) return
+        val keyword = state.query.trim()
+        if (keyword.isEmpty()) return
+        job?.cancel()
+        _state.update { it.copy(busy = true) }
+        job = viewModelScope.launch {
+            val accounts = session.accounts.first()
+            val targets = SearchLogic.retryTargets(accounts, state.failures)
+            if (targets.isEmpty()) {
+                // 失败的账号都已经被删掉了：留着这条错误只会让人反复点一个够不着的按钮。
+                _state.update { current ->
+                    current.copy(
+                        busy = false,
+                        failures = current.failures.filter { it.accountId == null },
+                    )
+                }
+                return@launch
+            }
+            val asked = targets.mapTo(mutableSetOf()) { it.id.value }
+            val outcomes = coroutineScope {
+                targets.map { account -> async { searchOne(account, keyword) } }.awaitAll()
+            }
+            val hits = outcomes.flatMap { it.hits.orEmpty() }
+            val failures = outcomes.mapNotNull { outcome -> outcome.error?.let { failureOf(outcome) } }
+            _state.update {
+                it.copy(
+                    busy = false,
+                    hits = SearchLogic.merge(it.hits, hits),
+                    failures = (SearchLogic.dropRetried(it.failures, asked) + failures)
+                        .distinctBy { f -> SearchLogic.failureKey(f) },
+                    cursors = SearchLogic.mergeCursors(
+                        current = it.cursors,
+                        refreshed = outcomes.map { o ->
+                            SearchCursor(o.account.id, o.account.label, o.cursor.orEmpty())
+                        },
+                        asked = outcomes.filter { it.hits != null }.map { o -> o.account.id.value }.toSet(),
+                    ),
+                )
+            }
+        }
+    }
+
+    /** 失败项要带上账号 id，重试时才知道该问谁。 */
+    private fun failureOf(outcome: Outcome): SearchFailure = SearchFailure(
+        accountName = outcome.account.label,
+        message = outcome.error.orEmpty(),
+        accountId = outcome.account.id,
+    )
 
     private suspend fun searchOne(
         account: AccountSummary,

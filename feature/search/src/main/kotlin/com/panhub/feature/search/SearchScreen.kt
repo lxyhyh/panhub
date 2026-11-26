@@ -150,7 +150,7 @@ fun SearchScreen(
 
             // 失败与跳过的说明必须一直挂着：有结果时也要看得到「还有家没搜成」，
             // 否则用户会把不完整的结果当成全部。
-            HintBlock(state)
+            HintBlock(state, onRetry = viewModel::retryFailed)
 
             LazyColumn(
                 modifier = Modifier.weight(1f),
@@ -258,16 +258,27 @@ private fun HistoryBlock(
 
 /** 没搜索过 / 没结果 / 有账号失败时，把「为什么」说清楚，而不是留一片空白。 */
 @Composable
-private fun HintBlock(state: SearchUiState) {
+private fun HintBlock(state: SearchUiState, onRetry: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.lg)) {
         if (state.failures.isNotEmpty()) {
             PanCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text(
-                        text = "这些账号没搜成",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = PanColors.Orange,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (state.failedCount == 1) {
+                                "有 1 个账号没搜成"
+                            } else {
+                                "有 " + state.failedCount + " 个账号没搜成"
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            color = PanColors.Orange,
+                            modifier = Modifier.weight(1f),
+                        )
+                        // 只补问这几家，不把整次搜索重来：已经搜到的结果原地不动。
+                        TextButton(onClick = onRetry, enabled = state.canRetry) {
+                            Text(if (state.busy) "重试中…" else "重试")
+                        }
+                    }
                     for (failure in state.failures) {
                         Text(
                             text = failure.accountName + "：" + failure.message,

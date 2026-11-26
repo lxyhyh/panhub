@@ -24,6 +24,13 @@ data class SearchHit(
 data class SearchFailure(
     val accountName: String,
     val message: String,
+    /**
+     * 失败的账号 id。
+     *
+     * 有了它，重试才能只问没搜成的那几家，而不是把整次搜索从头再跑一遍。
+     * 账号名不能拿来认人：两个账号可以都叫「夸克网盘」。
+     */
+    val accountId: AccountId? = null,
 )
 
 /**
@@ -51,6 +58,51 @@ object SearchLogic {
     /** 不参与搜索的账号，界面上要说清「这几家没搜」，否则用户会以为漏了东西。 */
     fun skipped(accounts: List<AccountSummary>): List<AccountSummary> =
         accounts.filter { !it.capabilities.search }
+
+    /**
+     * 重试时该问谁：只有上一轮没搜成、现在还在的账号。
+     *
+     * 账号在这一轮里被删掉了就不再问它——对着一个不存在的账号重试只会再失败一次。
+     */
+    fun retryTargets(
+        accounts: List<AccountSummary>,
+        failures: List<SearchFailure>,
+    ): List<AccountSummary> {
+        val ids = failures.mapNotNullTo(mutableSetOf()) { failure -> failure.accountId?.value }
+        if (ids.isEmpty()) return emptyList()
+        return accounts.filter { it.id.value in ids && it.capabilities.search }
+    }
+
+    /**
+     * 重试之后剩下的失败项：还是那几家失败的就换成新消息，这次成了的直接摘掉。
+     *
+     * 认不出账号的旧失败项原样保留：没有 id 就没法判断它属于谁，
+     * 悄悄抹掉一条用户还没看到的错误，比多留一行更难解释。
+     */
+    fun dropRetried(current: List<SearchFailure>, asked: Set<String>): List<SearchFailure> =
+        current.filter { failure -> failure.accountId?.value !in asked }
+
+    /** 失败项的去重键：有 id 按 id，没有就按名字。 */
+    fun failureKey(failure: SearchFailure): String =
+        failure.accountId?.value ?: ("name:" + failure.accountName)
+
+    /**
+     * 重试成功后刷新游标表。
+     *
+     * 问过的账号以这一轮为准（没下一页就把入口收掉），没问的保持原样。
+     */
+    fun mergeCursors(
+        current: List<SearchCursor>,
+        refreshed: List<SearchCursor>,
+        asked: Set<String>,
+    ): List<SearchCursor> {
+        val known = current.mapTo(mutableSetOf()) { cursor -> cursor.accountId.value }
+        val kept = current.filter { cursor -> cursor.accountId.value !in asked }
+        val added = refreshed.filter { cursor ->
+            cursor.cursor.isNotBlank() && cursor.accountId.value !in known
+        }
+        return kept + added
+    }
 
     /**
      * 按账号分组，组内保持服务商给的顺序。
