@@ -24,8 +24,8 @@ import kotlinx.coroutines.launch
 /**
  * 收藏夹页的状态。
  *
- * 没有多选：收藏夹里最常见的动作是「取消收藏」和「打开看看」，
- * 批量取消的收益抵不上多一套选择状态带来的复杂度和误触风险。
+ * 多选只为一件事服务：取消收藏。这一页最大的用途就是把攒下来的东西清理掉，
+ * 一次点一颗星去清二十张照片没有意义，所以点一下卡片就进入选择态。
  */
 data class StarredUiState(
     val accountName: String = "",
@@ -42,8 +42,17 @@ data class StarredUiState(
     val query: String = "",
     /** 按文件类型筛；null 表示不筛。同样只在已经拉下来的这一批里找。 */
     val kind: FileKind? = null,
+    /** 选中的条目 id。空集合表示不在选择态。 */
+    val selected: Set<String> = emptySet(),
 ) {
     val hasMore: Boolean get() = nextCursor != null
+
+    val selectionMode: Boolean get() = selected.isNotEmpty()
+
+    val selectedCount: Int get() = selected.size
+
+    /** 全选只选看得到的那些。 */
+    val allSelected: Boolean get() = StarredLogic.allSelected(visible, selected)
 
     /** 界面上真正看得到的那些。 */
     val visible: List<RemoteNode> get() =
@@ -177,16 +186,37 @@ class StarredViewModel(
      * 重拉一次会让整页闪一下，而服务端那边确实已经删掉了。
      */
     fun unstar(node: RemoteNode) {
+        unstarAll(listOf(node), StarredLogic.unstaredMessage(node))
+    }
+
+    /** 批量取消收藏。一次请求带走所有 id，服务端本来就是按 id 列表处理的。 */
+    fun unstarSelected() {
+        val snapshot = _state.value
+        val chosen = snapshot.items.filter { it.id.value in snapshot.selected }
+        if (chosen.isEmpty()) return
+        unstarAll(chosen, StarredLogic.unstaredMessage(chosen.size))
+    }
+
+    /**
+     * 真正发请求的地方。
+     *
+     * 提示语由调用方给：单条取消要说清是哪一个文件，批量取消只能报个数，
+     * 两种情况共用一次请求。
+     */
+    private fun unstarAll(nodes: List<RemoteNode>, message: String) {
         val provider = scoped ?: return
-        if (_state.value.busy) return
+        if (_state.value.busy || nodes.isEmpty()) return
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
-            when (val result = provider.setStarred(listOf(node.id), false)) {
+            val ids = nodes.map { node -> node.id }
+            when (val result = provider.setStarred(ids, false)) {
                 is PanResult.Success -> _state.update {
+                    val gone = ids.toSet()
                     it.copy(
                         busy = false,
-                        items = it.items.filterNot { item -> item.id == node.id },
-                        message = StarredLogic.unstaredMessage(node),
+                        items = it.items.filterNot { item -> item.id in gone },
+                        selected = it.selected - ids.map { id -> id.value }.toSet(),
+                        message = message,
                     )
                 }
                 is PanResult.Failure -> _state.update {
@@ -195,6 +225,29 @@ class StarredViewModel(
             }
         }
     }
+
+    /** 点一下卡片就是选中或取消选中：这一页没有别的单击动作会冲突。 */
+    fun toggleSelect(node: RemoteNode) {
+        _state.update {
+            val id = node.id.value
+            it.copy(selected = if (id in it.selected) it.selected - id else it.selected + id)
+        }
+    }
+
+    fun toggleSelectAll() {
+        _state.update {
+            val visible = it.visible
+            it.copy(
+                selected = if (StarredLogic.allSelected(visible, it.selected)) {
+                    emptySet()
+                } else {
+                    visible.map { node -> node.id.value }.toSet()
+                },
+            )
+        }
+    }
+
+    fun clearSelection() = _state.update { it.copy(selected = emptySet()) }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
 

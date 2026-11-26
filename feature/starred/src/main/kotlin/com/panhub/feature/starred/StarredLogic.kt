@@ -17,6 +17,18 @@ object StarredLogic {
     /** 取消收藏之后的提示。用文件名而不是「已取消」，否则同时取消好几个时分不清。 */
     fun unstaredMessage(node: RemoteNode): String = "已取消收藏 " + node.name
 
+    /** 一次取消好几个时的提示：逐个报名字在批量操作下只会糊成一片。 */
+    fun unstaredMessage(count: Int): String = "已取消收藏 " + count + " 项"
+
+    /**
+     * 全选只选看得到的那些。
+     *
+     * 筛选着的时候把看不见的也一起取消掉，用户会以为收藏夹出了 bug——
+     * 他并没有看见那些东西被选中。
+     */
+    fun allSelected(visible: List<RemoteNode>, selected: Set<String>): Boolean =
+        visible.isNotEmpty() && visible.all { node -> node.id.value in selected }
+
     /**
      * 列表为空时说什么。
      *

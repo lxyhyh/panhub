@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,12 +19,15 @@ import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -61,6 +65,8 @@ import com.panhub.core.model.RemoteNode
  * 收藏夹是**跨目录**的：条目来自不同文件夹，所以列表里不显示路径，
  * 点进去才由调用方决定落到哪。取消收藏做成每行一个星形按钮，
  * 而不是藏进菜单：这一页最大的用途就是把收藏过的东西清理掉。
+ *
+ * 点一下卡片就进入多选：清理二十张照片时不必一颗星一颗星地按。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +119,14 @@ fun StarredScreen(
                         ) {
                             Icon(Icons.Default.FilterList, contentDescription = "筛选")
                         }
+                        if (state.visible.isNotEmpty()) {
+                            IconButton(onClick = viewModel::toggleSelectAll) {
+                                Icon(
+                                    imageVector = Icons.Default.SelectAll,
+                                    contentDescription = if (state.allSelected) "取消全选" else "全选",
+                                )
+                            }
+                        }
                         IconButton(onClick = viewModel::refresh, enabled = !state.refreshing) {
                             Icon(Icons.Default.Refresh, contentDescription = "刷新")
                         }
@@ -124,6 +138,16 @@ fun StarredScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            if (state.selectionMode) {
+                SelectionBar(
+                    count = state.selectedCount,
+                    busy = state.busy,
+                    onUnstar = viewModel::unstarSelected,
+                    onClear = viewModel::clearSelection,
+                )
+            }
+        },
     ) { inner ->
         Column(modifier = Modifier.fillMaxSize().padding(inner)) {
             if (showFilter && state.items.isNotEmpty()) {
@@ -179,7 +203,15 @@ fun StarredScreen(
                             StarredCard(
                                 node = node,
                                 busy = state.busy,
-                                onClick = { onOpen(node) },
+                                selecting = state.selectionMode,
+                                selected = node.id.value in state.selected,
+                                onClick = {
+                                    if (state.selectionMode) {
+                                        viewModel.toggleSelect(node)
+                                    } else {
+                                        onOpen(node)
+                                    }
+                                },
                                 onUnstar = { viewModel.unstar(node) },
                             )
                         }
@@ -205,11 +237,21 @@ fun StarredScreen(
 private fun StarredCard(
     node: RemoteNode,
     busy: Boolean,
+    selecting: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
     onUnstar: () -> Unit,
 ) {
     PanCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // 选择态才画勾选框：平时没有它，行首就不该凭空多出空白。
+            if (selecting) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onClick() },
+                    enabled = !busy,
+                )
+            }
             Box(
                 modifier = Modifier
                     .size(38.dp)
@@ -255,6 +297,41 @@ private fun StarredCard(
                     tint = PanColors.Orange,
                 )
             }
+        }
+    }
+}
+
+/**
+ * 选择态的底栏。取消收藏只发一次请求，所以这里只有一个按钮。
+ */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    busy: Boolean,
+    onUnstar: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        TextButton(onClick = onClear, enabled = !busy) { Text("取消") }
+        Text(text = "已选 " + count + " 项", style = MaterialTheme.typography.labelMedium)
+        Spacer(modifier = Modifier.weight(1f))
+        if (busy) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        }
+        TextButton(onClick = onUnstar, enabled = !busy) {
+            Icon(
+                imageVector = Icons.Outlined.StarBorder,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Text("取消收藏", modifier = Modifier.padding(start = 4.dp))
         }
     }
 }
