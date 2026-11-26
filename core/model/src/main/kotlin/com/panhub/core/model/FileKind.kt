@@ -112,9 +112,9 @@ object FileKinds {
      * 更重要的是「进子目录」是浏览里最常见的动作，把文件夹一起藏掉，用户筛完
      * 还得先清筛选才进得去，多出来的一步每天都在交学费。
      */
-    fun matches(node: RemoteNode, kind: FileKind?): Boolean {
+    fun matches(node: RemoteNode, kind: FileKind?, keepFolders: Boolean = true): Boolean {
         if (kind == null) return true
-        if (node.isDir) return true
+        if (node.isDir) return keepFolders
         return of(node) == kind
     }
 
@@ -136,9 +136,9 @@ object FileKinds {
     }
 
     /** 过滤一批节点。只收窄，不重排：顺序是用户在排序里选的。 */
-    fun apply(nodes: List<RemoteNode>, kind: FileKind?): List<RemoteNode> {
+    fun apply(nodes: List<RemoteNode>, kind: FileKind?, keepFolders: Boolean = true): List<RemoteNode> {
         if (kind == null) return nodes
-        return nodes.filter { matches(it, kind) }
+        return nodes.filter { matches(it, kind, keepFolders) }
     }
 
     /**

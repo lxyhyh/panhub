@@ -82,6 +82,14 @@ class FileKindTest {
     }
 
     @Test
+    fun aCallerCanAskForFoldersToBeDroppedToo() {
+        // 搜索结果里留文件夹会让人以为「搜到了图片文件夹」，所以那里关掉保留。
+        assertFalse(FileKinds.matches(dir("photos"), FileKind.IMAGE, keepFolders = false))
+        val nodes = listOf(dir("folder"), file("a.jpg"))
+        assertEquals(listOf("a.jpg"), FileKinds.apply(nodes, FileKind.IMAGE, keepFolders = false).map { it.name })
+    }
+
+    @Test
     fun noKindMeansNoFilteringAtAll() {
         val nodes = listOf(file("a.jpg"), file("b.txt"), dir("c"))
         assertTrue(FileKinds.apply(nodes, null) === nodes)

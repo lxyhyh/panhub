@@ -43,12 +43,15 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.panhub.core.design.ChipRow
+import com.panhub.core.design.EmptyState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Radius
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.FileKinds
 import com.panhub.core.model.NodeFocus
 
 /**
@@ -115,6 +118,27 @@ fun SearchScreen(
                 )
             }
 
+            // 类型 chip 放在关键字下面、结果上面：它收窄的是「这次搜出来的」，
+            // 跟关键字一样属于输入条件，压到结果后面就得先滚到底才能改。
+            // 搜索进行中也留着这排：submit 会先清空 hits，若只在有结果时显示，
+            // chip 会跟着一起闪一下，选中的类型看起来像是被重置了。
+            if (state.searched && (state.busy || state.hits.isNotEmpty())) {
+                ChipRow(
+                    options = FileKinds.filterable.map { it.label },
+                    selectedIndex = FileKinds.indexOf(state.kind),
+                    onSelect = { viewModel.toggleKind(FileKinds.filterable[it]) },
+                )
+                val filterSummary = state.filterSummary
+                if (filterSummary != null) {
+                    Text(
+                        text = filterSummary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs),
+                    )
+                }
+            }
+
             if (state.summary.isNotBlank()) {
                 Text(
                     text = state.summary,
@@ -137,6 +161,20 @@ fun SearchScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
+                // 搜到了东西、但被类型筛空：LazyColumn 什么都不画会是一片白，
+                // 而上面的 summary 只有一行小字，很容易被当成没搜到。
+                if (state.searched && !state.busy && state.hits.isNotEmpty() && state.visibleHits.isEmpty()) {
+                    item(key = "kind-empty") {
+                        // EmptyState 内部是 fillMaxSize：列表项里高度无界，这里给它一个
+                        // 明确的填充高度，否则那圈留白会塌成一条缝。
+                        EmptyState(
+                            icon = Icons.Default.Search,
+                            title = SearchLogic.emptyKindMessage(state.kind),
+                            message = "换个类型，或者把类型筛选取消",
+                            modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xl),
+                        )
+                    }
+                }
                 state.groups.forEach { (accountName, hits) ->
                     item(key = "group-" + accountName) { GroupHeader(accountName, hits.size) }
                     items(hits, key = { hit -> hit.key }) { hit ->

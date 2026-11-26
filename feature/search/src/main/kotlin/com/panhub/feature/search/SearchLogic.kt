@@ -1,6 +1,8 @@
 package com.panhub.feature.search
 
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.FileKind
+import com.panhub.core.model.FileKinds
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.toFocus
 import com.panhub.core.model.NodeFocus
@@ -105,14 +107,47 @@ object SearchLogic {
         }
     }
 
+    /**
+     * 按类型筛之后还剩哪些结果。
+     *
+     * 这里刻意不保留文件夹（与浏览页相反）：浏览页的文件夹是「能进去的下一层」，
+     * 搜索结果里的文件夹只是名字撞上了关键字，把它算进「图片」纯属误导。
+     */
+    fun visibleHits(hits: List<SearchHit>, kind: FileKind?): List<SearchHit> {
+        if (kind == null) return hits
+        return hits.filter { FileKinds.matches(it.node, kind, keepFolders = false) }
+    }
+
+    /**
+     * 类型筛空了之后中间那句话。
+     *
+     * 不复用 [FileKinds.emptyMessage]：那里说的是「这里没有图片」，而这里是搜出来的
+     * 一批结果被筛掉，说「搜到的结果里没有图片」才对得上用户刚才做的事。
+     */
+    fun emptyKindMessage(kind: FileKind?): String =
+        if (kind == null) "没有找到匹配的文件" else "搜到的结果里没有" + kind.label
+
+    /** 类型 chip 下面那行小字：只有真筛掉了东西才报数。 */
+    fun filterSummary(shown: Int, total: Int, kind: FileKind?): String? {
+        if (!FileKinds.active(kind)) return null
+        if (shown >= total) return null
+        return "筛选中 " + shown + "/" + total + " 项"
+    }
+
     /** 「在 3 个网盘里找到 12 项」这种说法，没有结果时给一句人话。 */
     fun summary(state: SearchUiState): String {
         if (!state.searched) return ""
         if (state.busy) return "正在搜索…"
-        val accounts = grouped(state.hits).size
-        if (state.hits.isEmpty()) {
-            return if (state.failures.isEmpty()) "没有找到匹配的文件" else "没有找到匹配的文件（有账号没搜成）"
+        val visible = visibleHits(state.hits, state.kind)
+        if (visible.isEmpty()) {
+            // 全被类型筛掉时要说清是「没有这一类」，不然用户会以为搜索坏了。
+            val head = if (FileKinds.active(state.kind) && state.hits.isNotEmpty()) {
+                emptyKindMessage(state.kind)
+            } else {
+                "没有找到匹配的文件"
+            }
+            return if (state.failures.isEmpty()) head else head + "（有账号没搜成）"
         }
-        return "在 " + accounts + " 个网盘里找到 " + state.hits.size + " 项"
+        return "在 " + grouped(visible).size + " 个网盘里找到 " + visible.size + " 项"
     }
 }

@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.FileKind
+import com.panhub.core.model.FileKinds
 import com.panhub.core.model.NodeFocus
 import com.panhub.core.model.PageRequest
 import com.panhub.core.session.AccountSummary
@@ -38,8 +40,12 @@ data class SearchUiState(
     val loadingMore: Boolean = false,
     /** 最近搜过的关键字，新的在前；不带历史时为空。 */
     val history: List<String> = emptyList(),
+    /** 按文件类型筛；null 表示不筛。 */
+    val kind: FileKind? = null,
 ) {
-    val groups: List<Pair<String, List<SearchHit>>> get() = SearchLogic.grouped(hits)
+    /** 筛过类型之后真正显示出来的结果。 */
+    val visibleHits: List<SearchHit> get() = SearchLogic.visibleHits(hits, kind)
+    val groups: List<Pair<String, List<SearchHit>>> get() = SearchLogic.grouped(visibleHits)
     val summary: String get() = SearchLogic.summary(this)
     val canSubmit: Boolean get() = query.isNotBlank() && !busy
     val hasBackground: Boolean get() = busy || !searched || resultsEmpty
@@ -47,6 +53,9 @@ data class SearchUiState(
     // 把整行收掉会让列表在页底跳一下。
     val hasMore: Boolean get() = cursors.isNotEmpty() && !busy
     val moreNames: List<String> get() = cursors.map { it.accountName }
+
+    /** 类型 chip 下面那行小字，没筛掉东西时为 null。 */
+    val filterSummary: String? get() = SearchLogic.filterSummary(visibleHits.size, hits.size, kind)
     private val resultsEmpty: Boolean get() = hits.isEmpty() && failures.isEmpty()
 }
 
@@ -107,6 +116,18 @@ class SearchViewModel(
         setQuery(query)
         submit()
     }
+
+    /**
+     * 选一个类型再点一次就取消。
+     *
+     * 只在本地收窄已经拿到的结果，不重发请求：同一个关键字换类型再搜一遍，
+     * 各家网盘都会从头翻第一页，看到的东西不会变多。
+     */
+    fun toggleKind(value: FileKind) {
+        _state.update { it.copy(kind = if (it.kind == value) null else value) }
+    }
+
+    fun clearKind() = _state.update { it.copy(kind = null) }
 
     fun clearHistory() {
         val source = history ?: return

@@ -3,6 +3,7 @@ package com.panhub.feature.search
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.FileKind
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
 import com.panhub.core.model.NodePage
@@ -220,6 +221,29 @@ class SearchViewModelTest {
         vm.submit()
         advanceUntilIdle()
         assertEquals(listOf(SearchLogic.PER_ACCOUNT_LIMIT), provider.limits)
+    }
+
+    @Test
+    fun choosingAKindNarrowsTheResultsWithoutAskingAgain() = runTest {
+        val provider = StubProvider(PanResult.Success(page("a", "b")))
+        val vm = SearchViewModel(StubSession(listOf(summary("quark:1", "夸克")), mapOf("quark:1" to provider)))
+        vm.setQuery("报告")
+        vm.submit()
+        advanceUntilIdle()
+        vm.toggleKind(FileKind.DOCUMENT)
+        advanceUntilIdle()
+        assertEquals(listOf("a", "b"), vm.state.value.visibleHits.map { it.node.id.value })
+        // 换类型只是在本地收窄，重发一次请求只会从头翻第一页，结果不会变多。
+        assertEquals(listOf("报告"), provider.queries)
+    }
+
+    @Test
+    fun tappingTheSameKindAgainClearsIt() = runTest {
+        val vm = SearchViewModel(StubSession(listOf(summary("quark:1", "夸克")), mapOf("quark:1" to StubProvider(PanResult.Success(page("a"))))))
+        vm.toggleKind(FileKind.IMAGE)
+        assertEquals(FileKind.IMAGE, vm.state.value.kind)
+        vm.toggleKind(FileKind.IMAGE)
+        assertEquals(null, vm.state.value.kind)
     }
 
     private fun file(id: String) = RemoteNode(NodeId(id), null, id + ".txt", NodeKind.FILE)
