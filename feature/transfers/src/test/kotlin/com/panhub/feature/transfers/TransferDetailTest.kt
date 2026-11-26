@@ -135,14 +135,14 @@ class TransferDetailTest {
     @Test
     fun speedIsOnlyThereWhenItWasMeasured() {
         val running = task(state = TransferState.RUNNING, bytes = 1024L, totalBytes = 3072L)
-        assertFalse(labels(running, speed = null).containsKey("速度"))
-        assertEquals("1.0 KB/s · 还剩 2 秒", labels(running, speed = 1024L)["速度"])
+        assertFalse(labels(running, speed = null).containsKey("速率"))
+        assertEquals("1.0 KB/s · 还剩 2 秒", labels(running, speed = 1024L)["速率"])
     }
 
     @Test
     fun finishedTasksHaveNoSpeedRow() {
         // 传完之后速度是历史数据，挂着只会让已经结束的一行显得还没完。
-        assertFalse(labels(task(state = TransferState.COMPLETED), speed = 1024L).containsKey("速度"))
+        assertFalse(labels(task(state = TransferState.COMPLETED), speed = 1024L).containsKey("速率"))
     }
 
     @Test
