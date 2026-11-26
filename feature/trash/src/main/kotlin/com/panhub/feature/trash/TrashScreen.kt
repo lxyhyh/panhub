@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.panhub.core.design.ChipRow
 import com.panhub.core.design.EmptyState
 import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
@@ -61,6 +62,8 @@ import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
+import com.panhub.core.model.FileKind
+import com.panhub.core.model.FileKinds
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.TrashNode
 
@@ -110,7 +113,10 @@ fun TrashScreen(
                     if (state.items.isNotEmpty()) {
                         IconButton(
                             onClick = {
-                                if (showFilter) viewModel.clearQuery()
+                                if (showFilter) {
+                                    viewModel.clearQuery()
+                                    viewModel.clearKind()
+                                }
                                 showFilter = !showFilter
                             },
                         ) {
@@ -154,11 +160,19 @@ fun TrashScreen(
     ) { inner ->
         Column(modifier = Modifier.fillMaxSize().padding(inner)) {
             if (showFilter && state.items.isNotEmpty()) {
+                ChipRow(
+                    options = FileKinds.filterable.map { it.label },
+                    selectedIndex = FileKinds.indexOf(state.kind),
+                    onSelect = { viewModel.toggleKind(FileKinds.filterable[it]) },
+                )
                 FilterBar(
                     query = state.query,
                     summary = state.filterSummary,
                     onQuery = viewModel::setQuery,
-                    onClear = viewModel::clearQuery,
+                    onClear = {
+                        viewModel.clearQuery()
+                        viewModel.clearKind()
+                    },
                     placeholder = "回收站里的文件名",
                 )
             }

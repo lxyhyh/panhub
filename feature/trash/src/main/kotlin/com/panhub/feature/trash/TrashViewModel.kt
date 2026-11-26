@@ -6,6 +6,8 @@ import com.panhub.core.common.Clock
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.FileKind
+import com.panhub.core.model.FileKinds
 import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.PageRequest
@@ -63,16 +65,24 @@ data class TrashUiState(
     val message: String? = null,
     /** 按名字筛选的关键字。纯本地行为：敲字不会重新拉一次回收站。 */
     val query: String = "",
+    /** 按文件类型筛；null 表示不筛。同样只在已经拉下来的这一批里找。 */
+    val kind: FileKind? = null,
 ) {
     val hasMore: Boolean get() = nextCursor != null
     val selectedCount: Int get() = selected.size
 
     /** 界面上真正看得到的那些。 */
-    val visible: List<TrashNode> get() = NodeFilter.applyBy(items, query) { it.name }
+    val visible: List<TrashNode>
+        get() {
+            // 按类型筛时文件夹一律留着：回收站里「一件东西」和「一个文件夹」
+            // 是两回事，把文件夹跟着图片一起藏起来会让人以为它被清掉了。
+            val byKind = if (kind == null) items else items.filter { FileKinds.matches(it.node, kind) }
+            return NodeFilter.applyBy(byKind, query) { it.name }
+        }
 
-    val filtering: Boolean get() = NodeFilter.active(query)
+    val filtering: Boolean get() = NodeFilter.active(query) || FileKinds.active(kind)
 
-    val filterSummary: String? get() = NodeFilter.summary(visible.size, items.size, query)
+    val filterSummary: String? get() = FileKinds.summary(visible.size, items.size, query, kind)
 
     /**
      * 全选只选看得到的那些。
@@ -85,10 +95,14 @@ data class TrashUiState(
 
     /** 「一件都没有」和「被关键字筛没了」是两件事，说法必须分开。 */
     val emptyTitle: String
-        get() = if (items.isEmpty()) "回收站是空的" else NodeFilter.emptyMessage(query)
+        get() = if (items.isEmpty()) "回收站是空的" else FileKinds.emptyMessage(query, kind)
 
     val emptyHint: String
-        get() = if (items.isEmpty()) "在文件页删除的东西会先放到这里" else "换个关键字，或者点上面的清空"
+        get() = when {
+            items.isNotEmpty() && FileKinds.active(kind) -> "换个类型，或者点上面的清空"
+            items.isNotEmpty() -> "换个关键字，或者点上面的清空"
+            else -> "在文件页删除的东西会先放到这里"
+        }
 }
 
 class TrashViewModel(
@@ -221,6 +235,13 @@ class TrashViewModel(
     fun setQuery(value: String) = _state.update { it.copy(query = value) }
 
     fun clearQuery() = _state.update { it.copy(query = "") }
+
+    /** 选一个类型再点一次就取消。不重新拉回收站，只在本地收窄。 */
+    fun toggleKind(value: FileKind) {
+        _state.update { it.copy(kind = if (it.kind == value) null else value) }
+    }
+
+    fun clearKind() = _state.update { it.copy(kind = null) }
 
     /** 还原到原位置；原目录没了服务端会单独报出来，见 provider 里的处理。 */
     fun restoreSelected() = restoreTo(null)
