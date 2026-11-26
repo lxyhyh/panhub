@@ -77,6 +77,14 @@ internal object SharesLogic {
     fun withoutCancelled(rows: List<ShareRow>, cancelled: Set<String>): List<ShareRow> =
         rows.filterNot { row -> row.key in cancelled }
 
+    /**
+     * 这个页面能提供的排序依据。
+     *
+     * 只有名称和时间：分享记录里没有大小可用，硬编一个「按大小」
+     * 只会排出一堆看不出规律的东西。
+     */
+    val SORT_ORDERS: List<SortOrder> = listOf(SortOrder.NAME, SortOrder.TIME)
+
     /** 选择条上的计数。 */
     fun selectionSummary(count: Int): String = "已选 " + count + " 条"
 }
