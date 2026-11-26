@@ -59,6 +59,31 @@ class SearchHistoryTest {
     }
 
     @Test
+    fun forgettingOneEntryKeepsTheOthers() {
+        assertEquals(
+            listOf("照片", "合同"),
+            SearchHistoryRules.forget(listOf("报告", "照片", "合同"), "报告"),
+        )
+    }
+
+    @Test
+    fun forgettingIgnoresCase() {
+        assertEquals(listOf("照片"), SearchHistoryRules.forget(listOf("Report", "照片"), "report"))
+    }
+
+    @Test
+    fun forgettingSomethingThatIsNotThereChangesNothing() {
+        val existing = listOf("照片", "报告")
+        assertEquals(existing, SearchHistoryRules.forget(existing, "合同"))
+    }
+
+    @Test
+    fun forgettingABlankQueryChangesNothing() {
+        val existing = listOf("照片")
+        assertEquals(existing, SearchHistoryRules.forget(existing, "  "))
+    }
+
+    @Test
     fun aZeroLimitKeepsNothing() {
         assertEquals(emptyList<String>(), SearchHistoryRules.remember(listOf("a"), "b", limit = 0))
     }

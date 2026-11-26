@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -114,6 +115,7 @@ fun SearchScreen(
                 HistoryBlock(
                     entries = state.history,
                     onPick = viewModel::useHistory,
+                    onForget = viewModel::forgetHistory,
                     onClear = viewModel::clearHistory,
                 )
             }
@@ -212,6 +214,7 @@ fun SearchScreen(
 private fun HistoryBlock(
     entries: List<String>,
     onPick: (String) -> Unit,
+    onForget: (String) -> Unit,
     onClear: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.md)) {
@@ -250,6 +253,19 @@ private fun HistoryBlock(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).padding(start = Spacing.sm),
                     )
+                    // 每条单独能删：历史里最碍眼的往往就是那一条常被顺手点到的旧词，
+                    // 为了它清空全部、把别的顺手用过的一起丢掉，代价太大。
+                    IconButton(
+                        onClick = { onForget(entry) },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "忘掉这条",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
                 }
             }
         }

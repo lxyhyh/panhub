@@ -48,6 +48,17 @@ object SearchHistoryRules {
         val kept = existing.filterNot { it.equals(clean, ignoreCase = true) }
         return (listOf(clean) + kept).take(limit)
     }
+
+    /**
+     * 忘掉一条。
+     *
+     * 不分大小写：历史里同一个词本来就只留一份，用户点的是屏幕上看到的那一行。
+     * 没命中时返回的列表和 [existing] 内容相同，调用方据此判断「这次不用写盘」。
+     */
+    fun forget(existing: List<String>, query: String): List<String> {
+        val clean = normalize(query) ?: return existing
+        return existing.filterNot { it.equals(clean, ignoreCase = true) }
+    }
 }
 
 /** 搜索历史的持久化。和设置一样抽成接口，换存储实现时只改注入处。 */
@@ -120,6 +131,13 @@ class SearchHistory(
 
     suspend fun remember(query: String) {
         val next = SearchHistoryRules.remember(state.value, query)
+        if (next == state.value) return
+        state.value = next
+        store.save(next)
+    }
+
+    suspend fun forget(query: String) {
+        val next = SearchHistoryRules.forget(state.value, query)
         if (next == state.value) return
         state.value = next
         store.save(next)

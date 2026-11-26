@@ -135,6 +135,17 @@ class SearchViewModel(
 
     fun clearKind() = _state.update { it.copy(kind = null) }
 
+    /**
+     * 忘掉一条历史。
+     *
+     * 只从历史里去掉，输入框里已经填着的词不动：用户可能只是想把它从下拉里清掉，
+     * 手头这一次搜索还在进行中。
+     */
+    fun forgetHistory(query: String) {
+        val source = history ?: return
+        viewModelScope.launch { runCatching { source.forget(query) } }
+    }
+
     fun clearHistory() {
         val source = history ?: return
         viewModelScope.launch { runCatching { source.clear() } }

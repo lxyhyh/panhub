@@ -158,11 +158,17 @@ class SearchHistoryTest {
         override val entries: StateFlow<List<String>> = flow.asStateFlow()
 
         val remembered = mutableListOf<String>()
+        val forgotten = mutableListOf<String>()
         var cleared = false
 
         override suspend fun remember(query: String) {
             remembered += query
             flow.value = (listOf(query) + flow.value.filterNot { it == query }).take(10)
+        }
+
+        override suspend fun forget(query: String) {
+            forgotten += query
+            flow.value = flow.value.filterNot { it == query }
         }
 
         override suspend fun clear() {
