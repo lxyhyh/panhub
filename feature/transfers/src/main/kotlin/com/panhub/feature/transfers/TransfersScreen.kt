@@ -10,9 +10,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -31,6 +34,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -53,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
 import com.panhub.core.design.FilterBar
+import com.panhub.core.design.LabeledRow
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
@@ -229,6 +234,7 @@ fun TransfersScreen(
                             onOpen = { path -> context.openDownloaded(path) },
                             onShare = { path -> context.shareDownloaded(path) },
                             onSaveAs = startExport,
+                            onOpenDetail = { viewModel.openDetail(task.id) },
                             onDeleteLocal = {
                                 // 删文件是磁盘 IO：放在主线程上删几十 MB 的副本会让这一帧卡住。
                                 scope.launch {
@@ -245,6 +251,18 @@ fun TransfersScreen(
                     item { Spacer(Modifier.height(Spacing.xl)) }
                 }
             }
+        }
+
+        // 从整条队列里取，不从筛过的列表里取：详情开着的时候切标签或改关键字，
+        // 弹窗不该突然变空。
+        val detail = state.detailTask
+        if (detail != null) {
+            TransferDetailDialog(
+                task = detail,
+                accountNote = TransferAccountNote.note(detail, state.accountLabels),
+                speed = state.speeds[detail.id],
+                onDismiss = viewModel::closeDetail,
+            )
         }
     }
 }
@@ -286,8 +304,10 @@ private fun TaskCard(
     onShare: (String) -> Unit,
     onSaveAs: (String) -> Unit,
     onDeleteLocal: () -> Unit,
+    onOpenDetail: () -> Unit,
 ) {
-    PanCard {
+    // 整张卡片可点：卡片上只剩两行字，失败原因这类长内容在那里排不下。
+    PanCard(onClick = onOpenDetail) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -518,6 +538,62 @@ private fun android.content.Context.openDownloaded(path: String) {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
     }
+}
+
+/**
+ * 任务详情。
+ *
+ * 为什么是弹窗而不是展开：卡片上已经排了名字、状态、速度、操作按钮，
+ * 再往里塞八行小字会让队列看起来像一屏日志。
+ */
+@Composable
+private fun TransferDetailDialog(
+    task: TransferTask,
+    accountNote: String,
+    speed: Long?,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = TransferDetail.title(task),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        text = {
+            // 失败原因可能很长（服务商把整段 HTML 或 JSON 扔回来都有可能），
+            // 弹窗高度有上限，不能让它把按钮挤出屏幕。
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                TransferDetail.rows(task, accountNote, speed).forEach { row ->
+                    if (TransferDetail.isLong(row.first)) {
+                        // 错误与路径要换行铺开：被截断的错误信息等于没显示。
+                        Text(
+                            text = row.first,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = Spacing.sm),
+                        )
+                        Text(
+                            text = row.second,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = Spacing.xs),
+                        )
+                    } else {
+                        LabeledRow(row.first, row.second)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
 }
 
 /**

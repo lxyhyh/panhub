@@ -42,6 +42,13 @@ data class TransfersUiState(
      * 而任务本身只记账号 id——不把名字查过来，用户看到的就是一串随机串。
      */
     val accountLabels: Map<String, String> = emptyMap(),
+    /**
+     * 正在看详情的那个任务 id。
+     *
+     * 存 id 而不存任务本身：任务每传一个字节就会换一个对象，
+     * 存快照会让详情里的进度冻在打开那一刻。
+     */
+    val detailTaskId: String? = null,
 ) {
     /** 标题栏要显示的汇总；每帧重算一次，任务数是几十条量级，不值得缓存。 */
     val digest: TransferDigest get() = TransferDigest.of(tasks)
@@ -99,6 +106,14 @@ data class TransfersUiState(
 
     /** 正在跑的那个任务的速率，标题栏用。 */
     val runningSpeed: Long? get() = digest.running?.let { speeds[it.id] }
+
+    /**
+     * 详情弹窗要显示的那个任务。
+     *
+     * 从整条队列里取而不是从筛选后的列表：详情开着的时候切标签或改关键字，
+     * 任务本身还在那里，没道理弹窗突然变空。
+     */
+    val detailTask: TransferTask? get() = detailTaskId?.let { id -> tasks.firstOrNull { it.id == id } }
 }
 
 /**
@@ -164,6 +179,11 @@ class TransfersViewModel(
     fun setQuery(value: String) = _state.update { it.copy(query = value) }
 
     fun clearQuery() = _state.update { it.copy(query = "") }
+
+    /** 打开任务详情。 */
+    fun openDetail(id: String) = _state.update { it.copy(detailTaskId = id) }
+
+    fun closeDetail() = _state.update { it.copy(detailTaskId = null) }
 
     fun cancel(id: String) {
         engine.cancel(id)
