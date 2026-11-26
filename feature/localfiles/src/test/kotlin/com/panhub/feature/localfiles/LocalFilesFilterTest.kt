@@ -1,5 +1,6 @@
 package com.panhub.feature.localfiles
 
+import com.panhub.core.model.FileKind
 import com.panhub.core.model.SortOrder
 import com.panhub.core.model.SortSpec
 import com.panhub.core.transfer.DownloadedEntry
@@ -27,12 +28,14 @@ class LocalFilesFilterTest {
     private fun state(
         vararg names: String,
         filter: String = "",
+        kind: FileKind? = null,
     ): LocalFilesUiState {
         val entries = names.map { entry(it) }
         return LocalFilesUiState(
             loading = false,
             snapshot = DownloadsSnapshot(entries = entries, totalBytes = entries.size * 1024L),
             filter = filter,
+            kind = kind,
         )
     }
 
@@ -121,5 +124,52 @@ class LocalFilesFilterTest {
         val s = state("a.txt", "b.txt", filter = "a.txt")
         assertEquals(1, s.visibleRows.size)
         assertEquals(2, s.copy(filter = "").visibleRows.size)
+    }
+
+    // ---- 按类型筛 ----
+
+    @Test
+    fun kindNarrowsToTheChosenCategory() {
+        val s = state("a.jpg", "b.txt", "c.png", kind = FileKind.IMAGE)
+        assertEquals(listOf("a.jpg", "c.png"), s.visibleRows.map { it.entry.name })
+        assertTrue(s.filtering)
+    }
+
+    @Test
+    fun noKindKeepsEverything() {
+        val s = state("a.jpg", "b.txt")
+        assertEquals(2, s.visibleRows.size)
+        assertFalse(s.filtering)
+    }
+
+    @Test
+    fun choosingAKindThatMatchesNothingStillCountsAsFiltering() {
+        // 磁盘上有文件、只是没有这一类：不能落进「本机没有文件」。
+        val s = state("a.txt", "b.md", kind = FileKind.VIDEO)
+        assertTrue(s.visibleRows.isEmpty())
+        assertFalse(s.empty)
+        assertTrue(s.filteredOut)
+        assertEquals("这里没有视频", s.emptyFilterMessage)
+    }
+
+    @Test
+    fun kindAndKeywordAreAppliedTogether() {
+        val s = state("报告.pdf", "报告.jpg", "照片.jpg", filter = "报", kind = FileKind.DOCUMENT)
+        assertEquals(listOf("报告.pdf"), s.visibleRows.map { it.entry.name })
+    }
+
+    @Test
+    fun theEmptyMessageSaysWhichConditionLetItDown() {
+        assertEquals("这里没有图片", state("a.txt", kind = FileKind.IMAGE).emptyFilterMessage)
+        assertEquals(
+            "没有名字包含「zzz」的图片",
+            state("a.txt", filter = "zzz", kind = FileKind.IMAGE).emptyFilterMessage,
+        )
+        assertEquals("没有名字包含「zzz」的项目", state("a.txt", filter = "zzz").emptyFilterMessage)
+    }
+
+    @Test
+    fun theSummaryAlsoCountsTypeFiltering() {
+        assertEquals("筛选中 1/3 项", state("a.jpg", "b.txt", "c.txt", kind = FileKind.IMAGE).filterSummary)
     }
 }

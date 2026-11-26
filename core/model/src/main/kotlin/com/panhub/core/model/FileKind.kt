@@ -118,10 +118,38 @@ object FileKinds {
         return of(node) == kind
     }
 
+    /**
+     * 只按名字（可选带 MIME）判断这一项要不要留下。
+     *
+     * 给不是 [RemoteNode] 的列表用：本机下载记录只有文件名与相对路径，没有
+     * 节点类型字段，但「筛图片」在两页必须给出同一个答案。
+     */
+    fun matchesName(name: String, mimeType: String?, kind: FileKind?): Boolean {
+        if (kind == null) return true
+        return ofName(name, mimeType) == kind
+    }
+
+    /** 按类型收窄一批带名字的东西。空条件返回同一个列表实例。 */
+    fun <T> applyBy(items: List<T>, kind: FileKind?, nameOf: (T) -> String): List<T> {
+        if (kind == null) return items
+        return items.filter { matchesName(nameOf(it), null, kind) }
+    }
+
     /** 过滤一批节点。只收窄，不重排：顺序是用户在排序里选的。 */
     fun apply(nodes: List<RemoteNode>, kind: FileKind?): List<RemoteNode> {
         if (kind == null) return nodes
         return nodes.filter { matches(it, kind) }
+    }
+
+    /**
+     * [kind] 在 [filterable] 里的下标，没选或选的是不可筛的类别时返回 -1。
+     *
+     * 界面上那排 chip 要拿它决定谁被选中。写成 -1 而不是 null，是因为
+     * Compose 的 selectedIndex 参数就是整数，各页不必再各写一次默认值。
+     */
+    fun indexOf(kind: FileKind?): Int {
+        if (kind == null) return -1
+        return filterable.indexOf(kind)
     }
 
     /** 有没有在按类型筛。 */

@@ -66,7 +66,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Icon
@@ -98,6 +97,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.panhub.core.design.ChipRow
 import com.panhub.core.design.EmptyState
 import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LabeledRow
@@ -321,9 +321,13 @@ fun BrowserScreen(
                     )
                 }
                 if (showFilter && !state.selectionMode) {
-                    KindChips(
-                        selected = state.kind,
-                        onSelect = viewModel::toggleKind,
+                    // 只放用户真的会拿来筛的几类；不列「其它」和「文件夹」——前者是
+                    // 「哪些我认不出来」，没人这么找东西，后者在类型筛选里本来就被保留。
+                    // 再点一次同一个 chip 就取消（见 toggleKind）。
+                    ChipRow(
+                        options = FileKinds.filterable.map { it.label },
+                        selectedIndex = FileKinds.indexOf(state.kind),
+                        onSelect = { viewModel.toggleKind(FileKinds.filterable[it]) },
                     )
                     FilterBar(
                         query = state.filter,
@@ -1374,39 +1378,6 @@ private fun NodeRow(
     }
 }
 
-/**
- * 类型筛选那一排 chip。
- *
- * 只放用户真的会拿来筛的几类：找照片、找视频、找文档、找压缩包、找音频。
- * 不做「其它」和「文件夹」两项：前者点下去是「哪些我认不出来」，没人这么找东西；
- * 后者在类型筛选里本来就被保留着，单列一项等于点了也没变化。
- *
- * 再点一次同一个 chip 就取消。用 FilterChip 而不是下拉菜单，是想让「现在按什么
- * 在筛」一直摆在脸上——下拉菜单关起来之后，筛过的列表看起来和没筛一样。
- */
-@Composable
-private fun KindChips(selected: FileKind?, onSelect: (FileKind) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = Spacing.lg),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-    ) {
-        for (kind in FileKinds.filterable) {
-            FilterChip(
-                selected = kind == selected,
-                onClick = { onSelect(kind) },
-                label = { Text(kind.label) },
-            )
-        }
-    }
-}
-
-/**
- * 「加载更多」占位行。做成整行可点的卡片而不是自动触发，
- * 是为了让用户清楚知道还有内容没加载、并且由自己决定要不要花这份流量。
- */
 @Composable
 private fun LoadMoreRow(loading: Boolean, onClick: () -> Unit) {
     PanCard(

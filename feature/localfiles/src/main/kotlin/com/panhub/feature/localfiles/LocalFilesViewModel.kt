@@ -2,6 +2,8 @@ package com.panhub.feature.localfiles
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.panhub.core.model.FileKind
+import com.panhub.core.model.FileKinds
 import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.SortOrder
 import com.panhub.core.model.SortSpec
@@ -29,6 +31,8 @@ data class LocalFilesUiState(
     val message: String? = null,
     /** 按名字筛选的关键字。纯本地行为，不重新扫盘。 */
     val filter: String = "",
+    /** 按类型筛选。null 表示不筛；与浏览页共用同一套 [FileKinds] 判断。 */
+    val kind: FileKind? = null,
     /**
      * 排序规格。默认「修改时间从新到旧」，与本机文件一直以来的顺序一致：
      * 用户来找的多半是刚下完的那个，换成按名字排会让刚下载完的文件沉到列表中间。
@@ -37,12 +41,20 @@ data class LocalFilesUiState(
 ) {
     val rows: List<LocalFileRow> get() = LocalFilesLogic.rows(snapshot)
 
-    /** 排序之后再筛，与浏览页同一个顺序：先按用户选的规格重排，再按关键字收窄。 */
+    /**
+     * 排序之后再筛，与浏览页同一个顺序：先按用户选的规格重排，再按类型和关键字收窄。
+     *
+     * 本机文件列表里没有文件夹，所以 [FileKinds.applyBy] 不会像浏览页那样把
+     * 文件夹整批留下——这里筛的就是文件本身。
+     */
     val visibleRows: List<LocalFileRow>
-        get() = NodeFilter.applyBy(rows.sortedRows(sort), filter) { it.entry.name }
+        get() = NodeFilter.applyBy(
+            FileKinds.applyBy(rows.sortedRows(sort), kind) { it.entry.name },
+            filter,
+        ) { it.entry.name }
 
     /** 有没有在筛选。界面据此区分「没有文件」和「筛没了」两种空列表。 */
-    val filtering: Boolean get() = NodeFilter.active(filter)
+    val filtering: Boolean get() = NodeFilter.active(filter) || FileKinds.active(kind)
 
     val summary: String get() = LocalFilesLogic.summaryOf(snapshot)
     val empty: Boolean get() = !loading && snapshot.isEmpty
@@ -52,7 +64,10 @@ data class LocalFilesUiState(
 
     /** 输入框下面那行小字，规则与浏览页相同。 */
     val filterSummary: String?
-        get() = NodeFilter.summary(visibleRows.size, rows.size, filter)
+        get() = FileKinds.summary(visibleRows.size, rows.size, filter, kind)
+
+    /** 筛完一条不剩时的说明。两个条件都在时要分清是被哪个筛掉的。 */
+    val emptyFilterMessage: String get() = FileKinds.emptyMessage(filter, kind)
 
     val canClear: Boolean get() = snapshot.entries.isNotEmpty() && !busy
 }
@@ -167,6 +182,18 @@ class LocalFilesViewModel(private val root: File) : ViewModel() {
     fun setFilter(value: String) = _state.update { it.copy(filter = value) }
 
     fun clearFilter() = _state.update { it.copy(filter = "") }
+
+    /**
+     * 切换类型筛选。再点一次同一类是取消。
+     *
+     * 和关键字不同，这里一次只看一类：本机文件通常只有几十个，同时要两个类型
+     * （比如「图片和视频」）的场景还不足以让界面多出一排多选状态的 chip。
+     */
+    fun toggleKind(value: FileKind) = _state.update {
+        it.copy(kind = if (it.kind == value) null else value)
+    }
+
+    fun clearKind() = _state.update { it.copy(kind = null) }
 
     /**
      * 换排序依据。

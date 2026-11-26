@@ -110,6 +110,22 @@ class FileKindTest {
     }
 
     @Test
+    fun theSelectedChipIsIndexOfTheFilterableList() {
+        assertEquals(0, FileKinds.indexOf(FileKind.IMAGE))
+        assertEquals(-1, FileKinds.indexOf(null))
+        // 不可筛的类别（其它、文件夹）在第 0 位也不该被选中。
+        assertEquals(-1, FileKinds.indexOf(FileKind.OTHER))
+    }
+
+    @Test
+    fun namesWithoutNodesCanBeFilteredToo() {
+        // 本机下载记录不是 RemoteNode，但「筛图片」在两页得给出同一个答案。
+        val names = listOf("a.jpg", "b.txt", "c.png")
+        assertEquals(listOf("a.jpg", "c.png"), FileKinds.applyBy(names, FileKind.IMAGE) { it })
+        assertTrue(FileKinds.applyBy(names, null) { it } === names)
+    }
+
+    @Test
     fun everyFilterableKindHasALabel() {
         assertEquals(5, FileKinds.filterable.size)
         assertTrue(FileKinds.filterable.all { it.label.isNotBlank() })

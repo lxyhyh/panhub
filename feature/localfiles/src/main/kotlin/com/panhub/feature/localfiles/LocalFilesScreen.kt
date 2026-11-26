@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.panhub.core.design.ChipRow
 import com.panhub.core.design.EmptyState
 import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
@@ -56,7 +57,7 @@ import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.SortDialog
 import com.panhub.core.design.Spacing
-import com.panhub.core.model.NodeFilter
+import com.panhub.core.model.FileKinds
 import com.panhub.core.model.SortOrder
 import com.panhub.core.platform.LocalFileActions
 import kotlinx.coroutines.Dispatchers
@@ -132,7 +133,10 @@ fun LocalFilesScreen(
                         onClick = {
                             // 收起时顺手清掉关键字：只藏输入框却留着过滤，
                             // 会让列表莫名其妙少东西，而用户找不到原因。
-                            if (showFilter) viewModel.clearFilter()
+                            if (showFilter) {
+                                viewModel.clearFilter()
+                                viewModel.clearKind()
+                            }
                             showFilter = !showFilter
                         },
                     ) {
@@ -173,6 +177,13 @@ fun LocalFilesScreen(
                 )
             }
             if (showFilter && !state.empty) {
+                // 本机文件全是文件、没有目录项，所以这里筛的每一类都可能真的
+                // 把列表筛空——文案由 FileKinds 决定，和浏览页同一份。
+                ChipRow(
+                    options = FileKinds.filterable.map { it.label },
+                    selectedIndex = FileKinds.indexOf(state.kind),
+                    onSelect = { viewModel.toggleKind(FileKinds.filterable[it]) },
+                )
                 FilterBar(
                     query = state.filter,
                     placeholder = "本机已下载的文件",
@@ -192,8 +203,8 @@ fun LocalFilesScreen(
             if (state.filteredOut) {
                 EmptyState(
                     icon = Icons.Default.FilterList,
-                    title = NodeFilter.emptyMessage(state.filter),
-                    message = "换个关键字，或者点上面的清空",
+                    title = state.emptyFilterMessage,
+                    message = "换个条件，或者点上面的清空",
                 )
                 return@Column
             }
