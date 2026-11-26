@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Link
@@ -44,7 +45,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.panhub.core.design.EmptyState
+import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.Radius
@@ -77,6 +81,7 @@ fun ShareImportScreen(
     LaunchedEffect(Unit) { viewModel.start() }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    var showFilter by remember { mutableStateOf(false) }
 
     state.message?.let { message ->
         LaunchedEffect(message) {
@@ -109,6 +114,14 @@ fun ShareImportScreen(
                     },
                     actions = {
                         if (state.opened) {
+                            IconButton(
+                                onClick = {
+                                    if (showFilter) viewModel.clearQuery()
+                                    showFilter = !showFilter
+                                },
+                            ) {
+                                Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                            }
                             TextButton(onClick = viewModel::refresh, enabled = !state.busy) {
                                 Text("刷新")
                             }
@@ -166,55 +179,77 @@ fun ShareImportScreen(
                     title = if (state.error != null) "没能读到内容" else "这个文件夹是空的",
                     message = state.error?.message,
                 )
-                else -> LazyColumn(
-                    contentPadding = PaddingValues(
-                        start = Spacing.lg,
-                        end = Spacing.lg,
-                        top = Spacing.sm,
-                        bottom = Spacing.xxl + Spacing.xxl,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.md),
-                ) {
-                    item(key = "__target__") {
-                        TargetRow(
-                            label = state.targetLabel,
-                            accountName = state.accountName,
-                            enabled = !state.busy,
-                            onChange = viewModel::openTargetPicker,
+                else -> Column(modifier = Modifier.fillMaxSize()) {
+                    // 筛选条放在列表外面：塞进 LazyColumn 就成了可以滚走的一项，
+                    // 而且会和外层的水平内边距叠成两倍。
+                    if (showFilter) {
+                        FilterBar(
+                            query = state.query,
+                            summary = state.filterSummary,
+                            onQuery = viewModel::setQuery,
+                            onClear = viewModel::clearQuery,
+                            placeholder = "分享里的文件名",
                         )
                     }
-                    item(key = "__toolbar__") {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = state.entries.size.toString() + " 项",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    if (state.filteredOut) {
+                        EmptyState(
+                            icon = Icons.Default.FilterList,
+                            title = state.emptyFilterMessage,
+                            message = "换个关键字，或者点上面的清空",
+                        )
+                        return@Column
+                    }
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            start = Spacing.lg,
+                            end = Spacing.lg,
+                            top = Spacing.sm,
+                            bottom = Spacing.xxl + Spacing.xxl,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                    ) {
+                        item(key = "__target__") {
+                            TargetRow(
+                                label = state.targetLabel,
+                                accountName = state.accountName,
+                                enabled = !state.busy,
+                                onChange = viewModel::openTargetPicker,
                             )
-                            Box(modifier = Modifier.weight(1f))
-                            TextButton(onClick = viewModel::toggleAll) {
-                                Text(if (state.allSelected) "取消全选" else "全选")
+                        }
+                        item(key = "__toolbar__") {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = state.visibleEntries.size.toString() + " 项",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Box(modifier = Modifier.weight(1f))
+                                TextButton(onClick = viewModel::toggleAll) {
+                                    Text(if (state.allSelected) "取消全选" else "全选")
+                                }
                             }
                         }
-                    }
-                    items(state.entries, key = { it.id.value }) { entry ->
-                        EntryCard(
-                            entry = entry,
-                            selected = entry.id in state.selected,
-                            onOpen = { viewModel.enter(entry) },
-                            onToggle = { viewModel.toggle(entry.id) },
-                        )
-                    }
-                    if (state.hasMore) {
-                        item(key = "__more__") {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().padding(Spacing.md),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (state.loadingMore) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
-                                    )
+                        items(state.visibleEntries, key = { it.id.value }) { entry ->
+                            EntryCard(
+                                entry = entry,
+                                selected = entry.id in state.selected,
+                                onOpen = { viewModel.enter(entry) },
+                                onToggle = { viewModel.toggle(entry.id) },
+                            )
+                        }
+                        if (state.hasMore) {
+                            item(key = "__more__") {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(Spacing.md),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (state.loadingMore) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.model.AccountId
+import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.RemoteNode
@@ -62,6 +63,8 @@ data class ShareImportUiState(
     /** 已经打开的分享；非空表示进入浏览态。 */
     val source: ShareSource? = null,
     val entries: List<ShareEntry> = emptyList(),
+    /** 按名字筛选的关键字；只影响看得到的列表与全选，不动已经勾好的内容。 */
+    val query: String = "",
     val stack: List<ShareEntry> = emptyList(),
     val nextCursor: String? = null,
     val loadingMore: Boolean = false,
@@ -85,7 +88,19 @@ data class ShareImportUiState(
 
     val selectedCount: Int get() = selected.size
 
-    val allSelected: Boolean get() = ShareImportLogic.allSelected(entries, selected)
+    val visibleEntries: List<ShareEntry> get() = NodeFilter.applyBy(entries, query) { it.name }
+
+    val filtering: Boolean get() = NodeFilter.active(query)
+
+    /** 「筛选中 2/9 项」；一条都没筛掉时不显示。 */
+    val filterSummary: String? get() = NodeFilter.summary(visibleEntries.size, entries.size, query)
+
+    /** 有关键字但一条都没命中 —— 这和「这个文件夹是空的」是两件事。 */
+    val filteredOut: Boolean get() = entries.isNotEmpty() && visibleEntries.isEmpty()
+
+    val emptyFilterMessage: String get() = NodeFilter.emptyMessage(query)
+
+    val allSelected: Boolean get() = ShareImportLogic.allSelected(visibleEntries, selected)
 
     val canOpen: Boolean get() = accountId != null && url.isNotBlank() && !busy
 
@@ -172,6 +187,7 @@ class ShareImportViewModel(
                 accountName = summary.label,
                 source = null,
                 entries = emptyList(),
+                query = "",
                 stack = emptyList(),
                 selected = emptySet(),
                 nextCursor = null,
@@ -228,6 +244,7 @@ class ShareImportViewModel(
                             busy = false,
                             source = result.value,
                             entries = emptyList(),
+                            query = "",
                             stack = emptyList(),
                             selected = emptySet(),
                             nextCursor = null,
@@ -278,7 +295,9 @@ class ShareImportViewModel(
     /** 进入分享里的下一级目录。 */
     fun enter(folder: ShareEntry) {
         if (!folder.isDir) return
-        _state.update { it.copy(stack = it.stack + folder) }
+        // 换一层就清掉关键字：上一层的命中名字多半跟这一层毫无关系，
+        // 留着会让人以为新目录是空的。
+        _state.update { it.copy(stack = it.stack + folder, query = "") }
         load(folder.id)
     }
 
@@ -287,7 +306,7 @@ class ShareImportViewModel(
         val stack = _state.value.stack
         if (stack.isEmpty()) return
         val next = ShareImportLogic.parentStack(stack)
-        _state.update { it.copy(stack = next) }
+        _state.update { it.copy(stack = next, query = "") }
         load(next.lastOrNull()?.id)
     }
 
@@ -299,8 +318,17 @@ class ShareImportViewModel(
         }
     }
 
+    fun setQuery(value: String) {
+        _state.update { it.copy(query = value) }
+    }
+
+    fun clearQuery() {
+        _state.update { it.copy(query = "") }
+    }
+
+    /** 全选只作用于筛出来的那几项：看不见的东西被顺手勾上，转存时才发现就晚了。 */
     fun toggleAll() {
-        _state.update { it.copy(selected = ShareImportLogic.toggleAll(it.entries, it.selected)) }
+        _state.update { it.copy(selected = ShareImportLogic.toggleAll(it.visibleEntries, it.selected)) }
     }
 
     // ---- 转存目标目录 ----
