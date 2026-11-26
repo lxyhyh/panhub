@@ -249,6 +249,10 @@ fun ShareImportScreen(
                                             modifier = Modifier.size(20.dp),
                                             strokeWidth = 2.dp,
                                         )
+                                    } else {
+                                        TextButton(onClick = viewModel::loadMore) {
+                                            Text("加载更多")
+                                        }
                                     }
                                 }
                             }

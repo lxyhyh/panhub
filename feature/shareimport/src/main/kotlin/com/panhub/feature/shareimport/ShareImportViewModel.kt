@@ -292,6 +292,42 @@ class ShareImportViewModel(
         }
     }
 
+    /**
+     * 往后再要一页。
+     *
+     * 分享里动辄上百项，第一页只有一百条；没有这一步，超出的部分在界面上
+     * 根本不存在——用户会以为分享不完整，而不是「还没翻到」。
+     */
+    fun loadMore() {
+        val provider = scoped ?: return
+        val source = _state.value.source ?: return
+        val cursor = _state.value.nextCursor ?: return
+        if (_state.value.loadingMore) return
+        _state.update { it.copy(loadingMore = true, error = null) }
+        viewModelScope.launch {
+            when (
+                val result = provider.listShare(
+                    source,
+                    _state.value.currentFolder,
+                    PageRequest(cursor = cursor, limit = PAGE_SIZE),
+                )
+            ) {
+                is PanResult.Failure -> _state.update {
+                    it.copy(loadingMore = false, error = result.error)
+                }
+                is PanResult.Success -> _state.update { current ->
+                    val seen = current.entries.mapTo(mutableSetOf()) { e -> e.id }
+                    val fresh = result.value.items.filter { e -> seen.add(e.id) }
+                    current.copy(
+                        loadingMore = false,
+                        entries = current.entries + fresh,
+                        nextCursor = result.value.nextCursor,
+                    )
+                }
+            }
+        }
+    }
+
     /** 进入分享里的下一级目录。 */
     fun enter(folder: ShareEntry) {
         if (!folder.isDir) return
