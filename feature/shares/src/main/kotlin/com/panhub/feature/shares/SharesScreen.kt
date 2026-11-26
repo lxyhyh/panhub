@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Link
@@ -58,6 +59,7 @@ import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
+import com.panhub.core.design.SortDialog
 import com.panhub.core.design.Spacing
 import com.panhub.core.model.ShareLink
 import java.text.SimpleDateFormat
@@ -85,6 +87,8 @@ fun SharesScreen(
     var pendingCancel by remember { mutableStateOf<List<ShareRow>>(emptyList()) }
     // 筛选条默认收起：分享列表通常只有几条，多一行输入框反而挡住链接。
     var showFilter by remember { mutableStateOf(false) }
+    // 排序默认收起：分享通常只有十几条，多一层菜单反而挡住链接。
+    var showSort by remember { mutableStateOf(false) }
 
     state.message?.let { message ->
         LaunchedEffect(message) {
@@ -131,6 +135,11 @@ fun SharesScreen(
                             },
                         ) {
                             Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                        }
+                        if (state.rows.size > 1) {
+                            IconButton(onClick = { showSort = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
+                            }
                         }
                         IconButton(onClick = viewModel::refresh, enabled = !state.refreshing) {
                             Icon(Icons.Default.Refresh, contentDescription = "刷新")
@@ -239,6 +248,17 @@ fun SharesScreen(
             dismissButton = {
                 TextButton(onClick = { pendingCancel = emptyList() }) { Text("保留") }
             },
+        )
+    }
+
+    if (showSort) {
+        SortDialog(
+            options = SharesLogic.SORT_ORDERS.map { it.label },
+            selectedIndex = SharesLogic.SORT_ORDERS.indexOf(state.sort.order),
+            descending = state.sort.descending,
+            onSelect = { index -> viewModel.setSortOrder(SharesLogic.SORT_ORDERS[index]) },
+            onToggleDirection = viewModel::toggleSortDirection,
+            onDismiss = { showSort = false },
         )
     }
 }

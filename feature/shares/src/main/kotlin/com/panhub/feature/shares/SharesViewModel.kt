@@ -8,6 +8,8 @@ import com.panhub.core.model.AccountId
 import com.panhub.core.model.NodeFilter
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.ShareLink
+import com.panhub.core.model.SortOrder
+import com.panhub.core.model.SortSpec
 import com.panhub.core.session.SessionManager
 import com.panhub.provider.api.ScopedPanProvider
 import kotlinx.coroutines.Job
@@ -41,6 +43,8 @@ data class SharesUiState(
     val busyKey: String? = null,
     /** 按标题筛选的关键字。纯本地行为，不重新拉列表。 */
     val query: String = "",
+    /** 列表排序。默认「创建时间从新到旧」，与之前写死的顺序一致。 */
+    val sort: SortSpec = SortSpec(order = SortOrder.TIME, descending = true),
     /** 批量取消时置位，用来禁掉所有按钮并防重入。 */
     val cancelling: Boolean = false,
     /** 勾中的分享（[ShareRow.key]）。取消成功后从里面摘掉。 */
@@ -49,11 +53,7 @@ data class SharesUiState(
     val hasMore: Boolean get() = nextCursor != null
 
     /** 失效的排后面：用户更关心还能用的链接。 */
-    val sorted: List<ShareRow>
-        get() = rows.sortedWith(
-            compareBy<ShareRow> { it.link.expired }
-                .thenByDescending { it.link.createdAt ?: 0L },
-        )
+    val sorted: List<ShareRow> get() = rows.sortedFor(sort)
 
     /** 屏幕上真正显示的那些。规则与另外三页共用 [NodeFilter]。 */
     val visible: List<ShareRow>
@@ -257,6 +257,19 @@ class SharesViewModel(
     }
 
     fun clearSelection() = _state.update { it.copy(selected = emptySet()) }
+
+    /** 同一依据再点一次就反过来；换成别的依据时用它自己的默认方向。 */
+    fun setSortOrder(order: SortOrder) = _state.update { current ->
+        if (current.sort.order == order) {
+            current.copy(sort = current.sort.copy(descending = !current.sort.descending))
+        } else {
+            current.copy(sort = SortSpec(order = order, descending = order.defaultDescending))
+        }
+    }
+
+    fun toggleSortDirection() = _state.update {
+        it.copy(sort = it.sort.copy(descending = !it.sort.descending))
+    }
 
     fun setQuery(value: String) = _state.update { it.copy(query = value) }
 

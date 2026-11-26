@@ -1,6 +1,8 @@
 package com.panhub.feature.shares
 
 import com.panhub.core.common.PanError
+import com.panhub.core.model.SortOrder
+import com.panhub.core.model.SortSpec
 
 /**
  * 我的分享页里那些「说给人听」的判断。
@@ -74,6 +76,37 @@ internal object SharesLogic {
      */
     fun withoutCancelled(rows: List<ShareRow>, cancelled: Set<String>): List<ShareRow> =
         rows.filterNot { row -> row.key in cancelled }
+
+    /**
+     * 排一次序。
+     *
+     * 「还能不能打开」永远是最外层的分界：失效的链接对谁都没用了，
+     * 它按名字排到中间只会让人觉得列表是坏的。所以这里先按失效分层，
+     * 层内再按用户选的那个依据排。
+     */
+    fun List<ShareRow>.sortedFor(spec: SortSpec): List<ShareRow> {
+        val validity = compareBy<ShareRow> { it.link.expired }
+        val by = when (spec.order) {
+            SortOrder.NAME -> compareBy<ShareRow> { shareTitleOf(it.link).lowercase() }
+            SortOrder.TIME -> compareBy<ShareRow> { it.link.createdAt ?: 0L }
+            // 分享本身没有「多大」这件事：一条链接可能带着几百个文件，
+            // 也可能一个都没带。所以 [SORT_ORDERS] 里根本不给这一项，
+            // 这里的兜底只是为了 when 写全。
+            SortOrder.SIZE -> compareBy<ShareRow> { 0L }
+        }
+        return sortedWith(validity.then(by.directed(spec.descending)))
+    }
+
+    private fun <T> Comparator<T>.directed(descending: Boolean): Comparator<T> =
+        if (descending) reversed() else this
+
+    /**
+     * 这个页面能提供的排序依据。
+     *
+     * 只有名称和时间：分享记录里没有大小可用（[ShareLink] 只带节点 id 列表，
+     * 列表长度是条目数不是字节数），硬编一个「按大小」只会排出一堆看不出规律的东西。
+     */
+    val SORT_ORDERS: List<SortOrder> = listOf(SortOrder.NAME, SortOrder.TIME)
 
     /** 选择条上的计数。 */
     fun selectionSummary(count: Int): String = "已选 " + count + " 条"
