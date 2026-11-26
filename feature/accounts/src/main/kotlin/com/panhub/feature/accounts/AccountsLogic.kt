@@ -1,5 +1,7 @@
 package com.panhub.feature.accounts
 
+import com.panhub.core.common.ErrorKind
+import com.panhub.core.common.PanError
 import com.panhub.core.design.formatBytes
 import com.panhub.core.model.Quota
 import com.panhub.core.session.AccountSummary
@@ -11,6 +13,49 @@ import com.panhub.core.session.AccountSummary
  * 值得被直接测到。
  */
 object AccountsLogic {
+
+    /**
+     * 一次登录检查的结论。
+     *
+     * 只有「成功」和「凭据不对」两种。网络超时不进这个表：把一次弱网
+     * 当成「登录失效」，用户会照着提示去重新登一遍，然后发现本来就好好的。
+     */
+    enum class LoginState { OK, EXPIRED }
+
+    /** 把一次会话校验的结果翻成结论；没查成返回 null。 */
+    fun stateOf(error: PanError?): LoginState? = when {
+        error == null -> LoginState.OK
+        error.kind == ErrorKind.AUTH -> LoginState.EXPIRED
+        else -> null
+    }
+
+    /** 卡片上那行小字。 */
+    fun stateLabel(state: LoginState): String = when (state) {
+        LoginState.OK -> "登录有效"
+        LoginState.EXPIRED -> "登录已失效"
+    }
+
+    /**
+     * 批量检查之后的一句总结。
+     *
+     * 三种情况要分开说：全部正常、有账号要重新登录、有账号压根没查成。
+     * 把后者混进「失效」里是最坏的选择——用户会去重登一个没问题的账号。
+     */
+    fun checkMessage(states: Collection<LoginState>, total: Int): String {
+        if (total <= 0) return "还没有账号可以检查"
+        val expired = states.count { it == LoginState.EXPIRED }
+        val ok = states.count { it == LoginState.OK }
+        val unknown = total - states.size
+        return when {
+            expired == 0 && unknown == 0 -> total.toString() + " 个账号都还能用"
+            // 一个都没查成时不能说「其余正常」——没有任何一条结论支持这句话。
+            expired == 0 -> total.toString() + " 个账号里有 " + unknown + " 个没查成"
+            ok == 0 && unknown == 0 -> total.toString() + " 个账号都要重新登录"
+            unknown > 0 -> total.toString() + " 个账号里 " + expired + " 个需要重新登录，另有 " +
+                unknown + " 个没查成"
+            else -> total.toString() + " 个账号里 " + expired + " 个需要重新登录"
+        }
+    }
 
     /**
      * 这一轮该去查哪些账号的容量。

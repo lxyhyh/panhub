@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -68,6 +69,7 @@ import com.panhub.core.design.EmptyState
 import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
 import com.panhub.core.design.PanCard
+import com.panhub.core.design.PanColors
 import com.panhub.core.design.QuotaBar
 import com.panhub.core.design.Radius
 import com.panhub.core.design.Spacing
@@ -138,6 +140,16 @@ fun AccountsScreen(
                     IconButton(onClick = onOpenShareImport) {
                         Icon(Icons.Default.FileDownload, contentDescription = "打开分享转存")
                     }
+                    IconButton(onClick = { viewModel.checkAll() }, enabled = !state.checking) {
+                        if (state.checking) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(Icons.Default.VerifiedUser, contentDescription = "检查全部登录状态")
+                        }
+                    }
                     IconButton(onClick = onOpenLocalFiles) {
                         Icon(Icons.Default.Folder, contentDescription = "本机文件")
                     }
@@ -200,6 +212,7 @@ fun AccountsScreen(
                         AccountCard(
                             account = account,
                             quota = state.quotas[account.id.value],
+                            login = state.loginStates[account.id.value],
                             provider = state.providerOf(account.providerId),
                             onClick = { onOpenAccount(account.id) },
                             onVerify = { viewModel.verify(account.id) },
@@ -321,6 +334,7 @@ private val PENDING_ADD = ProviderDescriptor(
 private fun AccountCard(
     account: AccountSummary,
     quota: Quota?,
+    login: AccountsLogic.LoginState?,
     provider: ProviderDescriptor?,
     onClick: () -> Unit,
     onVerify: () -> Unit,
@@ -369,6 +383,19 @@ private fun AccountCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // 只在查过之后才说：没查过时写「未知」只是多一行噪音。
+                // 失效那句用红字，因为它是这一页唯一需要马上处理的状态。
+                if (login != null) {
+                    Text(
+                        text = AccountsLogic.stateLabel(login),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (login == AccountsLogic.LoginState.EXPIRED) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            PanColors.Green
+                        },
+                    )
+                }
             }
             IconButton(onClick = onVerify) {
                 Icon(

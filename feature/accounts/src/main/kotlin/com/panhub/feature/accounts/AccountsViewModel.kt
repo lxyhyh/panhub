@@ -35,6 +35,14 @@ data class AccountsUiState(
     val quotas: Map<String, Quota> = emptyMap(),
     /** 按名字筛账号的关键字，纯本地行为，不会重新登录或拉数据。 */
     val query: String = "",
+    /**
+     * 一键检查的结果，按账号 id 索引。
+     *
+     * 没查成（网络超时之类）的账号不进来，界面据此区分「有效」和「不知道」。
+     */
+    val loginStates: Map<String, AccountsLogic.LoginState> = emptyMap(),
+    /** 正在批量检查。检查期间按钮变成转圈，避免连点发出一堆重复请求。 */
+    val checking: Boolean = false,
 ) {
     fun providerOf(providerId: ProviderId): ProviderDescriptor? =
         providers.firstOrNull { it.id == providerId }
@@ -73,6 +81,10 @@ data class AccountsUiState(
      * 只算还在的账号：账号被移除后 [quotas] 里那一项还躺着，
      * 留着它会让总数比屏幕上看到的账号还多。
      */
+    /** 登录已经失效的那些账号，用来在列表顶上提醒一句。 */
+    val expiredAccounts: List<AccountSummary>
+        get() = accounts.filter { loginStates[it.id.value] == AccountsLogic.LoginState.EXPIRED }
+
     val quotaSummary: AccountsLogic.QuotaSummary?
         get() {
             if (accounts.size < 2) return null
@@ -121,12 +133,21 @@ class AccountsViewModel(
     private val _reauth = MutableStateFlow<ReauthTarget?>(null)
     val reauth: StateFlow<ReauthTarget?> = _reauth.asStateFlow()
 
+    /** 自动检查只跑一次：每次账号列表变动都重新验一遍，等于替用户刷了一遍流量。 */
+    private var checkedOnce = false
+
     init {
         _state.update { it.copy(providers = session.descriptors()) }
         viewModelScope.launch {
             session.accounts.collect { accounts ->
                 _state.update { it.copy(accounts = accounts, loading = false) }
                 loadQuotas(accounts)
+                // 顺手验一次登录：token 过期是常态，等用户点开文件撞上失败才说，
+                // 那时候他已经在等一个本来就不该发出去的请求了。
+                if (!checkedOnce && accounts.isNotEmpty()) {
+                    checkedOnce = true
+                    checkAll(silent = true)
+                }
             }
         }
     }
@@ -294,6 +315,44 @@ class AccountsViewModel(
         }
     }
 
+    /**
+     * 一次把所有账号的登录状态查一遍。
+     *
+     * 上次逐张卡片点「检查」才能知道谁过期了，账号一多就没人愿意点。
+     * 串行查而不是并发：这些请求打的是不同的服务商，同时发出去只会让
+     * 弱网下的超时互相传染，而账号通常只有几个，串行慢不了多少。
+     */
+    fun checkAll(silent: Boolean = false) {
+        val accounts = _state.value.accounts
+        if (accounts.isEmpty() || _state.value.checking) return
+        _state.update {
+            it.copy(
+                checking = true,
+                loginStates = emptyMap(),
+                message = if (silent) it.message else null,
+            )
+        }
+        viewModelScope.launch {
+            val states = mutableMapOf<String, AccountsLogic.LoginState>()
+            for (account in accounts) {
+                val result = session.verify(account.id)
+                val error = (result as? PanResult.Failure)?.error
+                val state = AccountsLogic.stateOf(error)
+                if (state != null) states[account.id.value] = state
+            }
+            val message = AccountsLogic.checkMessage(states.values, accounts.size)
+            _state.update {
+                it.copy(
+                    checking = false,
+                    loginStates = states,
+                    // 自动检查不弹提示：进个页面就被念一句「都还能用」纯属噪音，
+                    // 真有问题时卡片和横幅会自己说话。
+                    message = if (silent) it.message else message,
+                )
+            }
+        }
+    }
+
     fun clearMessage() = _state.update { it.copy(message = null) }
 
     fun setQuery(value: String) = _state.update { it.copy(query = value) }
@@ -311,11 +370,19 @@ class AccountsViewModel(
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
             val result = session.verify(accountId)
+            val error = (result as? PanResult.Failure)?.error
+            val state = AccountsLogic.stateOf(error)
             val message = when (result) {
                 is PanResult.Success -> "登录状态有效"
                 is PanResult.Failure -> result.error.message
             }
-            _state.update { it.copy(busy = false, message = message) }
+            _state.update {
+                // 查不出结论（超时之类）时把旧结论一起抹掉：
+                // 留着上次的「有效」会让人以为这次也查过了。
+                val states = if (state == null) it.loginStates - accountId.value
+                else it.loginStates + (accountId.value to state)
+                it.copy(busy = false, message = message, loginStates = states)
+            }
         }
     }
 
