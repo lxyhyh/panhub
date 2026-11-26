@@ -5,13 +5,12 @@ import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.network.HttpEngine
+import com.panhub.core.network.HttpText
 import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
-import java.io.IOException
 import kotlin.random.Random
 
 /**
@@ -254,9 +253,9 @@ internal class Cloud189AppChannel(
         }.build()
 
     private suspend fun send(request: Request): PanResult<String> =
-        when (val result = engine.executeRaw(request)) {
+        when (val result = engine.fetchText(request)) {
             is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { response -> readBody(response) }
+            is PanResult.Success -> readBody(result.value)
         }
 
     /**
@@ -265,17 +264,13 @@ internal class Cloud189AppChannel(
      * 注意会话失效不在这里判：它在 200 的 body 里，由 [isSessionExpired] 处理，
      * 这样「先刷新再重放」只有一处逻辑。
      */
-    private fun readBody(response: Response): PanResult<String> {
-        val raw = try {
-            response.body.string()
-        } catch (io: IOException) {
-            return PanResult.Failure(PanError.network(io.message ?: "读取响应失败", io))
-        }
+    private fun readBody(text: HttpText): PanResult<String> {
+        val raw = text.body
         if (raw.isBlank()) {
             return PanResult.Failure(PanError.unknown("服务端返回空响应"))
         }
-        if (!response.isSuccessful) {
-            return PanResult.Failure(Cloud189Decoding.httpError(response.code))
+        if (text.code !in 200..299) {
+            return PanResult.Failure(Cloud189Decoding.httpError(text.code))
         }
         return PanResult.Success(raw)
     }

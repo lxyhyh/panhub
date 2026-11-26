@@ -181,17 +181,9 @@ internal class BaiduUploader(
             .header("Cookie", cookie)
             .get()
             .build()
-        val raw = when (val result = engine.executeRaw(request)) {
+        val raw = when (val result = engine.fetchText(request)) {
             is PanResult.Failure -> return result
-            is PanResult.Success -> result.value.use { response ->
-                try {
-                    response.body.string()
-                } catch (io: IOException) {
-                    return PanResult.Failure(
-                        PanError.network(io.message ?: "读取响应失败", io),
-                    )
-                }
-            }
+            is PanResult.Success -> result.value.body
         }
         val decoded = when (val result = decode(raw, BaiduLocateUploadResp.serializer())) {
             // 换域名失败不该让整个上传失败：退回默认节点继续传。
@@ -239,19 +231,7 @@ internal class BaiduUploader(
             .post(multipart)
             .build()
 
-        val raw = when (val result = engine.executeRaw(request)) {
-            is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { response ->
-                val text = try {
-                    response.body.string()
-                } catch (io: IOException) {
-                    return@use PanResult.Failure(
-                        PanError.network(io.message ?: "读取响应失败", io),
-                    )
-                }
-                PanResult.Success(response.code to text)
-            }
-        }
+        val raw = engine.fetchText(request).map { text -> text.code to text.body }
         return when (raw) {
             is PanResult.Failure -> raw
             is PanResult.Success -> {

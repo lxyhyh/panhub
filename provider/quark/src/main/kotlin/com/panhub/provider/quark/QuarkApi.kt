@@ -18,7 +18,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
 
 /**
  * clouddrive 系网盘的 HTTP 层（夸克与 UC 共用一套后端，见 [CloudDriveBrand]）。
@@ -77,20 +76,15 @@ internal class QuarkApi(
             builder.post(body.toRequestBody(JSON_MEDIA))
         }
 
-        return when (val result = engine.executeRaw(builder.build())) {
+        return when (val result = engine.fetchText(builder.build())) {
             is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { response ->
-                val text = try {
-                    response.body.string()
-                } catch (io: IOException) {
-                    return@use PanResult.Failure(
-                        PanError.network(io.message ?: "读取响应失败", io),
-                    )
-                }
+            is PanResult.Success -> {
+                val text = result.value.body
                 if (text.isBlank()) {
-                    return@use PanResult.Failure(PanError.unknown("服务端返回空响应"))
+                    PanResult.Failure(PanError.unknown("服务端返回空响应"))
+                } else {
+                    check(text, renewedCookies(result.value.headers.values("Set-Cookie")))
                 }
-                check(text, renewedCookies(response.headers("Set-Cookie")))
             }
         }
     }
@@ -116,24 +110,12 @@ internal class QuarkApi(
         headers.forEach { (k, v) -> builder.header(k, v) }
         builder.method(method, body)
 
-        return when (val result = engine.executeRaw(builder.build())) {
-            is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { response ->
-                val text = try {
-                    response.body.string()
-                } catch (io: IOException) {
-                    return@use PanResult.Failure(
-                        PanError.network(io.message ?: "读取响应失败", io),
-                    )
-                }
-                PanResult.Success(
-                    QuarkRawResponse(
-                        code = response.code,
-                        text = text,
-                        etag = response.header("Etag") ?: response.header("ETag"),
-                    ),
-                )
-            }
+        return engine.fetchText(builder.build()).map { text ->
+            QuarkRawResponse(
+                code = text.code,
+                text = text.body,
+                etag = text.headers["Etag"] ?: text.headers["ETag"],
+            )
         }
     }
 

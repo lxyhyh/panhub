@@ -4,6 +4,7 @@ import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.network.HttpEngine
+import com.panhub.core.network.HttpText
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -63,13 +64,7 @@ internal class LanzouApi(
             .header("Referer", BASE_URL + "/mydisk.php")
             .apply { cookie.header(BASE_HOST)?.let { header("Cookie", it) } }
             .build()
-        return when (val result = engine.execute(request)) {
-            is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { response ->
-                cookie.save(response.headers)
-                PanResult.Success(response.body.string())
-            }
-        }
+        return engine.fetchText(request).keepCookies().map { it.body }
     }
 
     /**
@@ -116,22 +111,17 @@ internal class LanzouApi(
             .header("Referer", BASE_URL + "/mydisk.php")
             .apply { cookie.header(BASE_HOST)?.let { header("Cookie", it) } }
             .build()
-        return when (val result = engine.execute(request)) {
+        return when (val result = engine.fetchText(request).keepCookies()) {
             is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { response ->
-                cookie.save(response.headers)
-                val raw = response.body.string()
-                val root = decodeObject(raw)
-                when (root) {
-                    is PanResult.Failure -> root
-                    is PanResult.Success -> {
-                        val zt = root.value["zt"]?.toString()?.trim('"')
-                        if (zt != "1") {
-                            val info = root.value["info"]?.toString()?.trim('"')
-                            PanResult.Failure(PanError.unknown(info ?: "上传失败"))
-                        } else {
-                            PanResult.Success(Unit)
-                        }
+            is PanResult.Success -> when (val root = decodeObject(result.value.body)) {
+                is PanResult.Failure -> root
+                is PanResult.Success -> {
+                    val zt = root.value["zt"]?.toString()?.trim('"')
+                    if (zt != "1") {
+                        val info = root.value["info"]?.toString()?.trim('"')
+                        PanResult.Failure(PanError.unknown(info ?: "上传失败"))
+                    } else {
+                        PanResult.Success(Unit)
                     }
                 }
             }
@@ -173,13 +163,7 @@ internal class LanzouApi(
             .header("Referer", referer ?: BASE_URL + "/mydisk.php")
             .apply { cookie.header(host)?.let { header("Cookie", it) } }
             .build()
-        return when (val result = engine.execute(request)) {
-            is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { response ->
-                cookie.save(response.headers)
-                PanResult.Success(response.body.string())
-            }
-        }
+        return engine.fetchText(request).keepCookies().map { it.body }
     }
 
     /** 用 sign 换取下载地址。[password] 只有带提取码的分享才需要。 */
@@ -207,13 +191,15 @@ internal class LanzouApi(
             .header("Referer", referer)
             .apply { cookie.header(BASE_HOST)?.let { header("Cookie", it) } }
             .build()
-        return when (val result = engine.execute(request)) {
+        return when (val result = engine.fetchText(request).keepCookies()) {
             is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { response ->
-                cookie.save(response.headers)
-                decodeDownload(response.body.string())
-            }
+            is PanResult.Success -> decodeDownload(result.value.body)
         }
+    }
+
+    /** 服务端每次都会下发新的人机校验 Cookie，读响应时顺手收进 [cookie]。 */
+    private fun PanResult<HttpText>.keepCookies(): PanResult<HttpText> = also { result ->
+        if (result is PanResult.Success) cookie.save(result.value.headers)
     }
 
     private fun decodeDownload(raw: String): PanResult<LanzouDownloadDto> {

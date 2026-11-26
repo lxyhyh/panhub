@@ -9,7 +9,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
 
 /**
  * 百度网盘网页接口的 HTTP 层。
@@ -135,18 +134,15 @@ internal class BaiduApi(
         }
 
     private suspend fun sendRaw(request: Request): PanResult<String> =
-        when (val result = engine.executeRaw(request)) {
+        when (val result = engine.fetchText(request)) {
             is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { response ->
-                val text = try {
-                    response.body.string()
-                } catch (io: IOException) {
-                    return@use PanResult.Failure(
-                        PanError.network(io.message ?: "读取响应失败", io),
-                    )
+            is PanResult.Success -> {
+                val text = result.value.body
+                if (text.isBlank()) {
+                    PanResult.Failure(PanError.unknown("服务端返回空响应"))
+                } else {
+                    PanResult.Success(text)
                 }
-                if (text.isBlank()) return@use PanResult.Failure(PanError.unknown("服务端返回空响应"))
-                PanResult.Success(text)
             }
         }
 

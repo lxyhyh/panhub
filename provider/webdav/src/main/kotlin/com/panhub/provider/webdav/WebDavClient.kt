@@ -4,13 +4,13 @@ import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.network.HttpEngine
+import com.panhub.core.network.HttpText
 import com.panhub.core.network.StreamRequestBody
 import com.panhub.provider.api.UploadSource
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
 import java.net.URLEncoder
 
 /**
@@ -58,22 +58,22 @@ class WebDavClient(
         val req = request("PROPFIND", path)
             .header("Depth", depth)
             .build()
-        return engine.executeRaw(req).mapResponse { it.body?.string().orEmpty() }
+        return engine.fetchText(req).mapResponse { it.body }
     }
 
     suspend fun mkcol(path: String): PanResult<Unit> {
         val req = request("MKCOL", path).build()
-        return engine.executeRaw(req).mapResponse { }
+        return engine.fetchText(req).mapResponse { }
     }
 
     suspend fun delete(path: String): PanResult<Unit> {
         val req = request("DELETE", path).build()
-        return engine.executeRaw(req).mapResponse { }
+        return engine.fetchText(req).mapResponse { }
     }
 
     suspend fun move(from: String, to: String): PanResult<Unit> {
         val req = request("MOVE", from, to).build()
-        return engine.executeRaw(req).mapResponse { }
+        return engine.fetchText(req).mapResponse { }
     }
 
     /**
@@ -91,7 +91,7 @@ class WebDavClient(
             .header("Depth", "infinity")
             .header("Overwrite", "F")
             .build()
-        return engine.executeRaw(req).mapResponse { }
+        return engine.fetchText(req).mapResponse { }
     }
 
     suspend fun put(path: String, content: ByteArray): PanResult<Unit> {
@@ -100,7 +100,7 @@ class WebDavClient(
             .header("Authorization", authHeader)
             .put(content.toRequestBody(BYTES))
             .build()
-        return engine.executeRaw(req).mapResponse { }
+        return engine.fetchText(req).mapResponse { }
     }
 
     /**
@@ -126,10 +126,7 @@ class WebDavClient(
             .header("User-Agent", HttpEngine.USER_AGENT)
             .put(body)
             .build()
-        return when (val result = engine.execute(req)) {
-            is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { PanResult.Success(Unit) }
-        }
+        return engine.fetchTextOk(req).map { }
     }
 
     /** 获取下载用的请求（调用方自己流式消费）。 */
@@ -174,15 +171,18 @@ class WebDavClient(
  *
  * 之前这里不判状态码，于是 COPY/DELETE/MKCOL 失败时也会返回成功——
  * WebDAV 的错误只有状态码这一个信号，不看它就等于假装操作成功了。
+ *
+ * 响应体已经在 HttpEngine.fetchText 的 IO 线程上读完并关掉，这里只做判定。
  */
-private inline fun <T> PanResult<Response>.mapResponse(transform: (Response) -> T): PanResult<T> =
+private fun <T> PanResult<HttpText>.mapResponse(transform: (HttpText) -> T): PanResult<T> =
     when (this) {
         is PanResult.Failure -> this
-        is PanResult.Success -> value.use { response ->
-            if (response.isSuccessful) {
-                PanResult.Success(transform(response))
+        is PanResult.Success -> {
+            val text = value
+            if (text.code in 200..299) {
+                PanResult.Success(transform(text))
             } else {
-                PanResult.Failure(webdavError(response.code, response.message))
+                PanResult.Failure(webdavError(text.code, text.message))
             }
         }
     }

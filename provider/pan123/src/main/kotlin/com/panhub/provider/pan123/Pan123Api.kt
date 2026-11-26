@@ -4,13 +4,12 @@ import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
 import com.panhub.core.network.HttpEngine
+import com.panhub.core.network.HttpText
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
-import java.io.IOException
 
 /**
  * 123 云盘的 HTTP 层。
@@ -66,21 +65,17 @@ class Pan123Api(
             else -> builder.method(method, (body ?: "{}").toRequestBody(JSON_MEDIA))
         }
 
-        return when (val result = engine.executeRaw(builder.build())) {
+        return when (val result = engine.fetchText(builder.build())) {
             is PanResult.Failure -> PanResult.Failure(result.error)
-            is PanResult.Success -> result.value.use { response -> decodeResponse(response, decode) }
+            is PanResult.Success -> decodeResponse(result.value, decode)
         }
     }
 
     private fun <T> decodeResponse(
-        response: Response,
+        text: HttpText,
         decode: (String) -> ApiEnvelope<T>,
     ): PanResult<T> {
-        val raw = try {
-            response.body?.string().orEmpty()
-        } catch (io: IOException) {
-            return PanResult.Failure(PanError.network(io.message ?: "读取响应失败", io))
-        }
+        val raw = text.body
 
         if (raw.isBlank()) {
             return PanResult.Failure(PanError.unknown("服务端返回空响应"))
@@ -114,10 +109,8 @@ class Pan123Api(
      */
     suspend fun putUrl(url: String, body: RequestBody): PanResult<Unit> {
         val request = Request.Builder().url(url).put(body).build()
-        return when (val result = engine.execute(request)) {
-            is PanResult.Failure -> result
-            is PanResult.Success -> result.value.use { PanResult.Success(Unit) }
-        }
+        // 分片 PUT 的响应体也在这里读掉：调用方可能在 Main 协程上。
+        return engine.fetchTextOk(request).map { }
     }
 
     fun encodeLogin(request: LoginRequest): String = json.encodeToString(request)

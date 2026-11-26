@@ -310,18 +310,9 @@ internal class Cloud189Uploader(
             .get()
             .build()
 
-        val body = when (val result = engine.executeRaw(request)) {
+        val body = when (val result = engine.fetchText(request)) {
             is PanResult.Failure -> return result
-            is PanResult.Success -> {
-                val text = result.value.use { response ->
-                    try {
-                        response.body.string()
-                    } catch (io: IOException) {
-                        null
-                    }
-                }
-                text ?: return PanResult.Failure(PanError.network("读取响应失败"))
-            }
+            is PanResult.Success -> result.value.body
         }
         return Cloud189UploadParsing.decode(Cloud189Api(engine).json, body)
     }
@@ -368,20 +359,17 @@ internal class Cloud189Uploader(
         )
         builder.put(body)
 
-        val response = when (val result = engine.executeRaw(builder.build())) {
+        val text = when (val result = engine.fetchText(builder.build())) {
             is PanResult.Failure -> return result.error
             is PanResult.Success -> result.value
         }
-        response.use {
-            if (it.isSuccessful) return null
-            val text = runCatching { it.body.string() }.getOrNull().orEmpty()
-            return PanError(
-                kind = if (it.code >= 500) ErrorKind.SERVER else ErrorKind.UNKNOWN,
-                message = "第 " + index + " 个分片上传失败（" + it.code + "）",
-                detail = text.take(300),
-                retryable = it.code >= 500,
-            )
-        }
+        if (text.code in 200..299) return null
+        return PanError(
+            kind = if (text.code >= 500) ErrorKind.SERVER else ErrorKind.UNKNOWN,
+            message = "第 " + index + " 个分片上传失败（" + text.code + "）",
+            detail = text.body.take(300),
+            retryable = text.code >= 500,
+        )
     }
 
     companion object {
