@@ -118,14 +118,14 @@ class TrashSortTest {
     }
 
     @Test
-    fun tiesFallBackOnTheIdSoTheOrderIsStable() {
-        // 同一个时间戳的两条：两次进页面看到的顺序必须一样，否则用户
-        // 会以为点错了。这里钉住的是「按 id 兜底」这条规则。
+    fun equalTimestampsKeepTheOrderTheyCameIn() {
+        // 排序是稳定的：同一个时间戳（服务端没给时间时全都是 null）的两条
+        // 保持服务端给的顺序，而不会在每次重排时随机换位。
         val ui = state(
             node("b.txt", deletedAt = 1_000L),
             node("a.txt", deletedAt = 1_000L),
         )
-        assertEquals(listOf("a.txt", "b.txt"), ui.visible.map { it.name })
+        assertEquals(listOf("b.txt", "a.txt"), ui.visible.map { it.name })
         assertTrue(ui.visible.size == 2)
     }
 }

@@ -102,18 +102,22 @@ object TrashLogic {
  */
 fun List<TrashNode>.sortedTrash(spec: SortSpec): List<TrashNode> {
     if (size < 2) return this
-    val tieBreak = compareBy<TrashNode> { it.id.value }
     val byOrder = when (spec.order) {
-        SortOrder.NAME -> compareBy<TrashNode> { it.name.lowercase() }
-        SortOrder.SIZE -> compareBy<TrashNode> { it.size }
-        // 没有删除时间的（老条目）排最后，而不是当成 1970 混进真实时间里。
+        SortOrder.NAME ->
+            compareBy<TrashNode> { it.name.lowercase() }.directed(spec.descending)
+        SortOrder.SIZE ->
+            compareBy<TrashNode> { it.size }.directed(spec.descending)
+        // 没有删除时间的（老条目）永远排在最后，所以「有没有时间」这一段
+        // 不能跟着方向一起反过来，否则从新到旧时这些条目会跑到最前面。
         SortOrder.TIME -> {
             val missing = compareBy<TrashNode> { it.deletedAt == null }
-            val byTime = compareBy<TrashNode> { it.deletedAt ?: 0L }
+            val byTime = compareBy<TrashNode> { it.deletedAt ?: 0L }.directed(spec.descending)
             missing.then(byTime)
         }
     }
-    return sortedWith(byOrder.directed(spec.descending).then(tieBreak))
+    // 同值不另设兜底键：sortedWith 是稳定排序，相等的两条保持服务端给的顺序，
+    // 同一个列表两次排出来就是同一个顺序。
+    return sortedWith(byOrder)
 }
 
 /** 按需反转。写成一个扩展是为了上面那张分支表能保持只描述「比什么」。 */
