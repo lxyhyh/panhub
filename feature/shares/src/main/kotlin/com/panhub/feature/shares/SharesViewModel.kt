@@ -41,6 +41,10 @@ data class SharesUiState(
     val busyKey: String? = null,
     /** 按标题筛选的关键字。纯本地行为，不重新拉列表。 */
     val query: String = "",
+    /** 批量取消时置位，用来禁掉所有按钮并防重入。 */
+    val cancelling: Boolean = false,
+    /** 勾中的分享（[ShareRow.key]）。取消成功后从里面摘掉。 */
+    val selected: Set<String> = emptySet(),
 ) {
     val hasMore: Boolean get() = nextCursor != null
 
@@ -71,6 +75,15 @@ data class SharesUiState(
             rows.isEmpty() -> "在文件列表里选中文档，就能生成分享链接"
             else -> "换个关键字，或者点上面的清空"
         }
+
+    val selectionMode: Boolean get() = selected.isNotEmpty()
+
+    val selectedCount: Int get() = selected.size
+
+    val allSelected: Boolean get() = SharesLogic.allSelected(visible, selected)
+
+    /** 勾中的那些，按屏幕顺序取，不按点击顺序。 */
+    val selectedRows: List<ShareRow> get() = SharesLogic.selectedRows(rows, selected)
 }
 
 /**
@@ -186,25 +199,64 @@ class SharesViewModel(
         }
     }
 
-    fun cancel(row: ShareRow) {
+    fun cancel(row: ShareRow) = cancelRows(listOf(row))
+
+    fun cancelSelected() = cancelRows(_state.value.selectedRows)
+
+    /**
+     * 一条一条取消。
+     *
+     * 不并发：同一个账号连着发一串取消请求，服务商很容易把后半截当成异常流量，
+     * 结果就是「点了 8 条只成功 3 条」，还看不出来是哪几条。串行慢一点，但每条的结果都清楚。
+     */
+    fun cancelRows(rows: List<ShareRow>) {
         val provider = scoped ?: return
-        if (_state.value.busyKey != null) return
-        _state.update { it.copy(busyKey = row.key, message = null) }
+        if (rows.isEmpty()) return
+        if (_state.value.cancelling) return
+        _state.update {
+            it.copy(
+                busyKey = rows.singleOrNull()?.key,
+                cancelling = true,
+                message = null,
+            )
+        }
         viewModelScope.launch {
-            when (val result = provider.cancelShare(row.link.id.value)) {
-                is PanResult.Failure -> _state.update {
-                    it.copy(busyKey = null, message = result.error.message)
+            val cancelled = mutableSetOf<String>()
+            var firstError: PanError? = null
+            for (row in rows) {
+                when (val result = provider.cancelShare(row.link.id.value)) {
+                    is PanResult.Failure -> if (firstError == null) firstError = result.error
+                    is PanResult.Success -> cancelled.add(row.key)
                 }
-                is PanResult.Success -> _state.update { current ->
-                    current.copy(
-                        busyKey = null,
-                        rows = current.rows.filterNot { it.key == row.key },
-                        message = "已取消分享",
-                    )
-                }
+            }
+            _state.update { current ->
+                current.copy(
+                    busyKey = null,
+                    cancelling = false,
+                    // 只有真的取消成功的才从列表里摘掉：失败的留在原地，用户还能再点一次。
+                    rows = SharesLogic.withoutCancelled(current.rows, cancelled),
+                    selected = current.selected - cancelled,
+                    message = SharesLogic.cancelledMessage(cancelled.size, rows.size, firstError),
+                )
             }
         }
     }
+
+    fun toggleSelect(row: ShareRow) = _state.update { current ->
+        current.copy(
+            selected = if (row.key in current.selected) {
+                current.selected - row.key
+            } else {
+                current.selected + row.key
+            },
+        )
+    }
+
+    fun toggleSelectAll() = _state.update { current ->
+        current.copy(selected = SharesLogic.toggleAll(current.visible, current.selected))
+    }
+
+    fun clearSelection() = _state.update { it.copy(selected = emptySet()) }
 
     fun setQuery(value: String) = _state.update { it.copy(query = value) }
 

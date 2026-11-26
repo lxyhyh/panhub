@@ -5,11 +5,13 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -23,8 +25,10 @@ import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -77,7 +81,8 @@ fun SharesScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = androidx.compose.ui.platform.LocalContext.current
-    var pendingCancel by remember { mutableStateOf<ShareRow?>(null) }
+    // 确认框要能同时管一条和一整批，所以存列表而不是单条。
+    var pendingCancel by remember { mutableStateOf<List<ShareRow>>(emptyList()) }
     // 筛选条默认收起：分享列表通常只有几条，多一行输入框反而挡住链接。
     var showFilter by remember { mutableStateOf(false) }
 
@@ -111,6 +116,14 @@ fun SharesScreen(
                         }
                     },
                     actions = {
+                        if (state.canCancel && state.visible.isNotEmpty()) {
+                            IconButton(onClick = viewModel::toggleSelectAll) {
+                                Icon(
+                                    imageVector = Icons.Default.SelectAll,
+                                    contentDescription = if (state.allSelected) "取消全选" else "全选",
+                                )
+                            }
+                        }
                         IconButton(
                             onClick = {
                                 if (showFilter) viewModel.clearQuery()
@@ -136,6 +149,16 @@ fun SharesScreen(
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            if (state.selectionMode) {
+                SelectionBar(
+                    count = state.selectedCount,
+                    busy = state.cancelling,
+                    onCancel = { pendingCancel = state.selectedRows },
+                    onClear = viewModel::clearSelection,
+                )
+            }
+        },
     ) { inner ->
         Column(modifier = Modifier.fillMaxSize().padding(inner)) {
             if (showFilter && state.rows.isNotEmpty()) {
@@ -174,12 +197,15 @@ fun SharesScreen(
                         items(state.visible, key = { it.key }) { row ->
                             ShareCard(
                                 row = row,
-                                busy = state.busyKey == row.key,
+                                busy = state.cancelling || state.busyKey == row.key,
                                 canCancel = state.canCancel,
+                                selecting = state.selectionMode,
+                                selected = row.key in state.selected,
                                 onCopy = { text -> context.copyText(text) },
                                 onShare = { text -> context.shareText(text) },
                                 onOpen = { url -> context.openUrl(url) },
-                                onCancel = { pendingCancel = row },
+                                onCancel = { pendingCancel = listOf(row) },
+                                onToggleSelect = { viewModel.toggleSelect(row) },
                             )
                         }
                         if (state.hasMore) {
@@ -196,26 +222,22 @@ fun SharesScreen(
         }
     }
 
-    pendingCancel?.let { row ->
+    if (pendingCancel.isNotEmpty()) {
+        val rows = pendingCancel
         AlertDialog(
-            onDismissRequest = { pendingCancel = null },
-            title = { Text("取消这条分享？") },
-            text = {
-                Text(
-                    "取消后链接立刻失效，对方将无法再打开。" +
-                        "已经保存到手机上的文件不受影响。",
-                )
-            },
+            onDismissRequest = { pendingCancel = emptyList() },
+            title = { Text(SharesLogic.cancelTitle(rows)) },
+            text = { Text(SharesLogic.cancelQuestion(rows.size)) },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        pendingCancel = null
-                        viewModel.cancel(row)
+                        pendingCancel = emptyList()
+                        viewModel.cancelRows(rows)
                     },
-                ) { Text("取消分享", color = PanColors.Red) }
+                ) { Text(SharesLogic.cancelConfirmLabel(rows.size), color = PanColors.Red) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingCancel = null }) { Text("保留") }
+                TextButton(onClick = { pendingCancel = emptyList() }) { Text("保留") }
             },
         )
     }
@@ -227,15 +249,32 @@ private fun ShareCard(
     row: ShareRow,
     busy: Boolean,
     canCancel: Boolean,
+    selecting: Boolean,
+    selected: Boolean,
     onCopy: (String) -> Unit,
     onShare: (String) -> Unit,
     onOpen: (String) -> Unit,
     onCancel: () -> Unit,
+    onToggleSelect: () -> Unit,
 ) {
     val link = row.link
     val text = shareTextOf(link)
-    PanCard(onClick = { onOpen(link.url) }) {
+    // 选择态下点卡片是勾选，不是打开链接：批量取消时要连着点好几张，
+    // 顺手打开浏览器会打断整个流程。
+    PanCard(
+        onClick = {
+            if (selecting) onToggleSelect() else onOpen(link.url)
+        },
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // 选择态才画勾选框：平时没有它，行首就不该凭空多出空白。
+            if (selecting) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onToggleSelect() },
+                    enabled = !busy,
+                )
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = shareTitleOf(link),
@@ -273,10 +312,10 @@ private fun ShareCard(
                 },
             )
             Box(modifier = Modifier.weight(1f))
-            IconButton(onClick = { onCopy(text) }, enabled = !busy) {
+            IconButton(onClick = { onCopy(text) }, enabled = !busy && !selecting) {
                 Icon(Icons.Default.ContentCopy, contentDescription = "复制链接")
             }
-            IconButton(onClick = { onShare(text) }, enabled = !busy) {
+            IconButton(onClick = { onShare(text) }, enabled = !busy && !selecting) {
                 Icon(Icons.Default.Share, contentDescription = "发送链接")
             }
             if (canCancel) {
@@ -321,6 +360,44 @@ private fun LoadMoreRow(loading: Boolean, onClick: () -> Unit) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
         } else {
             TextButton(onClick = onClick) { Text("加载更多") }
+        }
+    }
+}
+
+/**
+ * 选择态的底栏。
+ *
+ * 只放一个破坏性动作，而且必须先弹确认：取消分享是不可撤回的，
+ * 一次点掉十几条链接之后再发现点错，没有任何地方能恢复。
+ */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    busy: Boolean,
+    onCancel: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        TextButton(onClick = onClear, enabled = !busy) { Text("取消") }
+        Text(text = SharesLogic.selectionSummary(count), style = MaterialTheme.typography.labelMedium)
+        Spacer(modifier = Modifier.weight(1f))
+        if (busy) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        }
+        TextButton(onClick = onCancel, enabled = !busy) {
+            Icon(
+                imageVector = Icons.Default.LinkOff,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Text("取消分享", modifier = Modifier.padding(start = 4.dp))
         }
     }
 }
