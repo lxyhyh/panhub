@@ -1,5 +1,7 @@
 package com.panhub.core.network
 
+import com.panhub.core.common.ErrorKind
+import com.panhub.core.common.PanResult
 import kotlinx.coroutines.test.runTest
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -43,7 +45,7 @@ class HttpFetchTextTest {
 
         assertTrue(result is PanResult.Failure)
         assertEquals(
-            com.panhub.core.common.ErrorKind.AUTH,
+            ErrorKind.AUTH,
             (result as PanResult.Failure).error.kind,
         )
     }

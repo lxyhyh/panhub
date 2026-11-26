@@ -3,6 +3,7 @@ package com.panhub.provider.pan123
 import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
+import com.panhub.core.common.map
 import com.panhub.core.network.HttpEngine
 import com.panhub.core.network.HttpText
 import kotlinx.serialization.json.Json

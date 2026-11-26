@@ -3,6 +3,7 @@ package com.panhub.provider.baidu
 import com.panhub.core.common.ErrorKind
 import com.panhub.core.common.PanError
 import com.panhub.core.common.PanResult
+import com.panhub.core.common.map
 import com.panhub.core.common.UploadScanner
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.NodeKind
