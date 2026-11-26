@@ -1,6 +1,8 @@
 package com.panhub.core.transfer
 
 import com.panhub.core.model.AccountId
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import com.panhub.core.model.NodeId
 
 /**
@@ -39,4 +41,26 @@ interface UploadLauncher {
         localDir: String,
         rootName: String,
     ): String
+
+    /**
+     * 刚传完的东西。
+     *
+     * 让文件页能在传完之后自己把列表刷新一下，而不是让用户盯着一个
+     * 明明已经传上去、却要手动点刷新才出现的文件。默认没有事件，
+     * 只入队不管结果的最小实现不必关心它。
+     */
+    val uploaded: Flow<UploadedFile> get() = emptyFlow()
 }
+
+/**
+ * 一次成功的上传。
+ *
+ * 只带「落在哪个账号的哪个目录下、叫什么」三项：刷新列表只需要判断
+ * 「这次变化跟我现在看的这一层有没有关系」，传输页那些字节数用不上。
+ */
+data class UploadedFile(
+    val accountId: AccountId,
+    /** 目标目录；null 表示根目录。 */
+    val parentId: NodeId?,
+    val name: String,
+)

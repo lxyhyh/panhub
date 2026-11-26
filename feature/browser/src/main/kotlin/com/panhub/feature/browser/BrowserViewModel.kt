@@ -33,12 +33,14 @@ import com.panhub.core.session.SessionManager
 import com.panhub.core.transfer.CloudCopyLauncher
 import com.panhub.core.transfer.DownloadLauncher
 import com.panhub.core.transfer.UploadLauncher
+import com.panhub.core.transfer.UploadedFile
 import com.panhub.provider.api.ScopedPanProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
@@ -1447,8 +1449,27 @@ class BrowserViewModel(
                     pendingFocus = null
                     applyFocus(landing)
                     load()
+                    watchUploads()
                 }
             }
+        }
+    }
+
+    /**
+     * 自己传上去的东西传完了就把列表刷一下。
+     *
+     * 只认「落在当前账号、当前这一层」的那一条：别的目录传完跟着刷新，
+     * 用户会看到列表莫名其妙闪一下，而他要找的文件根本没在这儿。
+     *
+     * 不合并多次事件：一批文件传完本来就是一条接一条，每条都刷一次
+     * 也不过是一秒钟里多几个请求，而跳过任意一条都可能让最后一个文件不出现。
+     */
+    private fun watchUploads() {
+        val source = uploader ?: return
+        viewModelScope.launch {
+            source.uploaded
+                .filter { it.accountId == accountId && it.parentId == _state.value.parentId }
+                .collect { load(refresh = true) }
         }
     }
 

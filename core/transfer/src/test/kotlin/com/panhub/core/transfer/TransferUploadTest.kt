@@ -21,8 +21,10 @@ import com.panhub.provider.api.ProviderSession
 import com.panhub.provider.api.ScopedPanProvider
 import com.panhub.provider.api.UploadSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -218,5 +220,44 @@ class TransferUploadTest {
 
         val directions = engine.tasks.value.map { it.direction }
         assertTrue(directions.contains(TransferDirection.UPLOAD))
+    }
+
+    @Test
+    fun aFinishedUploadIsAnnouncedOnce() = runTest {
+        val local = temp.newFile("e.txt").apply { writeText("hi") }
+        val provider = UploadProvider(PanResult.Success(node()))
+        val engine = engine(this, provider)
+
+        val seen = mutableListOf<UploadedFile>()
+        val job = launch { engine.uploaded.collect { seen += it } }
+        // 先把订阅跑起来再入队，否则事件发出去时没有人接着。
+        runCurrent()
+
+        engine.upload(account, NodeId("folder-9"), local.absolutePath, "e.txt", 2L)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(UploadedFile(account, NodeId("folder-9"), "e.txt")),
+            seen,
+        )
+        job.cancel()
+    }
+
+    @Test
+    fun aFailedUploadIsNotAnnounced() = runTest {
+        val local = temp.newFile("f.txt").apply { writeText("hi") }
+        val provider = UploadProvider(PanResult.Failure(PanError.network("断网了")))
+        val engine = engine(this, provider)
+
+        val seen = mutableListOf<UploadedFile>()
+        val job = launch { engine.uploaded.collect { seen += it } }
+        runCurrent()
+
+        engine.upload(account, null, local.absolutePath, "f.txt", 2L)
+        advanceUntilIdle()
+
+        // 没传上去就报「传完了」，列表会刷新一下却什么都不多，用户会以为丢了文件。
+        assertTrue(seen.isEmpty())
+        job.cancel()
     }
 }

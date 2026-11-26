@@ -14,7 +14,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -83,6 +86,16 @@ class TransferEngine(
      */
     private val _gateMessage = MutableStateFlow<String?>(null)
     val gateMessage: StateFlow<String?> = _gateMessage.asStateFlow()
+
+    /**
+     * 刚传完的文件。
+     *
+     * 用 SharedFlow 而不是从 [tasks] 里推：tasks 里一条任务完成后还会留着
+     * （用户可以清空、可以重试），订阅方得自己记住哪些是新的；而「刚刚传完」
+     * 本身就是一次性事件。缓冲区给 16 条，一次多选上传的文件不会挤掉。
+     */
+    private val _uploaded = MutableSharedFlow<UploadedFile>(extraBufferCapacity = 16)
+    override val uploaded: Flow<UploadedFile> = _uploaded.asSharedFlow()
 
     private val jobs = HashMap<String, Job>()
     private var running = false
@@ -576,6 +589,7 @@ class TransferEngine(
                         updatedAt = clock.nowMillis(),
                     )
                 }
+                _uploaded.tryEmit(UploadedFile(task.accountId, task.nodeId, task.name))
                 null
             }
         }
@@ -604,6 +618,9 @@ class TransferEngine(
             is PanResult.Failure -> return stage("网盘新建文件夹失败：", created.error)
             is PanResult.Success -> created.value
         }
+        // 目录一建出来就报一声：用户此刻看的就是这一层，先让它出现，
+        // 里面的文件传完时再逐个报一遍反而会让列表刷个没完。
+        _uploaded.tryEmit(UploadedFile(task.accountId, task.nodeId, rootName))
 
         // 每项是「本地目录、网盘上对应的目录 id」。
         // BFS 保证父目录先于子目录处理，所以建子目录时上级一定已经就位。
