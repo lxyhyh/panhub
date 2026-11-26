@@ -8,6 +8,8 @@ import com.panhub.core.model.AccountId
 import com.panhub.core.model.FileKind
 import com.panhub.core.model.FileKinds
 import com.panhub.core.model.NodeFilter
+import com.panhub.core.model.SortOrder
+import com.panhub.core.model.SortSpec
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.RemoteNode
@@ -44,6 +46,13 @@ data class StarredUiState(
     val kind: FileKind? = null,
     /** 选中的条目 id。空集合表示不在选择态。 */
     val selected: Set<String> = emptySet(),
+    /**
+     * 排序。默认「收藏时间从新到旧」。
+     *
+     * 收藏夹多半是「我最近收的那批东西」，服务商返回的顺序不保证有意义，
+     * 所以自己排一次；收藏时间服务商没给时，退回修改时间。
+     */
+    val sort: SortSpec = SortSpec(order = SortOrder.TIME, descending = true),
 ) {
     val hasMore: Boolean get() = nextCursor != null
 
@@ -54,9 +63,9 @@ data class StarredUiState(
     /** 全选只选看得到的那些。 */
     val allSelected: Boolean get() = StarredLogic.allSelected(visible, selected)
 
-    /** 界面上真正看得到的那些。 */
+    /** 界面上真正看得到的那些：先按用户选的顺序排，再按类型和关键字收窄。 */
     val visible: List<RemoteNode> get() =
-        NodeFilter.applyBy(FileKinds.apply(items, kind), query) { it.name }
+        NodeFilter.applyBy(FileKinds.apply(items.sortedStarred(sort), kind), query) { it.name }
 
     val filtering: Boolean get() = NodeFilter.active(query) || FileKinds.active(kind)
 
@@ -262,6 +271,26 @@ class StarredViewModel(
     }
 
     fun clearKind() = _state.update { it.copy(kind = null) }
+
+    /**
+     * 换排序依据。
+     *
+     * 与浏览页、本机文件页、回收站同一套手势：再点一次同一个依据就反转方向，
+     * 第一次选到某个依据时用它自己的默认方向。
+     */
+    fun setSortOrder(order: SortOrder) = _state.update {
+        val same = it.sort.order == order
+        it.copy(
+            sort = SortSpec(
+                order = order,
+                descending = if (same) !it.sort.descending else order.defaultDescending,
+            ),
+        )
+    }
+
+    fun toggleSortDirection() = _state.update {
+        it.copy(sort = it.sort.copy(descending = !it.sort.descending))
+    }
 
     /** 从收藏夹点进一个文件夹后，需要它作为浏览页的起点。 */
     fun nodeOf(id: NodeId): RemoteNode? = _state.value.items.firstOrNull { it.id == id }

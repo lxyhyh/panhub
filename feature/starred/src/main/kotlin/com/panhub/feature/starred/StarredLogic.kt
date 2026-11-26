@@ -1,6 +1,8 @@
 package com.panhub.feature.starred
 
 import com.panhub.core.model.RemoteNode
+import com.panhub.core.model.SortOrder
+import com.panhub.core.model.SortSpec
 
 /**
  * 收藏夹页里不值得放进界面、但值得单独测的规则。
@@ -43,3 +45,28 @@ object StarredLogic {
         else -> "这个网盘还没有收藏任何文件"
     }
 }
+
+/**
+ * 收藏夹的排序。
+ *
+ * 服务商返回的顺序不保证有意义，而且这一页最常用来「看看最近收了什么」，
+ * 所以自己排一次。收藏没有单独的「收藏时间」字段可拿，用修改时间代替——
+ * 两者缺失时一样沉底，不会把没有时间的老条目当成 1970 顶到最前面。
+ * 名字比较忽略大小写；同值保持服务端给的顺序（稳定排序），不另编顺序。
+ */
+fun List<RemoteNode>.sortedStarred(spec: SortSpec): List<RemoteNode> {
+    if (size < 2) return this
+    val byOrder = when (spec.order) {
+        SortOrder.NAME -> compareBy<RemoteNode> { it.name.lowercase() }.directed(spec.descending)
+        SortOrder.SIZE -> compareBy<RemoteNode> { it.size }.directed(spec.descending)
+        SortOrder.TIME -> {
+            val missing = compareBy<RemoteNode> { it.modifiedAt == null }
+            val byTime = compareBy<RemoteNode> { it.modifiedAt ?: 0L }.directed(spec.descending)
+            missing.then(byTime)
+        }
+    }
+    return sortedWith(byOrder)
+}
+
+private fun <T> Comparator<T>.directed(descending: Boolean): Comparator<T> =
+    if (descending) reversed() else this

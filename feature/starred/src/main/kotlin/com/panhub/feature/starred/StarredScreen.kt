@@ -48,15 +48,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material.icons.automirrored.filled.Sort
 import com.panhub.core.design.ChipRow
 import com.panhub.core.design.EmptyState
 import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
+import com.panhub.core.design.SortDialog
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
 import com.panhub.core.model.FileKinds
+import com.panhub.core.model.SortOrder
 import com.panhub.core.model.RemoteNode
 
 /**
@@ -79,6 +82,7 @@ fun StarredScreen(
     val snackbar = remember { SnackbarHostState() }
     // 筛选条默认收起：收藏夹通常只有几件东西。
     var showFilter by remember { mutableStateOf(false) }
+    var showSort by remember { mutableStateOf(false) }
 
     state.message?.let { message ->
         LaunchedEffect(message) {
@@ -118,6 +122,11 @@ fun StarredScreen(
                             },
                         ) {
                             Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                        }
+                        if (state.items.isNotEmpty()) {
+                            IconButton(onClick = { showSort = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
+                            }
                         }
                         if (state.visible.isNotEmpty()) {
                             IconButton(onClick = viewModel::toggleSelectAll) {
@@ -230,6 +239,17 @@ fun StarredScreen(
                 }
             }
         }
+    }
+
+    if (showSort) {
+        SortDialog(
+            options = SortOrder.entries.map { it.label },
+            selectedIndex = SortOrder.entries.indexOf(state.sort.order),
+            descending = state.sort.descending,
+            onSelect = { viewModel.setSortOrder(SortOrder.entries[it]) },
+            onToggleDirection = viewModel::toggleSortDirection,
+            onDismiss = { showSort = false },
+        )
     }
 }
 
