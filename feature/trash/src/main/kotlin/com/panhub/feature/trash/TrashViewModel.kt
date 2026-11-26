@@ -9,6 +9,8 @@ import com.panhub.core.model.AccountId
 import com.panhub.core.model.FileKind
 import com.panhub.core.model.FileKinds
 import com.panhub.core.model.NodeFilter
+import com.panhub.core.model.SortOrder
+import com.panhub.core.model.SortSpec
 import com.panhub.core.model.NodeId
 import com.panhub.core.model.PageRequest
 import com.panhub.core.model.RemoteNode
@@ -67,16 +69,24 @@ data class TrashUiState(
     val query: String = "",
     /** 按文件类型筛；null 表示不筛。同样只在已经拉下来的这一批里找。 */
     val kind: FileKind? = null,
+    /**
+     * 排序。默认「删除时间从新到旧」。
+     *
+     * 回收站最常见的用法是「我刚删错了一个，捞回来」，所以刚删的要在最上面；
+     * 服务商返回的顺序不保证有意义（123 和百度都没在这个接口上写排序）。
+     */
+    val sort: SortSpec = SortSpec(order = SortOrder.TIME, descending = true),
 ) {
     val hasMore: Boolean get() = nextCursor != null
     val selectedCount: Int get() = selected.size
 
-    /** 界面上真正看得到的那些。 */
+    /** 界面上真正看得到的那些：先按用户选的顺序排，再按类型和关键字收窄。 */
     val visible: List<TrashNode>
         get() {
             // 按类型筛时文件夹一律留着：回收站里「一件东西」和「一个文件夹」
             // 是两回事，把文件夹跟着图片一起藏起来会让人以为它被清掉了。
-            val byKind = if (kind == null) items else items.filter { FileKinds.matches(it.node, kind) }
+            val byKind =
+                if (kind == null) items.sortedTrash(sort) else items.sortedTrash(sort).filter { FileKinds.matches(it.node, kind) }
             return NodeFilter.applyBy(byKind, query) { it.name }
         }
 
@@ -242,6 +252,26 @@ class TrashViewModel(
     }
 
     fun clearKind() = _state.update { it.copy(kind = null) }
+
+    /**
+     * 换排序依据。
+     *
+     * 与浏览页、本机文件页同一套手势：再点一次同一个依据就反转方向，
+     * 第一次选到某个依据时用它自己的默认方向。
+     */
+    fun setSortOrder(order: SortOrder) = _state.update {
+        val same = it.sort.order == order
+        it.copy(
+            sort = SortSpec(
+                order = order,
+                descending = if (same) !it.sort.descending else order.defaultDescending,
+            ),
+        )
+    }
+
+    fun toggleSortDirection() = _state.update {
+        it.copy(sort = it.sort.copy(descending = !it.sort.descending))
+    }
 
     /** 还原到原位置；原目录没了服务端会单独报出来，见 provider 里的处理。 */
     fun restoreSelected() = restoreTo(null)

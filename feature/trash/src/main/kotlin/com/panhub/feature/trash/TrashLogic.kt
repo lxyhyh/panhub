@@ -1,6 +1,8 @@
 package com.panhub.feature.trash
 
 import com.panhub.core.model.RemoteNode
+import com.panhub.core.model.SortOrder
+import com.panhub.core.model.SortSpec
 import com.panhub.core.model.TrashNode
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -88,3 +90,32 @@ object TrashLogic {
             else -> "已" + action + " " + done + "/" + total + " 项" + (error?.let { " · " + it } ?: "")
         }
 }
+
+
+/**
+ * 回收站的排序。
+ *
+ * 与浏览页、本机文件页共用同一套 SortSpec，但比较的东西不同：
+ * 这里有「什么时候删的」和「什么时候过期」，没有文件夹在前的规则
+ * （回收站里文件夹和文件是同等的一件东西）。名字比较忽略大小写，
+ * 同值时按 id 兜底，保证同一个列表两次排出来顺序一致。
+ */
+fun List<TrashNode>.sortedTrash(spec: SortSpec): List<TrashNode> {
+    if (size < 2) return this
+    val tieBreak = compareBy<TrashNode> { it.id.value }
+    val byOrder = when (spec.order) {
+        SortOrder.NAME -> compareBy<TrashNode> { it.name.lowercase() }
+        SortOrder.SIZE -> compareBy<TrashNode> { it.size }
+        // 没有删除时间的（老条目）排最后，而不是当成 1970 混进真实时间里。
+        SortOrder.TIME -> {
+            val missing = compareBy<TrashNode> { it.deletedAt == null }
+            val byTime = compareBy<TrashNode> { it.deletedAt ?: 0L }
+            missing.then(byTime)
+        }
+    }
+    return sortedWith(byOrder.directed(spec.descending).then(tieBreak))
+}
+
+/** 按需反转。写成一个扩展是为了上面那张分支表能保持只描述「比什么」。 */
+private fun <T> Comparator<T>.directed(descending: Boolean): Comparator<T> =
+    if (descending) reversed() else this

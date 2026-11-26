@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -58,12 +59,14 @@ import com.panhub.core.design.ChipRow
 import com.panhub.core.design.EmptyState
 import com.panhub.core.design.FilterBar
 import com.panhub.core.design.LoadingState
+import com.panhub.core.design.SortDialog
 import com.panhub.core.design.PanCard
 import com.panhub.core.design.PanColors
 import com.panhub.core.design.Spacing
 import com.panhub.core.design.formatBytes
 import com.panhub.core.model.FileKind
 import com.panhub.core.model.FileKinds
+import com.panhub.core.model.SortOrder
 import com.panhub.core.model.RemoteNode
 import com.panhub.core.model.TrashNode
 
@@ -84,6 +87,7 @@ fun TrashScreen(
     var pendingPurge by remember { mutableStateOf(false) }
     // 筛选条默认收起：回收站里通常只有几件东西。
     var showFilter by remember { mutableStateOf(false) }
+    var showSort by remember { mutableStateOf(false) }
     var pendingEmpty by remember { mutableStateOf(false) }
     val now = viewModel.nowMillis()
 
@@ -121,6 +125,9 @@ fun TrashScreen(
                             },
                         ) {
                             Icon(Icons.Default.FilterList, contentDescription = "筛选")
+                        }
+                        IconButton(onClick = { showSort = true }) {
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
                         }
                         IconButton(
                             onClick = { viewModel.toggleSelectAll() },
@@ -246,6 +253,17 @@ fun TrashScreen(
                 pendingPurge = false
                 viewModel.purgeSelected()
             },
+        )
+    }
+
+    if (showSort) {
+        SortDialog(
+            options = SortOrder.entries.map { it.label },
+            selectedIndex = SortOrder.entries.indexOf(state.sort.order),
+            descending = state.sort.descending,
+            onSelect = { viewModel.setSortOrder(SortOrder.entries[it]) },
+            onToggleDirection = viewModel::toggleSortDirection,
+            onDismiss = { showSort = false },
         )
     }
 
